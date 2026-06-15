@@ -1,7 +1,9 @@
 import {
   Activity,
   Boxes,
+  Clock,
   Cpu,
+  Folder,
   Gauge,
   HardDrive,
   LayoutDashboard,
@@ -27,6 +29,8 @@ const ICONS: Record<string, LucideIcon> = {
   activity: Activity,
   shield: Shield,
   terminal: Terminal,
+  folder: Folder,
+  clock: Clock,
   settings: Settings,
   boxes: Boxes,
 }
