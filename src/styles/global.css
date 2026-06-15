@@ -8,6 +8,7 @@
   --color-text: #E6EDF3;
   --color-muted: #8593A6;
   --color-brand: #6E8BFF;
+  --color-brand-soft: rgba(110, 139, 255, 0.12);
   --color-online: #3FB57F;
   --color-warn: #E8B339;
   --color-crit: #E5484D;
@@ -15,6 +16,13 @@
   --font-display: "Space Grotesk", system-ui, sans-serif;
   --font-sans: "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --animate-breathe: breathe 3s ease-in-out infinite;
+}
+
+/* 在线点缓慢呼吸:遥测条 signature。reduced-motion 由全局 @media 关闭。 */
+@keyframes breathe {
+  0%, 100% { opacity: 0.55; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.15); }
 }
 
 html, body, #root { height: 100%; }
