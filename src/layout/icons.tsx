@@ -1,11 +1,13 @@
 import {
   Activity,
   Archive,
+  BarChart2,
   BellRing,
   Box,
   Boxes,
   Bug,
   Clock,
+  Coffee,
   Code,
   Cpu,
   Database,
@@ -27,6 +29,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Terminal,
+  Truck,
   Users,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -63,6 +66,9 @@ const ICONS: Record<string, LucideIcon> = {
   bug: Bug,
   archive: Archive,
   'bell-ring': BellRing,
+  coffee: Coffee,
+  'bar-chart-2': BarChart2,
+  truck: Truck,
   users: Users,
 }
 

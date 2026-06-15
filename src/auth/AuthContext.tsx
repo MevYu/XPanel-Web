@@ -4,11 +4,21 @@ import { setOnAuthCleared, tokenStore } from '../api/client'
 import { roleFromAccess } from './jwt'
 import type { Tokens } from '../api/types'
 
+/** TwoFactorRequired:后端返回 401 + {"code":"2fa_required"} 时由 login 抛出,
+ * 让登录页区分"需要 TOTP"与真正的"密码错误"。 */
+export class TwoFactorRequired extends Error {
+  constructor() {
+    super('2fa_required')
+    this.name = 'TwoFactorRequired'
+  }
+}
+
 interface AuthState {
   isAuthed: boolean
   /** 从 access JWT payload 解出的角色,仅用于 UI 角色门;真正鉴权在后端。 */
   role: string
-  login(username: string, password: string): Promise<void>
+  /** 登录;启用 2FA 的用户首次不带 totp 调用会抛 TwoFactorRequired,带 totp 重试即可。 */
+  login(username: string, password: string, totp?: string): Promise<void>
   logout(): Promise<void>
 }
 
@@ -23,13 +33,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setOnAuthCleared(null)
   }, [])
 
-  const login = useCallback(async (username: string, password: string) => {
+  const login = useCallback(async (username: string, password: string, totp?: string) => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, ...(totp ? { totp } : {}) }),
     })
-    if (!res.ok) throw new Error('login failed')
+    if (!res.ok) {
+      // 区分两种 401:启用 2FA 但未给/给错码 → body {"code":"2fa_required"};其余按密码错处理。
+      if (res.status === 401) {
+        const body = await res.text()
+        try {
+          if ((JSON.parse(body) as { code?: string }).code === '2fa_required') {
+            throw new TwoFactorRequired()
+          }
+        } catch (e) {
+          if (e instanceof TwoFactorRequired) throw e
+          // 非 JSON(纯文本 "unauthorized"):落到下方通用错误。
+        }
+      }
+      throw new Error('login failed')
+    }
     const t = (await res.json()) as Tokens
     tokenStore.set(t)
     setTokens(t)
