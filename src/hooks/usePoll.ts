@@ -16,22 +16,25 @@ export function usePoll<T>(fn: () => Promise<T>, intervalMs: number): PollResult
   const [loading, setLoading] = useState(true)
   const fnRef = useRef(fn)
   fnRef.current = fn
+  // 单调请求序号:慢响应回来时若已非最新请求则丢弃,避免覆盖新响应。
+  const seq = useRef(0)
 
   useEffect(() => {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
 
     async function tick() {
+      const id = ++seq.current
       try {
         const result = await fnRef.current()
-        if (cancelled) return
+        if (cancelled || id !== seq.current) return
         setData(result)
         setError(null)
       } catch (e) {
-        if (cancelled) return
+        if (cancelled || id !== seq.current) return
         setError(e instanceof Error ? e : new Error(String(e)))
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && id === seq.current) setLoading(false)
       }
     }
 
