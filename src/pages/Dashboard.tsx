@@ -75,8 +75,10 @@ export default function Dashboard() {
   }
 
   const m = data!
-  const memPct = m.mem_total > 0 ? (m.mem_used / m.mem_total) * 100 : 0
-  const diskPct = m.disk_total > 0 ? (m.disk_used / m.disk_total) * 100 : 0
+  // 夹紧 [0,100]:后端可能上报 used>total,避免文字与色阶显示 >100%。
+  const clampPct = (pct: number) => Math.min(100, Math.max(0, pct))
+  const memPct = clampPct(m.mem_total > 0 ? (m.mem_used / m.mem_total) * 100 : 0)
+  const diskPct = clampPct(m.disk_total > 0 ? (m.disk_used / m.disk_total) * 100 : 0)
   const cpuLevel = levelFor(m.cpu_percent)
 
   return (

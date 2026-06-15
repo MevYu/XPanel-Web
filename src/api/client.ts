@@ -5,11 +5,22 @@ const KEY = 'xpanel.tokens'
 export const tokenStore = {
   get(): Tokens | null {
     const raw = localStorage.getItem(KEY)
-    return raw ? (JSON.parse(raw) as Tokens) : null
+    if (!raw) return null
+    try {
+      return JSON.parse(raw) as Tokens
+    } catch {
+      // 被篡改的存储:清掉并视为未登录,而不是让整个 app 崩。
+      localStorage.removeItem(KEY)
+      return null
+    }
   },
   set(t: Tokens) { localStorage.setItem(KEY, JSON.stringify(t)) },
   clear() { localStorage.removeItem(KEY) },
 }
+
+// 失效路径清本地 token 后回调,让 AuthContext 同步 React 态触发自动跳登录。
+let onAuthCleared: (() => void) | null = null
+export function setOnAuthCleared(fn: (() => void) | null) { onAuthCleared = fn }
 
 class HttpError extends Error {
   constructor(public status: number, msg: string) { super(msg) }
@@ -33,7 +44,7 @@ async function doRefresh(): Promise<boolean> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh: t.refresh }),
   })
-  if (!res.ok) { tokenStore.clear(); return false }
+  if (!res.ok) { tokenStore.clear(); onAuthCleared?.(); return false }
   tokenStore.set(await res.json())
   return true
 }
