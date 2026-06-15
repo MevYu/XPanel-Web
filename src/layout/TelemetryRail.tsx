@@ -24,6 +24,7 @@ export function TelemetryRail() {
 
   const online = !error && data !== null
   const cpu = data ? data.cpu_percent.toFixed(1) : '--.-'
+  const memPct = mem.length > 0 ? mem[mem.length - 1] : null
 
   return (
     <div className="flex items-center gap-4 text-sm">
@@ -38,9 +39,16 @@ export function TelemetryRail() {
         cpu {cpu}
         <span className="text-muted">%</span>
       </span>
-      <span className="flex items-center gap-2">
+      <span className="hidden items-center gap-2 sm:flex">
         <span className="text-xs lowercase tracking-wide text-muted">mem</span>
-        <Sparkline data={mem} width={96} height={24} />
+        {mem.length >= 2 ? (
+          <Sparkline data={mem} width={96} height={24} />
+        ) : (
+          <span className="font-[family-name:var(--font-mono)] tabular-nums text-text">
+            {memPct === null ? '--' : memPct.toFixed(0)}
+            <span className="text-muted">%</span>
+          </span>
+        )}
       </span>
     </div>
   )

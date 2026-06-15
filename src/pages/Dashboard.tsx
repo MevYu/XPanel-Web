@@ -123,14 +123,14 @@ export default function Dashboard() {
 
       <Card>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-muted">cpu 利用率趋势</h2>
+          <h2 className="text-sm font-medium text-muted">CPU 利用率趋势</h2>
           <span className="text-xs lowercase tracking-wide text-muted">
             最近 {WINDOW} 个采样
           </span>
         </div>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: -16 }}>
+            <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="cpuFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={levelStroke[cpuLevel]} stopOpacity={0.35} />
@@ -143,7 +143,7 @@ export default function Dashboard() {
                 tick={{ fill: 'var(--color-muted)', fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
-                width={36}
+                width={44}
               />
               <Tooltip
                 isAnimationActive={false}
