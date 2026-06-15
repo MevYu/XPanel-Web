@@ -99,10 +99,10 @@ function ModuleRow({ module, onChanged }: { module: ModuleView; onChanged: () =>
           <span className="truncate text-sm font-medium text-text">{module.name}</span>
           {module.always_on && <Badge status="neutral">常驻</Badge>}
         </div>
-        {module.requires.length > 0 && (
+        {(module.requires ?? []).length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted">依赖</span>
-            {module.requires.map((r) => (
+            {(module.requires ?? []).map((r) => (
               <span
                 key={r}
                 className="rounded-full border border-border bg-surface-2 px-2 py-0.5 font-[family-name:var(--font-mono)] text-xs text-muted"

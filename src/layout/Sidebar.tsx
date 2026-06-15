@@ -17,14 +17,14 @@ function groupNav(groups: { category: string; nav: NavItem[] }[]): Group[] {
   const out: Group[] = []
   const index = new Map<string, Group>()
   for (const m of groups) {
-    if (m.nav.length === 0) continue
+    if ((m.nav ?? []).length === 0) continue
     let g = index.get(m.category)
     if (!g) {
       g = { category: m.category, items: [] }
       index.set(m.category, g)
       out.push(g)
     }
-    g.items.push(...m.nav)
+    g.items.push(...(m.nav ?? []))
   }
   return out
 }
@@ -66,7 +66,7 @@ export function Sidebar() {
 
         <div className="mb-4">
           {!collapsed && (
-            <p className="px-2 pb-1 text-xs uppercase tracking-wider text-muted">系统</p>
+            <p className="px-2 pb-1 text-xs uppercase tracking-wider text-muted">管理</p>
           )}
           <NavRow
             item={{ label: '模块管理', icon: 'boxes', path: '/modules' }}
