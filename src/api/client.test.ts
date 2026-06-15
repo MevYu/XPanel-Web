@@ -22,6 +22,27 @@ describe('apiFetch', () => {
     expect(tokenStore.get()?.access).toBe('a2')
   })
 
+  it('refreshes only once under concurrent 401s', async () => {
+    let refreshCount = 0
+    globalThis.fetch = vi.fn(async (url: any, init: any) => {
+      if (url === '/api/auth/refresh') {
+        refreshCount++
+        return new Response(JSON.stringify({ access: 'a2', refresh: 'r2' }), { status: 200 })
+      }
+      if (url === '/api/data') {
+        return init.headers.Authorization === 'Bearer a2'
+          ? new Response(JSON.stringify({ ok: true }), { status: 200 })
+          : new Response('', { status: 401 })
+      }
+      return new Response('', { status: 500 })
+    }) as any
+
+    const [r1, r2] = await Promise.all([apiFetch('/api/data'), apiFetch('/api/data')])
+    expect(r1).toEqual({ ok: true })
+    expect(r2).toEqual({ ok: true })
+    expect(refreshCount).toBe(1)
+  })
+
   it('clears tokens when refresh fails', async () => {
     globalThis.fetch = vi.fn(async (url: any) =>
       url === '/api/auth/refresh'

@@ -15,7 +15,17 @@ class HttpError extends Error {
   constructor(public status: number, msg: string) { super(msg) }
 }
 
-async function refresh(): Promise<boolean> {
+// 单飞:并发 401 共享同一个刷新 promise,避免旋转的 refresh token 被多次使用而失效。
+let refreshing: Promise<boolean> | null = null
+
+function refresh(): Promise<boolean> {
+  if (!refreshing) {
+    refreshing = doRefresh().finally(() => { refreshing = null })
+  }
+  return refreshing
+}
+
+async function doRefresh(): Promise<boolean> {
   const t = tokenStore.get()
   if (!t) return false
   const res = await fetch('/api/auth/refresh', {
