@@ -1,12 +1,4 @@
-import { useEffect, useState } from 'react'
-import {
-  Area,
-  AreaChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { usePoll } from '../hooks/usePoll'
 import { Card } from '../components/Card'
@@ -14,6 +6,9 @@ import { Stat } from '../components/Stat'
 import { Spinner } from '../components/Spinner'
 import { formatBytes } from '../lib/format'
 import type { Metrics } from '../api/types'
+
+// recharts 懒加载,移出首屏主包(首次渲染图表时才拉取该 vendor chunk)。
+const CpuTrendChart = lazy(() => import('./CpuTrendChart'))
 
 const POLL_MS = 2500
 const WINDOW = 40
@@ -129,45 +124,15 @@ export default function Dashboard() {
           </span>
         </div>
         <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="cpuFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={levelStroke[cpuLevel]} stopOpacity={0.35} />
-                  <stop offset="100%" stopColor={levelStroke[cpuLevel]} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="t" hide />
-              <YAxis
-                domain={[0, 100]}
-                tick={{ fill: 'var(--color-muted)', fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-                width={44}
-              />
-              <Tooltip
-                isAnimationActive={false}
-                cursor={{ stroke: 'var(--color-border)' }}
-                contentStyle={{
-                  background: 'var(--color-surface-2)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                labelFormatter={() => ''}
-                formatter={(v) => [`${Number(v).toFixed(1)}%`, 'cpu']}
-              />
-              <Area
-                type="monotone"
-                dataKey="cpu"
-                stroke={levelStroke[cpuLevel]}
-                strokeWidth={1.5}
-                fill="url(#cpuFill)"
-                isAnimationActive={false}
-                dot={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center">
+                <Spinner size={20} />
+              </div>
+            }
+          >
+            <CpuTrendChart series={series} stroke={levelStroke[cpuLevel]} />
+          </Suspense>
         </div>
       </Card>
     </div>

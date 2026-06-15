@@ -10,6 +10,16 @@ export default defineConfig({
   build: {
     // esbuild >=0.26 拒绝把析构降级到 safari14 等旧目标(recharts 触发);锁定单一现代目标绕过。
     target: 'es2022',
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/recharts')) return 'recharts'
+          if (/node_modules\/(react|react-dom|react-router|react-router-dom)\//.test(id)) {
+            return 'react'
+          }
+        },
+      },
+    },
   },
   test: { environment: 'jsdom', globals: true, setupFiles: './src/test-setup.ts' },
 })
