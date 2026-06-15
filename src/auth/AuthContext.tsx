@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { tokenStore } from '../api/client'
+import { setOnAuthCleared, tokenStore } from '../api/client'
+import { roleFromAccess } from './jwt'
 import type { Tokens } from '../api/types'
 
 interface AuthState {
@@ -13,19 +14,14 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null)
 
-// 解 access JWT 的 payload(不验签,仅取 role 用于 UI 角色门)。解析失败给空角色。
-function roleFromAccess(access: string | undefined): string {
-  if (!access) return ''
-  try {
-    const payload = JSON.parse(atob(access.split('.')[1]))
-    return typeof payload.role === 'string' ? payload.role : ''
-  } catch {
-    return ''
-  }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [tokens, setTokens] = useState<Tokens | null>(() => tokenStore.get())
+
+  // 刷新失败时 client 已清本地 token,这里同步 React 态以触发自动跳登录。
+  useEffect(() => {
+    setOnAuthCleared(() => setTokens(null))
+    return () => setOnAuthCleared(null)
+  }, [])
 
   const login = useCallback(async (username: string, password: string) => {
     const res = await fetch('/api/auth/login', {
