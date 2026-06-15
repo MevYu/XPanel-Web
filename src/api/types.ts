@@ -41,3 +41,37 @@ export interface ProcessInfo {
   mem_percent: number
   rss: number
 }
+
+// ---- cron ----
+export interface CronJob {
+  id: number
+  expr: string
+  command: string
+  comment: string
+  enabled: boolean
+  created_by: number | null
+  created_at: number
+  updated_at: number
+  last_run_at: number | null
+  last_result: string
+}
+
+// ---- files ----
+export interface DirEntry {
+  name: string
+  is_dir: boolean
+  size: number
+  mode: string
+  mod_time: number
+}
+
+export interface Share {
+  token: string
+  path: string
+  has_password: boolean
+  allow_list: boolean
+  expires_at: number
+  max_downloads: number
+  downloads: number
+  created_at: number
+}
