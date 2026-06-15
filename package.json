@@ -21,6 +21,9 @@
     "url": "https://github.com/MevYu/XPanel-Web/issues"
   },
   "homepage": "https://github.com/MevYu/XPanel-Web#readme",
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
   "dependencies": {
     "lucide-react": "^1.18.0",
     "react": "^18.3.1",
