@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { apiFetch } from '../api/client'
+import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
 import { Input } from '../components/Input'
@@ -12,9 +12,25 @@ function errorText(e: unknown): string {
   return msg || '操作失败,请稍后重试'
 }
 
+const DANGER = { 'X-Confirm-Danger': '1' }
+
+// php-fpm/systemctl 端点返回 text/plain:apiFetch 会强制 JSON.parse 抛错,改用裸 fetch。
+async function fetchTextPost(path: string): Promise<string> {
+  const t = tokenStore.get()
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: t ? { Authorization: `Bearer ${t.access}`, ...DANGER } : DANGER,
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.text()
+}
+
 interface VersionInfo {
   version: string
   banner: string
+  fpm_unit: string
+  fpm_active: boolean
+  cli_default: boolean
 }
 
 interface PhpSettings {
@@ -123,7 +139,7 @@ export default function Php() {
       }
       const updated = await apiFetch<Record<string, string>>(
         `/api/m/php/versions/${selected}/ini`,
-        { method: 'PUT', body: JSON.stringify(payload) },
+        { method: 'PUT', headers: DANGER, body: JSON.stringify(payload) },
       )
       setIni(updated ?? {})
       setFeedback({ kind: 'ok', text: 'php.ini 已保存' })
@@ -141,6 +157,7 @@ export default function Php() {
     try {
       await apiFetch(`/api/m/php/versions/${selected}/extensions/${ext}/${enable ? 'enable' : 'disable'}`, {
         method: 'POST',
+        headers: DANGER,
       })
       setFeedback({ kind: 'ok', text: `扩展 ${ext} 已${enable ? '启用' : '禁用'}` })
       await loadDetail(selected)
@@ -157,10 +174,8 @@ export default function Php() {
     setBusy(true)
     setFeedback(null)
     try {
-      const res = await apiFetch<string>(`/api/m/php/versions/${selected}/fpm/${verb}`, {
-        method: 'POST',
-      })
-      setOutput(typeof res === 'string' ? res : JSON.stringify(res))
+      const res = await fetchTextPost(`/api/m/php/versions/${selected}/fpm/${verb}`)
+      setOutput(res)
       setFeedback({ kind: 'ok', text: `php-fpm ${verb} 已执行` })
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
@@ -188,7 +203,7 @@ export default function Php() {
     setBusy(true)
     setFeedback(null)
     try {
-      await apiFetch('/api/m/php/settings', { method: 'PUT', body: JSON.stringify(settings) })
+      await apiFetch('/api/m/php/settings', { method: 'PUT', headers: DANGER, body: JSON.stringify(settings) })
       setFeedback({ kind: 'ok', text: '设置已保存' })
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
@@ -268,6 +283,10 @@ export default function Php() {
                       <Badge status={v.banner ? 'online' : 'neutral'}>
                         {v.banner ? '可用' : '未知'}
                       </Badge>
+                      <Badge status={v.fpm_active ? 'online' : 'neutral'}>
+                        FPM {v.fpm_active ? '运行中' : '已停止'}
+                      </Badge>
+                      {v.cli_default && <Badge status="online">CLI 默认</Badge>}
                     </div>
                     {v.banner && (
                       <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">

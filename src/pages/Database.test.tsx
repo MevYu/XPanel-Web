@@ -28,7 +28,8 @@ const BACKUPS = [
 
 function route(path: string): unknown {
   if (path === '/api/m/database/backups') return BACKUPS
-  if (path.endsWith('/databases')) return ['shop']
+  if (path.endsWith('/databases'))
+    return [{ name: 'shop', size_mb: '12.50', tables: 8, charset: 'utf8mb4', collation: 'utf8mb4_general_ci' }]
   if (path.endsWith('/users')) return []
   return undefined
 }

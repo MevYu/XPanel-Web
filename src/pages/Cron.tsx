@@ -95,7 +95,10 @@ export default function Cron() {
     if (readonly) return
     if (!window.confirm(`确认删除任务「${job.comment || job.command}」?`)) return
     try {
-      await apiFetch(`/api/m/cron/jobs/${job.id}`, { method: 'DELETE' })
+      await apiFetch(`/api/m/cron/jobs/${job.id}`, {
+        method: 'DELETE',
+        headers: { 'X-Confirm-Danger': '1' },
+      })
       if (form.id === job.id) setForm(emptyForm)
       await load()
     } catch (e) {

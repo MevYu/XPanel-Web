@@ -22,9 +22,27 @@ interface RuleForm {
   port: string
   proto: Proto
   source: string
+  comment: string
 }
 
-const emptyRule: RuleForm = { action: 'allow', port: '', proto: 'tcp', source: '' }
+const emptyRule: RuleForm = { action: 'allow', port: '', proto: 'tcp', source: '', comment: '' }
+
+// 端口规范:单端口或区间(后端 PortRule.port 为字符串,支持 "8000-9000")。
+const PORT_SPEC = /^\d{1,5}(-\d{1,5})?$/
+
+function validPortSpec(spec: string): boolean {
+  if (!PORT_SPEC.test(spec)) return false
+  const parts = spec.split('-').map(Number)
+  return parts.every((n) => n >= 1 && n <= 65535) && (parts.length === 1 || parts[0] <= parts[1])
+}
+
+interface PortRule {
+  action: string
+  port: string
+  proto: string
+  source: string
+  comment: string
+}
 
 /** Firewall 防火墙:显示检测到的后端,列出规则,放行/拒绝端口,删除规则与禁用走二次确认。 */
 export default function Firewall() {
@@ -32,7 +50,7 @@ export default function Firewall() {
   const isAdmin = role === 'admin'
 
   const [backend, setBackend] = useState<string>('')
-  const [rules, setRules] = useState<string>('')
+  const [rules, setRules] = useState<PortRule[]>([])
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [form, setForm] = useState<RuleForm>(emptyRule)
@@ -44,10 +62,10 @@ export default function Firewall() {
     try {
       const [b, r] = await Promise.all([
         apiFetch<{ backend: string }>('/api/m/firewall/backend'),
-        apiFetch<string>('/api/m/firewall/rules'),
+        apiFetch<PortRule[]>('/api/m/firewall/rules'),
       ])
       setBackend(b.backend)
-      setRules(typeof r === 'string' ? r : JSON.stringify(r, null, 2))
+      setRules(Array.isArray(r) ? r : [])
     } catch (e) {
       setLoadErr(errorText(e))
     } finally {
@@ -59,16 +77,16 @@ export default function Firewall() {
     void load()
   }, [load])
 
-  const portNum = Number(form.port)
-  const portValid = Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535
+  const portValid = validPortSpec(form.port.trim())
   const canSubmit = portValid && !busy && isAdmin
 
   function rulePayload() {
     return JSON.stringify({
       action: form.action,
-      port: portNum,
+      port: form.port.trim(),
       proto: form.proto,
       source: form.source.trim(),
+      comment: form.comment.trim(),
     })
   }
 
@@ -178,10 +196,9 @@ export default function Firewall() {
           </label>
           <Input
             label="端口"
-            placeholder="1-65535"
-            inputMode="numeric"
+            placeholder="80 或 8000-9000"
             value={form.port}
-            error={form.port.length > 0 && !portValid ? '端口需为 1–65535' : undefined}
+            error={form.port.length > 0 && !portValid ? '端口需为 1–65535,或区间如 8000-9000' : undefined}
             onChange={(e) => setForm((f) => ({ ...f, port: e.target.value }))}
           />
           <label className="flex flex-col gap-1.5">
@@ -201,6 +218,13 @@ export default function Firewall() {
             spellCheck={false}
             value={form.source}
             onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))}
+          />
+          <Input
+            label="备注(可选)"
+            placeholder="备注"
+            spellCheck={false}
+            value={form.comment}
+            onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -232,10 +256,21 @@ export default function Firewall() {
           </div>
         ) : loadErr ? (
           <p className="px-5 pb-4 text-sm text-muted">{loadErr}</p>
+        ) : rules.length === 0 ? (
+          <p className="px-5 pb-4 text-sm text-muted">无规则</p>
         ) : (
-          <pre className="max-h-96 overflow-auto bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
-            {rules.trim() || '无规则输出'}
-          </pre>
+          <div className="max-h-96 divide-y divide-border overflow-auto border-t border-border">
+            {rules.map((rule, i) => (
+              <div key={`${rule.action}-${rule.proto}-${rule.port}-${rule.source}-${i}`} className="flex flex-wrap items-center justify-between gap-3 px-5 py-2.5">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <Badge status={rule.action === 'allow' ? 'online' : 'crit'}>{rule.action}</Badge>
+                  <span className="font-[family-name:var(--font-mono)] text-sm text-text">{rule.proto}/{rule.port}</span>
+                  {rule.source && <span className="truncate text-xs text-muted">来源 {rule.source}</span>}
+                </div>
+                {rule.comment && <span className="truncate text-xs text-muted">{rule.comment}</span>}
+              </div>
+            ))}
+          </div>
         )}
       </Card>
     </div>

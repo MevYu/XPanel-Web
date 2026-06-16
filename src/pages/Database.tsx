@@ -94,6 +94,19 @@ interface SettingsResponse {
 
 type Engine = 'mysql' | 'postgres'
 
+interface DbInfo {
+  name: string
+  size_mb: string
+  tables: number
+  charset: string
+  collation: string
+}
+
+interface DbUser {
+  user: string
+  host: string
+}
+
 function SettingsCard({ onSaved }: { onSaved: () => void }) {
   const [form, setForm] = useState<Settings | null>(null)
   const [passSet, setPassSet] = useState<string[]>([])
@@ -220,14 +233,14 @@ function SettingsCard({ onSaved }: { onSaved: () => void }) {
   )
 }
 
-function ListBox({
+function ListBox<T>({
   loading, error, items, empty, render,
 }: {
   loading: boolean
   error: string | null
-  items: string[]
+  items: T[]
   empty: string
-  render: (item: string) => ReactNode
+  render: (item: T) => ReactNode
 }) {
   return (
     <div className="rounded-(--radius-card) border border-border">
@@ -254,8 +267,8 @@ function SqlEnginePanel({
   onBackupDone: () => void
 }) {
   const base = `/api/m/database/${engine}`
-  const [databases, setDatabases] = useState<string[]>([])
-  const [users, setUsers] = useState<string[]>([])
+  const [databases, setDatabases] = useState<DbInfo[]>([])
+  const [users, setUsers] = useState<DbUser[]>([])
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -274,11 +287,11 @@ function SqlEnginePanel({
     setLoading(true)
     try {
       const [dbs, us] = await Promise.all([
-        apiFetch<string[]>(`${base}/databases`),
-        apiFetch<string[]>(`${base}/users`),
+        apiFetch<DbInfo[]>(`${base}/databases`),
+        apiFetch<DbUser[]>(`${base}/users`),
       ])
-      setDatabases(dbs)
-      setUsers(us)
+      setDatabases(Array.isArray(dbs) ? dbs : [])
+      setUsers(Array.isArray(us) ? us : [])
     } catch (e) {
       setLoadErr(errorText(e))
     } finally {
@@ -396,12 +409,17 @@ function SqlEnginePanel({
           </div>
           <ListBox loading={loading} error={loadErr} items={databases}
             empty="暂无数据库"
-            render={(name) => (
-              <div key={name} className="flex items-center justify-between gap-2 px-4 py-2.5">
-                <span className="truncate font-[family-name:var(--font-mono)] text-sm text-text">{name}</span>
+            render={(db) => (
+              <div key={db.name} className="flex items-center justify-between gap-2 px-4 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <span className="truncate font-[family-name:var(--font-mono)] text-sm text-text">{db.name}</span>
+                  <p className="mt-0.5 truncate text-xs text-muted">
+                    {db.size_mb} MB · {db.tables} 表{db.charset ? ` · ${db.charset}` : ''}{db.collation ? ` · ${db.collation}` : ''}
+                  </p>
+                </div>
                 <div className="flex items-center gap-1.5">
-                  <Button size="sm" variant="ghost" onClick={() => backupDb(name)} disabled={busy}>备份</Button>
-                  <Button size="sm" variant="danger" onClick={() => dropDb(name)} disabled={busy}>删除</Button>
+                  <Button size="sm" variant="ghost" onClick={() => backupDb(db.name)} disabled={busy}>备份</Button>
+                  <Button size="sm" variant="danger" onClick={() => dropDb(db.name)} disabled={busy}>删除</Button>
                 </div>
               </div>
             )} />
@@ -418,10 +436,12 @@ function SqlEnginePanel({
           </div>
           <ListBox loading={loading} error={loadErr} items={users}
             empty="暂无用户"
-            render={(user) => (
-              <div key={user} className="flex items-center justify-between px-4 py-2.5">
-                <span className="truncate font-[family-name:var(--font-mono)] text-sm text-text">{user}</span>
-                <Button size="sm" variant="danger" onClick={() => dropUser(user)} disabled={busy}>删除</Button>
+            render={(u) => (
+              <div key={`${u.user}@${u.host}`} className="flex items-center justify-between px-4 py-2.5">
+                <span className="truncate font-[family-name:var(--font-mono)] text-sm text-text">
+                  {u.user}{u.host ? `@${u.host}` : ''}
+                </span>
+                <Button size="sm" variant="danger" onClick={() => dropUser(u.user)} disabled={busy}>删除</Button>
               </div>
             )} />
         </Card>
@@ -460,6 +480,8 @@ function SqlEnginePanel({
 function RedisPanel() {
   const [info, setInfo] = useState<string | null>(null)
   const [dbsize, setDbsize] = useState<number | null>(null)
+  const [details, setDetails] = useState<Record<string, string> | null>(null)
+  const [config, setConfig] = useState<Record<string, string> | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
@@ -468,12 +490,16 @@ function RedisPanel() {
     setLoading(true)
     setFeedback(null)
     try {
-      const [i, s] = await Promise.all([
+      const [i, s, d, c] = await Promise.all([
         fetchText('/api/m/database/redis/info'),
         apiFetch<{ dbsize: number }>('/api/m/database/redis/dbsize'),
+        apiFetch<{ details: Record<string, string> }>('/api/m/database/redis/details'),
+        apiFetch<{ config: Record<string, string> }>('/api/m/database/redis/config'),
       ])
       setInfo(i)
       setDbsize(s.dbsize)
+      setDetails(d.details ?? {})
+      setConfig(c.config ?? {})
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
     } finally {
@@ -514,9 +540,34 @@ function RedisPanel() {
       {loading ? (
         <div className="flex h-24 items-center justify-center"><Spinner size={20} /></div>
       ) : info !== null ? (
-        <pre className="max-h-96 overflow-auto rounded-(--radius-card) bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
-          {info.trim() || '无输出'}
-        </pre>
+        <div className="flex flex-col gap-4">
+          {details && Object.keys(details).length > 0 && (
+            <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {Object.entries(details).map(([k, v]) => (
+                <div key={k} className="flex flex-col rounded-(--radius-card) bg-surface-2 px-3 py-2">
+                  <dt className="text-xs text-muted">{k}</dt>
+                  <dd className="truncate font-[family-name:var(--font-mono)] text-sm text-text">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {config && Object.keys(config).length > 0 && (
+            <div className="rounded-(--radius-card) border border-border">
+              <div className="border-b border-border px-4 py-2 text-xs font-medium uppercase tracking-wide text-muted">配置</div>
+              <dl className="divide-y divide-border">
+                {Object.entries(config).map(([k, v]) => (
+                  <div key={k} className="flex items-center justify-between gap-3 px-4 py-2">
+                    <dt className="font-[family-name:var(--font-mono)] text-xs text-muted">{k}</dt>
+                    <dd className="truncate font-[family-name:var(--font-mono)] text-sm text-text">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
+          <pre className="max-h-96 overflow-auto rounded-(--radius-card) bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
+            {info.trim() || '无输出'}
+          </pre>
+        </div>
       ) : (
         <p className="text-sm text-muted">点击「查询 info」加载 Redis 信息。</p>
       )}

@@ -12,7 +12,6 @@ function errorText(e: unknown): string {
   return msg || '操作失败,请稍后重试'
 }
 
-const DANGER = { 'X-Confirm-Danger': '1' }
 
 // docker CLI `{{json .}}` 字段名随版本略有差异,统一用宽松索引签名读取。
 type DockerRow = Record<string, unknown>
@@ -27,6 +26,25 @@ async function fetchText(path: string): Promise<string> {
   const t = tokenStore.get()
   const res = await fetch(path, {
     headers: t ? { Authorization: `Bearer ${t.access}` } : undefined,
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.text()
+}
+
+// 写操作端点返回 text/plain(docker 命令输出):apiFetch 强制 JSON.parse 会在成功时抛错,改用裸 fetch。
+async function mutateText(
+  path: string,
+  opts: { method: 'POST' | 'DELETE'; danger?: boolean; body?: unknown },
+): Promise<string> {
+  const t = tokenStore.get()
+  const headers: Record<string, string> = {}
+  if (t) headers.Authorization = `Bearer ${t.access}`
+  if (opts.danger) headers['X-Confirm-Danger'] = '1'
+  if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
+  const res = await fetch(path, {
+    method: opts.method,
+    headers,
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   })
   if (!res.ok) throw new Error(await res.text())
   return res.text()
@@ -110,7 +128,7 @@ function Containers({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boo
     setBusy(true)
     setFb(null)
     try {
-      await apiFetch(`/api/m/docker/containers/${encodeURIComponent(ref)}/${verb}`, { method: 'POST' })
+      await mutateText(`/api/m/docker/containers/${encodeURIComponent(ref)}/${verb}`, { method: 'POST' })
       setFb({ kind: 'ok', text: `已对容器执行 ${verb}` })
       await reload()
     } catch (e) {
@@ -125,7 +143,7 @@ function Containers({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boo
     setBusy(true)
     setFb(null)
     try {
-      await apiFetch(`/api/m/docker/containers/${encodeURIComponent(ref)}`, { method: 'DELETE', headers: DANGER })
+      await mutateText(`/api/m/docker/containers/${encodeURIComponent(ref)}`, { method: 'DELETE', danger: true })
       setFb({ kind: 'ok', text: '容器已删除' })
       await reload()
     } catch (e) {
@@ -208,7 +226,7 @@ function Images({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolean
     setBusy(true)
     setFb(null)
     try {
-      await apiFetch('/api/m/docker/images/pull', { method: 'POST', body: JSON.stringify({ image: ref }) })
+      await mutateText('/api/m/docker/images/pull', { method: 'POST', body: { image: ref } })
       setFb({ kind: 'ok', text: `已拉取 ${ref}` })
       setImage('')
       await reload()
@@ -224,7 +242,7 @@ function Images({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolean
     setBusy(true)
     setFb(null)
     try {
-      await apiFetch(`/api/m/docker/images/${encodeURIComponent(ref)}`, { method: 'DELETE', headers: DANGER })
+      await mutateText(`/api/m/docker/images/${encodeURIComponent(ref)}`, { method: 'DELETE', danger: true })
       setFb({ kind: 'ok', text: '镜像已删除' })
       await reload()
     } catch (e) {
@@ -286,9 +304,9 @@ function Compose({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolea
     setBusy(true)
     setFb(null)
     try {
-      await apiFetch(`/api/m/docker/compose/${encodeURIComponent(project)}/${verb}`, {
+      await mutateText(`/api/m/docker/compose/${encodeURIComponent(project)}/${verb}`, {
         method: 'POST',
-        headers: verb === 'down' ? DANGER : undefined,
+        danger: verb === 'down',
       })
       setFb({ kind: 'ok', text: `已对 ${project} 执行 ${verb}` })
       await reload()
