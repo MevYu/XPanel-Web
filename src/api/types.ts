@@ -43,10 +43,39 @@ export interface ProcessInfo {
 }
 
 // ---- cron ----
+export type CronJobType = 'command' | 'shell' | 'release_mem' | 'log_cut' | 'url'
+
+export type CronScheduleKind =
+  | 'every_n_minutes'
+  | 'hourly_at'
+  | 'daily_at'
+  | 'weekly_at'
+  | 'monthly_at'
+  | 'raw'
+
+export interface CronSchedule {
+  kind: CronScheduleKind
+  minute?: number
+  hour?: number
+  day?: number
+  weekday?: number
+  expr?: string
+}
+
+export interface CronPayload {
+  command?: string
+  script?: string
+  url?: string
+  path?: string
+  target?: string
+  timeout?: number
+}
+
 export interface CronJob {
   id: number
-  expr: string
-  command: string
+  schedule: CronSchedule
+  type: CronJobType
+  payload: CronPayload
   comment: string
   enabled: boolean
   created_by: number | null
@@ -54,6 +83,16 @@ export interface CronJob {
   updated_at: number
   last_run_at: number | null
   last_result: string
+}
+
+export interface CronRun {
+  id: number
+  job_id: number
+  started_at: number
+  duration_ms: number
+  exit_code: number
+  output: string
+  err: string
 }
 
 // ---- files ----
