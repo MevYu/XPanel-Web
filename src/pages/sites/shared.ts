@@ -1,4 +1,5 @@
 // 网站模块共享:类型、文案、样式 token 串。后端契约以 internal/modules/sites 为准。
+import { tokenStore } from '../../api/client'
 
 export const DANGER = { 'X-Confirm-Danger': '1' }
 
@@ -20,6 +21,37 @@ export interface SSL {
   key_path: string
   force_https: boolean
   hsts: boolean
+  expires_at: number // 证书到期 Unix 秒,0 = 无证书
+  auto_renew: boolean // Let's Encrypt 自动续期是否已开启
+}
+
+export interface Backup {
+  id: number
+  site_id: number
+  filename: string
+  size: number
+  created_at: number
+  created_by: number | null
+}
+
+export interface ProxyConfig {
+  proxy_target: string
+  upstreams: string[]
+  cache: boolean
+  cache_time: number
+  set_headers: { name: string; value: string }[]
+  websocket: boolean
+  send_host: string
+}
+
+export interface Limits {
+  rate_kb: number
+  conn: number
+}
+
+export interface ErrorPage {
+  code: number
+  path: string
 }
 
 export interface DirProtectView {
@@ -115,3 +147,24 @@ export const fieldClass =
 
 export const textareaClass =
   'w-full resize-y rounded-(--radius-card) border border-border bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60'
+
+// 允许的 HTTP 错误码白名单(后端同样校验),用于自定义错误页下拉。
+export const ERROR_CODES = [400, 401, 403, 404, 405, 500, 502, 503, 504]
+
+// send_host 下拉候选:空 = 不改 Host 头。
+export const SEND_HOST_OPTIONS = ['', '$host', '$proxy_host']
+
+/** download 带 Bearer 拉二进制并触发浏览器下载(走裸 fetch,绕过强制 JSON 的 apiFetch)。 */
+export async function download(path: string, filename: string): Promise<void> {
+  const t = tokenStore.get()
+  const headers: Record<string, string> = t ? { Authorization: `Bearer ${t.access}` } : {}
+  const res = await fetch(path, { headers })
+  if (!res.ok) throw new Error((await res.text()) || '下载失败')
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}

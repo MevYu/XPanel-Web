@@ -17,6 +17,8 @@ import {
   FolderTree,
   ScrollText,
   FileCode2,
+  Archive,
+  SlidersHorizontal,
   type LucideIcon,
 } from 'lucide-react'
 import { type Site, type Kind, kindLabel, kindAccent } from './shared'
@@ -33,6 +35,8 @@ import { AntiLeechTab } from './tabs/AntiLeechTab'
 import { RunDirTab } from './tabs/RunDirTab'
 import { LogsTab } from './tabs/LogsTab'
 import { ConfigTab } from './tabs/ConfigTab'
+import { BackupsTab } from './tabs/BackupsTab'
+import { SettingsTab } from './tabs/SettingsTab'
 
 type TabKey =
   | 'overview'
@@ -47,6 +51,8 @@ type TabKey =
   | 'anti-leech'
   | 'run-dir'
   | 'logs'
+  | 'backups'
+  | 'settings'
   | 'config'
 
 interface TabDef {
@@ -69,6 +75,8 @@ const ALL_TABS: TabDef[] = [
   { key: 'anti-leech', label: '防盗链', Icon: ShieldAlert },
   { key: 'run-dir', label: '运行目录', Icon: FolderTree, kinds: ['static', 'php'] },
   { key: 'logs', label: '日志', Icon: ScrollText },
+  { key: 'backups', label: '备份', Icon: Archive },
+  { key: 'settings', label: '设置', Icon: SlidersHorizontal },
   { key: 'config', label: '配置文件', Icon: FileCode2 },
 ]
 
@@ -165,7 +173,11 @@ export function SiteDrawer({ site, canWrite, isAdmin, onClose, onChanged }: Prop
           {tab === 'redirects' && <RedirectsTab site={site} canWrite={canWrite} onChanged={onChanged} />}
           {tab === 'anti-leech' && <AntiLeechTab site={site} canWrite={canWrite} onChanged={onChanged} />}
           {tab === 'run-dir' && <RunDirTab site={site} canWrite={canWrite} onChanged={onChanged} />}
-          {tab === 'logs' && <LogsTab site={site} />}
+          {tab === 'logs' && <LogsTab site={site} canWrite={canWrite} />}
+          {tab === 'backups' && <BackupsTab site={site} isAdmin={isAdmin} />}
+          {tab === 'settings' && (
+            <SettingsTab site={site} canWrite={canWrite} isAdmin={isAdmin} onChanged={onChanged} />
+          )}
           {tab === 'config' && <ConfigTab site={site} isAdmin={isAdmin} onChanged={onChanged} />}
         </div>
       </aside>
