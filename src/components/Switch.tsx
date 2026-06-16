@@ -25,7 +25,9 @@ export function Switch({ checked, onChange, disabled, ...rest }: SwitchProps) {
         }
       }}
       className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-40 ${
-        checked ? 'border-brand bg-brand' : 'border-border bg-surface-2'
+        checked
+          ? 'border-brand bg-brand hover:border-[#8AA1FF] hover:bg-[#8AA1FF] disabled:hover:border-brand disabled:hover:bg-brand'
+          : 'border-border bg-surface-2 hover:border-muted hover:bg-brand-soft disabled:hover:border-border disabled:hover:bg-surface-2'
       }`}
     >
       <span

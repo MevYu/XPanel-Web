@@ -74,8 +74,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     tokenStore.clear()
+    // setTokens(null) 翻转 isAuthed,ProtectedRoute 经 React Router 重定向到 /login
+    // (相对 basename);不用 window.location.assign 以免在隐藏入口路径下丢掉 basename。
     setTokens(null)
-    window.location.assign('/login')
   }, [])
 
   const value = useMemo<AuthState>(

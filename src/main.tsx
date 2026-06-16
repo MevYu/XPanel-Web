@@ -16,9 +16,13 @@ import '@fontsource/jetbrains-mono/500.css'
 import '@fontsource/jetbrains-mono/600.css'
 import './styles/global.css'
 
+// 隐藏入口:后端在它服务的 index.html 注入 window.__XPANEL_BASE__="<entry_path>",
+// 让面板挂在 /<entry_path>/ 下。dev(vite,无注入)为空,行为不变。
+const basename = (window as { __XPANEL_BASE__?: string }).__XPANEL_BASE__ || ''
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={basename}>
       <AuthProvider>
         <App />
       </AuthProvider>
