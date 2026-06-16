@@ -7,33 +7,14 @@ import { Spinner } from '../components/Spinner'
 import { Sparkline } from '../components/Sparkline'
 import { formatBytes, formatRate, formatDuration } from '../lib/format'
 import type { Metrics, DetailMetrics, ProcessInfo } from '../api/types'
+import { GaugeRow } from './dashboard/GaugeRow'
+import { levelFor, levelText, levelStroke, clampPct } from './dashboard/Gauge'
 
 // recharts 懒加载,移出首屏主包(首次渲染图表时才拉取该 vendor chunk)。
 const CpuTrendChart = lazy(() => import('./CpuTrendChart'))
 
 const POLL_MS = 2500
 const WINDOW = 40
-
-type Level = 'ok' | 'warn' | 'crit'
-
-// 利用率阈值 → 配色等级:>92% 危急、>80% 警告、其余正常。
-function levelFor(pct: number): Level {
-  if (pct > 92) return 'crit'
-  if (pct > 80) return 'warn'
-  return 'ok'
-}
-
-const levelText: Record<Level, string> = {
-  ok: 'text-text',
-  warn: 'text-warn',
-  crit: 'text-crit',
-}
-
-const levelStroke: Record<Level, string> = {
-  ok: 'var(--color-brand)',
-  warn: 'var(--color-warn)',
-  crit: 'var(--color-crit)',
-}
 
 function fetchMetrics() {
   return apiFetch<Metrics>('/api/m/dashboard/metrics')
@@ -107,9 +88,6 @@ function diffRates(
   return { net, disk }
 }
 
-// clampPct 夹紧 [0,100]:后端可能上报 used>total,避免文字与色阶显示 >100%。
-const clampPct = (pct: number) => Math.min(100, Math.max(0, pct))
-
 const pct = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0)
 
 /** Dashboard 系统总览:概览条 + 核心资源卡 + CPU 趋势 + 细节分区。 */
@@ -167,10 +145,6 @@ export default function Dashboard() {
   }
 
   const m = data!
-  const memPct = clampPct(pct(m.mem_used, m.mem_total))
-  const diskPct = clampPct(pct(m.disk_used, m.disk_total))
-  const swap = detail.data?.memory
-  const swapPct = swap ? clampPct(pct(swap.swap_used, swap.swap_total)) : 0
   const cpuLevel = levelFor(m.cpu_percent)
 
   return (
@@ -178,37 +152,10 @@ export default function Dashboard() {
       <OverviewBar detail={detail.data} online={!error} />
 
       <section className="flex flex-col gap-3">
-        <SectionHeading>核心资源</SectionHeading>
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <VitalCard
-            label="cpu 利用率"
-            pct={m.cpu_percent}
-            reading={m.cpu_percent.toFixed(1)}
-            unit="%"
-            sub={detail.data ? `${detail.data.cpu_per_core.length} 核` : 'cpu 占用'}
-          />
-          <VitalCard
-            label="内存"
-            pct={memPct}
-            reading={memPct.toFixed(0)}
-            unit="%"
-            sub={`${formatBytes(m.mem_used)} / ${formatBytes(m.mem_total)}`}
-          />
-          <VitalCard
-            label="磁盘"
-            pct={diskPct}
-            reading={diskPct.toFixed(0)}
-            unit="%"
-            sub={`${formatBytes(m.disk_used)} / ${formatBytes(m.disk_total)}`}
-          />
-          <VitalCard
-            label="swap"
-            pct={swapPct}
-            reading={swap && swap.swap_total > 0 ? swapPct.toFixed(0) : '—'}
-            unit={swap && swap.swap_total > 0 ? '%' : ''}
-            sub={swap ? `${formatBytes(swap.swap_used)} / ${formatBytes(swap.swap_total)}` : '未启用'}
-          />
-        </div>
+        <SectionHeading>系统状态</SectionHeading>
+        <Card className="px-4 py-8 sm:px-8">
+          <GaugeRow m={m} detail={detail.data} />
+        </Card>
       </section>
 
       <section className="flex flex-col gap-3">
@@ -625,71 +572,3 @@ function ProcessTable({ procs }: { procs: ProcessInfo[] }) {
   )
 }
 
-// VitalCard 核心资源读数卡:大号 mono 读数 + 阈值变色 + 进度环 + 副标。视觉权重统一。
-function VitalCard({
-  label,
-  pct,
-  reading,
-  unit,
-  sub,
-}: {
-  label: string
-  pct: number
-  reading: string
-  unit: string
-  sub: string
-}) {
-  const level = levelFor(pct)
-  return (
-    <Card hoverable className="flex items-center justify-between gap-3">
-      <div className="flex min-w-0 flex-col gap-3">
-        <span className="text-xs uppercase tracking-wider text-muted">{label}</span>
-        <div className="flex flex-col gap-1">
-          <span className="font-[family-name:var(--font-mono)] text-3xl font-medium tabular-nums tracking-tight">
-            <span className={levelText[level]}>{reading}</span>
-            <span className="text-muted">{unit}</span>
-          </span>
-          <span className="truncate text-xs lowercase tracking-wide text-muted" title={sub}>
-            {sub}
-          </span>
-        </div>
-      </div>
-      <ProgressRing pct={pct} />
-    </Card>
-  )
-}
-
-// ProgressRing 进度圈:SVG 双层圆环,前景描边按阈值变色。
-function ProgressRing({ pct }: { pct: number }) {
-  const size = 64
-  const stroke = 6
-  const r = (size - stroke) / 2
-  const circ = 2 * Math.PI * r
-  const clamped = clampPct(pct)
-  const offset = circ * (1 - clamped / 100)
-  const color = levelStroke[levelFor(pct)]
-  return (
-    <svg width={size} height={size} className="shrink-0 -rotate-90" aria-hidden>
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        stroke="var(--color-border)"
-        strokeWidth={stroke}
-      />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        stroke={color}
-        strokeWidth={stroke}
-        strokeLinecap="round"
-        strokeDasharray={circ}
-        strokeDashoffset={offset}
-        className="transition-[stroke-dashoffset] duration-500"
-      />
-    </svg>
-  )
-}
