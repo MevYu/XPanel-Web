@@ -1,12 +1,31 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  RefreshCw,
+  FolderPlus,
+  Upload,
+  Share2,
+  House,
+  ChevronRight,
+  Download,
+  Pencil,
+  Copy,
+  FileCog,
+  Archive,
+  ArchiveRestore,
+  Trash2,
+} from 'lucide-react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
+import { IconButton } from '../components/IconButton'
 import { Spinner } from '../components/Spinner'
 import { formatBytes } from '../lib/format'
 import type { DirEntry, Share } from '../api/types'
+import { FileIcon, isArchive } from './files/FileIcon'
+
+const DANGER = { 'X-Confirm-Danger': '1' }
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -27,6 +46,22 @@ function parentPath(dir: string): string {
   return i < 0 ? '' : dir.slice(0, i)
 }
 
+// 把 mode 字符串(Go 的 "-rw-r--r--" 或 "drwxr-xr-x")转成八进制,失败回退原串。
+function modeOctal(mode: string): string {
+  const perm = mode.slice(-9)
+  if (perm.length !== 9 || !/^[-rwxsStT]+$/.test(perm)) return mode
+  let oct = ''
+  for (let g = 0; g < 3; g++) {
+    const s = perm.slice(g * 3, g * 3 + 3)
+    let v = 0
+    if (s[0] === 'r') v += 4
+    if (s[1] === 'w') v += 2
+    if (s[2] === 'x' || s[2] === 's' || s[2] === 't') v += 1
+    oct += String(v)
+  }
+  return oct
+}
+
 // 带 Bearer 的原始 fetch,用于二进制下载与 multipart 上传(不能走强制 JSON 头的 apiFetch)。
 function authHeaders(): Record<string, string> {
   const t = tokenStore.get()
@@ -42,6 +77,7 @@ export default function Files() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const fileInput = useRef<HTMLInputElement | null>(null)
 
   const [editing, setEditing] = useState<{ path: string; text: string } | null>(null)
@@ -67,6 +103,7 @@ export default function Files() {
   }, [])
 
   useEffect(() => {
+    setSelected(new Set())
     void load(cwd)
   }, [cwd, load])
 
@@ -76,7 +113,17 @@ export default function Files() {
   }
 
   async function refresh() {
+    setSelected(new Set())
     await load(cwd)
+  }
+
+  function toggleSel(name: string) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
   }
 
   async function download(entry: DirEntry) {
@@ -172,11 +219,28 @@ export default function Files() {
     }
   }
 
+  async function copy(entry: DirEntry) {
+    const to = window.prompt('复制到(相对当前目录的新名称)', `${entry.name}-副本`)
+    if (!to || to === entry.name) return
+    try {
+      await apiFetch('/api/m/files/copy', {
+        method: 'POST',
+        body: JSON.stringify({ from: joinPath(cwd, entry.name), to: joinPath(cwd, to) }),
+      })
+      flash('已复制')
+      await refresh()
+    } catch (e) {
+      setErr(errorText(e))
+    }
+  }
+
   async function remove(entry: DirEntry) {
-    if (!window.confirm(`确认删除「${entry.name}」?${entry.is_dir ? '目录将递归删除。' : ''}`)) return
+    if (!window.confirm(`确认删除「${entry.name}」?${entry.is_dir ? '目录将递归删除,不可恢复。' : '不可恢复。'}`))
+      return
     try {
       await apiFetch(`/api/m/files/delete?path=${encodeURIComponent(joinPath(cwd, entry.name))}`, {
         method: 'POST',
+        headers: DANGER,
       })
       flash('已删除')
       await refresh()
@@ -186,7 +250,7 @@ export default function Files() {
   }
 
   async function chmod(entry: DirEntry) {
-    const mode = window.prompt(`设置 ${entry.name} 的权限(八进制,如 0644)`, '0644')
+    const mode = window.prompt(`设置「${entry.name}」的权限(八进制,如 0644)`, modeOctal(entry.mode))
     if (!mode) return
     try {
       await apiFetch('/api/m/files/chmod', {
@@ -200,25 +264,64 @@ export default function Files() {
     }
   }
 
+  async function extract(entry: DirEntry) {
+    const dest = window.prompt('解压到(相对当前目录的子目录)', entry.name.replace(/\.[^.]+$/, ''))
+    if (!dest) return
+    try {
+      await apiFetch('/api/m/files/extract', {
+        method: 'POST',
+        body: JSON.stringify({ path: joinPath(cwd, entry.name), dest: joinPath(cwd, dest) }),
+      })
+      flash('已解压')
+      await refresh()
+    } catch (e) {
+      setErr(errorText(e))
+    }
+  }
+
+  async function compressSelected() {
+    if (selected.size === 0) return
+    const def = selected.size === 1 ? `${[...selected][0]}.zip` : 'archive.zip'
+    const dest = window.prompt('压缩为(zip 文件名)', def)
+    if (!dest) return
+    try {
+      await apiFetch('/api/m/files/compress', {
+        method: 'POST',
+        body: JSON.stringify({
+          paths: [...selected].map((n) => joinPath(cwd, n)),
+          dest: joinPath(cwd, dest),
+        }),
+      })
+      flash(`已压缩 ${selected.size} 项`)
+      await refresh()
+    } catch (e) {
+      setErr(errorText(e))
+    }
+  }
+
   const crumbs = cwd ? cwd.split('/') : []
+  const allSelected = entries.length > 0 && selected.size === entries.length
+  const colCount = canWrite ? 6 : 5
 
   return (
     <div className="flex flex-col gap-4">
       <Card className="flex flex-wrap items-center justify-between gap-3">
-        <nav className="flex flex-wrap items-center gap-1 text-sm">
+        <nav className="flex min-w-0 flex-wrap items-center gap-0.5 text-sm">
           <button
-            className="rounded px-1.5 py-0.5 text-brand hover:bg-surface-2"
+            className="flex items-center gap-1 rounded px-1.5 py-1 text-brand hover:bg-surface-2"
             onClick={() => setCwd('')}
           >
+            <House size={15} />
             根目录
           </button>
           {crumbs.map((seg, i) => {
             const target = crumbs.slice(0, i + 1).join('/')
+            const last = i === crumbs.length - 1
             return (
-              <span key={target} className="flex items-center gap-1">
-                <span className="text-muted">/</span>
+              <span key={target} className="flex items-center gap-0.5">
+                <ChevronRight size={14} className="text-muted" />
                 <button
-                  className="rounded px-1.5 py-0.5 text-brand hover:bg-surface-2"
+                  className={`rounded px-1.5 py-1 hover:bg-surface-2 ${last ? 'text-text' : 'text-brand'}`}
                   onClick={() => setCwd(target)}
                 >
                   {seg}
@@ -228,18 +331,28 @@ export default function Files() {
           })}
         </nav>
         <div className="flex flex-wrap items-center gap-2">
+          {canWrite && selected.size > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => void compressSelected()}>
+              <Archive size={15} />
+              压缩 {selected.size} 项
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={() => void refresh()}>
+            <RefreshCw size={15} />
             刷新
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setShowShares((v) => !v)}>
+            <Share2 size={15} />
             分享列表
           </Button>
           {canWrite && (
             <>
               <Button size="sm" variant="ghost" onClick={() => void mkdir()}>
+                <FolderPlus size={15} />
                 新建文件夹
               </Button>
               <Button size="sm" onClick={() => fileInput.current?.click()}>
+                <Upload size={15} />
                 上传
               </Button>
               <input
@@ -259,7 +372,7 @@ export default function Files() {
 
       {notice && <p className="text-sm text-online">{notice}</p>}
 
-      <Card className="p-0">
+      <Card className="overflow-hidden p-0">
         {loading ? (
           <div className="flex h-32 items-center justify-center">
             <Spinner size={24} />
@@ -267,80 +380,151 @@ export default function Files() {
         ) : err ? (
           <p className="p-5 text-sm text-crit">{err}</p>
         ) : (
-          <div className="divide-y divide-border">
-            {cwd && (
-              <button
-                className="flex w-full items-center gap-3 px-5 py-2.5 text-left text-sm text-muted hover:bg-surface-2"
-                onClick={() => setCwd(parentPath(cwd))}
-              >
-                <span className="font-[family-name:var(--font-mono)]">..</span>
-                <span>上级目录</span>
-              </button>
-            )}
-            {entries.length === 0 && !cwd && (
-              <p className="p-5 text-sm text-muted">空目录。</p>
-            )}
-            {entries.map((entry) => (
-              <div key={entry.name} className="flex items-center gap-3 px-5 py-2.5">
-                <button
-                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                  onClick={() => entry.is_dir && setCwd(joinPath(cwd, entry.name))}
-                  disabled={!entry.is_dir}
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border text-xs text-muted">
+                {canWrite && (
+                  <th className="w-10 px-4 py-2.5 text-left font-medium">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={(e) =>
+                        setSelected(e.target.checked ? new Set(entries.map((x) => x.name)) : new Set())
+                      }
+                    />
+                  </th>
+                )}
+                <th className="px-4 py-2.5 text-left font-medium">名称</th>
+                <th className="hidden w-24 px-4 py-2.5 text-right font-medium sm:table-cell">大小</th>
+                <th className="hidden w-24 px-4 py-2.5 text-left font-medium md:table-cell">权限</th>
+                <th className="hidden w-44 px-4 py-2.5 text-left font-medium lg:table-cell">修改时间</th>
+                <th className="px-4 py-2.5 text-right font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cwd && (
+                <tr
+                  className="cursor-pointer border-b border-border/60 hover:bg-surface-2"
+                  onClick={() => setCwd(parentPath(cwd))}
                 >
-                  <span className="text-base">{entry.is_dir ? '📁' : '📄'}</span>
-                  <span
-                    className={`truncate text-sm ${entry.is_dir ? 'text-brand' : 'text-text'}`}
-                  >
-                    {entry.name}
-                  </span>
-                </button>
-                <span className="hidden w-24 shrink-0 text-right font-[family-name:var(--font-mono)] text-xs text-muted sm:block">
-                  {entry.is_dir ? '—' : formatBytes(entry.size)}
-                </span>
-                <span className="hidden w-28 shrink-0 font-[family-name:var(--font-mono)] text-xs text-muted md:block">
-                  {entry.mode}
-                </span>
-                <span className="hidden w-40 shrink-0 text-xs text-muted lg:block">
-                  {fmtTime(entry.mod_time)}
-                </span>
-                <div className="flex shrink-0 items-center gap-1">
-                  {!entry.is_dir && (
-                    <>
-                      <Button size="sm" variant="ghost" onClick={() => void download(entry)}>
-                        下载
-                      </Button>
-                      {canWrite && (
-                        <Button size="sm" variant="ghost" onClick={() => void openEditor(entry)}>
-                          编辑
-                        </Button>
-                      )}
-                    </>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setSharing({ path: joinPath(cwd, entry.name), isDir: entry.is_dir })}
-                    disabled={!canWrite}
-                  >
-                    分享
-                  </Button>
-                  {canWrite && (
-                    <>
-                      <Button size="sm" variant="ghost" onClick={() => void rename(entry)}>
-                        重命名
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => void chmod(entry)}>
-                        权限
-                      </Button>
-                      <Button size="sm" variant="danger" onClick={() => void remove(entry)}>
-                        删除
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+                  {canWrite && <td className="px-4 py-2.5" />}
+                  <td className="px-4 py-2.5" colSpan={colCount - (canWrite ? 1 : 0)}>
+                    <span className="font-[family-name:var(--font-mono)] text-muted">.. 上级目录</span>
+                  </td>
+                </tr>
+              )}
+              {entries.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-8 text-center text-muted" colSpan={colCount}>
+                    空目录。
+                  </td>
+                </tr>
+              ) : (
+                entries.map((entry) => (
+                  <tr key={entry.name} className="group border-b border-border/60 hover:bg-surface-2">
+                    {canWrite && (
+                      <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selected.has(entry.name)}
+                          onChange={() => toggleSel(entry.name)}
+                        />
+                      </td>
+                    )}
+                    <td className="px-4 py-2.5">
+                      <button
+                        className="flex min-w-0 items-center gap-2.5 text-left"
+                        onClick={() => entry.is_dir && setCwd(joinPath(cwd, entry.name))}
+                        disabled={!entry.is_dir}
+                      >
+                        <FileIcon name={entry.name} isDir={entry.is_dir} />
+                        <span
+                          className={`truncate ${entry.is_dir ? 'text-brand group-hover:underline' : 'text-text'}`}
+                        >
+                          {entry.name}
+                        </span>
+                      </button>
+                    </td>
+                    <td className="hidden px-4 py-2.5 text-right font-[family-name:var(--font-mono)] text-xs text-muted sm:table-cell">
+                      {entry.is_dir ? '—' : formatBytes(entry.size)}
+                    </td>
+                    <td className="hidden px-4 py-2.5 font-[family-name:var(--font-mono)] text-xs text-muted md:table-cell">
+                      {modeOctal(entry.mode)}
+                    </td>
+                    <td className="hidden px-4 py-2.5 text-xs text-muted lg:table-cell">
+                      {fmtTime(entry.mod_time)}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center justify-end gap-0.5">
+                        {!entry.is_dir && (
+                          <IconButton
+                            aria-label="下载"
+                            title="下载"
+                            icon={<Download size={16} />}
+                            onClick={() => void download(entry)}
+                          />
+                        )}
+                        {!entry.is_dir && canWrite && (
+                          <IconButton
+                            aria-label="编辑"
+                            title="在线编辑"
+                            icon={<Pencil size={16} />}
+                            onClick={() => void openEditor(entry)}
+                          />
+                        )}
+                        <IconButton
+                          aria-label="分享"
+                          title="生成分享链接"
+                          icon={<Share2 size={16} />}
+                          disabled={!canWrite}
+                          onClick={() =>
+                            setSharing({ path: joinPath(cwd, entry.name), isDir: entry.is_dir })
+                          }
+                        />
+                        {canWrite && (
+                          <>
+                            <IconButton
+                              aria-label="复制"
+                              title="复制"
+                              icon={<Copy size={16} />}
+                              onClick={() => void copy(entry)}
+                            />
+                            <IconButton
+                              aria-label="重命名"
+                              title="重命名"
+                              icon={<Pencil size={16} />}
+                              onClick={() => void rename(entry)}
+                            />
+                            <IconButton
+                              aria-label="权限"
+                              title="修改权限"
+                              icon={<FileCog size={16} />}
+                              onClick={() => void chmod(entry)}
+                            />
+                            {!entry.is_dir && isArchive(entry.name) && (
+                              <IconButton
+                                aria-label="解压"
+                                title="解压"
+                                icon={<ArchiveRestore size={16} />}
+                                onClick={() => void extract(entry)}
+                              />
+                            )}
+                            <IconButton
+                              aria-label="删除"
+                              title="删除"
+                              icon={<Trash2 size={16} />}
+                              className="hover:text-crit"
+                              onClick={() => void remove(entry)}
+                            />
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         )}
       </Card>
 
@@ -355,11 +539,7 @@ export default function Files() {
       )}
 
       {sharing && (
-        <ShareModal
-          path={sharing.path}
-          isDir={sharing.isDir}
-          onClose={() => setSharing(null)}
-        />
+        <ShareModal path={sharing.path} isDir={sharing.isDir} onClose={() => setSharing(null)} />
       )}
 
       {showShares && <ShareList onClose={() => setShowShares(false)} />}
