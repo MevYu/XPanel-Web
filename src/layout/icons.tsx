@@ -16,11 +16,14 @@ import {
   Folder,
   FolderSymlink,
   Gauge,
+  GitBranch,
+  GitFork,
   Globe,
   HardDrive,
   Hexagon,
   LayoutDashboard,
   LayoutGrid,
+  Mail,
   Network,
   Server,
   ServerCog,
@@ -31,6 +34,7 @@ import {
   Terminal,
   Truck,
   Users,
+  Zap,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -61,6 +65,10 @@ const ICONS: Record<string, LucideIcon> = {
   globe: Globe,
   'file-code': FileCode,
   'file-lock': FileLock,
+  'git-branch': GitBranch,
+  'git-fork': GitFork,
+  mail: Mail,
+  zap: Zap,
   hexagon: Hexagon,
   code: Code,
   bug: Bug,
