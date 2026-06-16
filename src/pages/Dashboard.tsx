@@ -107,7 +107,12 @@ function diffRates(
   return { net, disk }
 }
 
-/** Dashboard 系统总览:CPU/内存/磁盘活体读数 + CPU% 滑窗趋势图。 */
+// clampPct 夹紧 [0,100]:后端可能上报 used>total,避免文字与色阶显示 >100%。
+const clampPct = (pct: number) => Math.min(100, Math.max(0, pct))
+
+const pct = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0)
+
+/** Dashboard 系统总览:概览条 + 核心资源卡 + CPU 趋势 + 细节分区。 */
 export default function Dashboard() {
   const { data, error, loading } = usePoll(fetchMetrics, POLL_MS)
   const detail = usePoll(fetchDetail, POLL_MS)
@@ -162,71 +167,81 @@ export default function Dashboard() {
   }
 
   const m = data!
-  // 夹紧 [0,100]:后端可能上报 used>total,避免文字与色阶显示 >100%。
-  const clampPct = (pct: number) => Math.min(100, Math.max(0, pct))
-  const memPct = clampPct(m.mem_total > 0 ? (m.mem_used / m.mem_total) * 100 : 0)
-  const diskPct = clampPct(m.disk_total > 0 ? (m.disk_used / m.disk_total) * 100 : 0)
+  const memPct = clampPct(pct(m.mem_used, m.mem_total))
+  const diskPct = clampPct(pct(m.disk_used, m.disk_total))
+  const swap = detail.data?.memory
+  const swapPct = swap ? clampPct(pct(swap.swap_used, swap.swap_total)) : 0
   const cpuLevel = levelFor(m.cpu_percent)
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <VitalCard label="cpu 利用率" pct={m.cpu_percent}>
-          <Stat
-            value={
-              <span className={levelText[cpuLevel]}>
-                {m.cpu_percent.toFixed(1)}
-                <span className="text-muted">%</span>
-              </span>
-            }
-            label="cpu 占用"
-          />
-        </VitalCard>
+    <div className="flex flex-col gap-6">
+      <OverviewBar detail={detail.data} online={!error} />
 
-        <VitalCard label="内存" pct={memPct}>
-          <Stat
-            value={
-              <span className={levelText[levelFor(memPct)]}>
-                {memPct.toFixed(0)}
-                <span className="text-muted">%</span>
-              </span>
-            }
-            label={`${formatBytes(m.mem_used)} / ${formatBytes(m.mem_total)}`}
+      <section className="flex flex-col gap-3">
+        <SectionHeading>核心资源</SectionHeading>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <VitalCard
+            label="cpu 利用率"
+            pct={m.cpu_percent}
+            reading={m.cpu_percent.toFixed(1)}
+            unit="%"
+            sub={detail.data ? `${detail.data.cpu_per_core.length} 核` : 'cpu 占用'}
           />
-        </VitalCard>
-
-        <VitalCard label="磁盘" pct={diskPct}>
-          <Stat
-            value={
-              <span className={levelText[levelFor(diskPct)]}>
-                {diskPct.toFixed(0)}
-                <span className="text-muted">%</span>
-              </span>
-            }
-            label={`${formatBytes(m.disk_used)} / ${formatBytes(m.disk_total)}`}
+          <VitalCard
+            label="内存"
+            pct={memPct}
+            reading={memPct.toFixed(0)}
+            unit="%"
+            sub={`${formatBytes(m.mem_used)} / ${formatBytes(m.mem_total)}`}
           />
-        </VitalCard>
-      </div>
-
-      <Card>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-muted">CPU 利用率趋势</h2>
-          <span className="text-xs lowercase tracking-wide text-muted">
-            最近 {WINDOW} 个采样
-          </span>
+          <VitalCard
+            label="磁盘"
+            pct={diskPct}
+            reading={diskPct.toFixed(0)}
+            unit="%"
+            sub={`${formatBytes(m.disk_used)} / ${formatBytes(m.disk_total)}`}
+          />
+          <VitalCard
+            label="swap"
+            pct={swapPct}
+            reading={swap && swap.swap_total > 0 ? swapPct.toFixed(0) : '—'}
+            unit={swap && swap.swap_total > 0 ? '%' : ''}
+            sub={swap ? `${formatBytes(swap.swap_used)} / ${formatBytes(swap.swap_total)}` : '未启用'}
+          />
         </div>
-        <div className="h-64">
-          <Suspense
-            fallback={
-              <div className="flex h-full items-center justify-center">
-                <Spinner size={20} />
-              </div>
-            }
-          >
-            <CpuTrendChart series={series} stroke={levelStroke[cpuLevel]} />
-          </Suspense>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <SectionHeading>实时趋势</SectionHeading>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-sm font-medium text-text">cpu 利用率趋势</h3>
+              <span className="text-xs lowercase tracking-wide text-muted">
+                最近 {WINDOW} 个采样
+              </span>
+            </div>
+            <div className="h-56">
+              <Suspense
+                fallback={
+                  <div className="flex h-full items-center justify-center">
+                    <Spinner size={20} />
+                  </div>
+                }
+              >
+                <CpuTrendChart series={series} stroke={levelStroke[cpuLevel]} />
+              </Suspense>
+            </div>
+          </Card>
+
+          <RateSummaryCard
+            net={rates.net}
+            disk={rates.disk}
+            error={!!detail.error}
+            loading={!detail.data}
+          />
         </div>
-      </Card>
+      </section>
 
       <DetailSections
         detail={detail.data}
@@ -240,7 +255,137 @@ export default function Dashboard() {
   )
 }
 
-// DetailSections 详细监控分区:每核 CPU、负载、内存细化、网络、磁盘 IO、运行时长、Top 进程。
+// OverviewBar 顶部概览条:在线状态 + 运行时长 + 启动时间 + 核数 + 负载,一行紧凑信息。
+function OverviewBar({ detail, online }: { detail: DetailMetrics | null; online: boolean }) {
+  return (
+    <Card className="flex flex-wrap items-center gap-x-8 gap-y-4">
+      <div className="flex items-center gap-2.5">
+        <span
+          className={`h-2 w-2 rounded-full ${online ? 'bg-online animate-breathe' : 'bg-crit'}`}
+          aria-hidden
+        />
+        <span className="text-sm font-medium text-text">系统总览</span>
+        <span className="text-xs text-muted">{online ? '运行中' : '离线'}</span>
+      </div>
+
+      <div className="hidden h-8 w-px bg-border sm:block" aria-hidden />
+
+      <OverviewItem
+        label="运行时长"
+        value={detail ? formatDuration(detail.uptime_sec) : '—'}
+      />
+      <OverviewItem
+        label="启动时间"
+        value={
+          detail
+            ? new Date(detail.boot_time * 1000).toLocaleString('zh-CN', {
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : '—'
+        }
+      />
+      <OverviewItem label="cpu 核数" value={detail ? `${detail.cpu_per_core.length}` : '—'} />
+      <OverviewItem
+        label="负载 1 / 5 / 15"
+        value={
+          detail
+            ? `${detail.load.load1.toFixed(2)} / ${detail.load.load5.toFixed(2)} / ${detail.load.load15.toFixed(2)}`
+            : '—'
+        }
+      />
+    </Card>
+  )
+}
+
+// OverviewItem 概览条单项:小标签 + mono 读数。
+function OverviewItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-xs lowercase tracking-wide text-muted">{label}</span>
+      <span className="font-[family-name:var(--font-mono)] text-sm tabular-nums text-text">
+        {value}
+      </span>
+    </div>
+  )
+}
+
+// SectionHeading 分区小标题:统一的层级标记,左侧 brand 竖条。
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="h-3.5 w-1 rounded-full bg-brand" aria-hidden />
+      <h2 className="text-sm font-medium text-text">{children}</h2>
+    </div>
+  )
+}
+
+// RateSummaryCard 趋势区侧栏:全机网络上下行 + 磁盘读写聚合速率。
+function RateSummaryCard({
+  net,
+  disk,
+  error,
+  loading,
+}: {
+  net: NetRate[]
+  disk: DiskRate[]
+  error: boolean
+  loading: boolean
+}) {
+  const rx = net.reduce((s, n) => s + n.rx, 0)
+  const tx = net.reduce((s, n) => s + n.tx, 0)
+  const read = disk.reduce((s, d) => s + d.read, 0)
+  const write = disk.reduce((s, d) => s + d.write, 0)
+  return (
+    <Card className="flex flex-col">
+      <h3 className="mb-4 text-sm font-medium text-text">吞吐速率</h3>
+      {error ? (
+        <SectionError />
+      ) : loading ? (
+        <SectionLoading />
+      ) : (
+        <div className="flex flex-1 flex-col justify-around gap-5">
+          <RateRow label="网络" down={rx} up={tx} downLabel="↓" upLabel="↑" />
+          <div className="h-px bg-border" aria-hidden />
+          <RateRow label="磁盘 io" down={read} up={write} downLabel="读" upLabel="写" />
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// RateRow 聚合速率行:一个标签 + 两路读数(下行/上行 或 读/写)。
+function RateRow({
+  label,
+  down,
+  up,
+  downLabel,
+  upLabel,
+}: {
+  label: string
+  down: number
+  up: number
+  downLabel: string
+  upLabel: string
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-xs lowercase tracking-wide text-muted">{label}</span>
+      <div className="flex items-baseline justify-between font-[family-name:var(--font-mono)] tabular-nums">
+        <span className="text-online">
+          <span className="text-xs text-muted">{downLabel}</span> {formatRate(down)}
+        </span>
+        <span className="text-brand">
+          <span className="text-xs text-muted">{upLabel}</span> {formatRate(up)}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// DetailSections 详细监控分区:每核 CPU、内存细化、网络、磁盘 IO、Top 进程。
 function DetailSections({
   detail,
   detailError,
@@ -257,7 +402,9 @@ function DetailSections({
   procsError: boolean
 }) {
   return (
-    <div className="flex flex-col gap-4">
+    <section className="flex flex-col gap-3">
+      <SectionHeading>详细监控</SectionHeading>
+
       <SectionCard title="cpu 每核占用">
         {detailError ? (
           <SectionError />
@@ -267,35 +414,6 @@ function DetailSections({
           <SectionLoading />
         )}
       </SectionCard>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <SectionCard title="系统负载">
-          {detailError ? (
-            <SectionError />
-          ) : detail ? (
-            <div className="grid grid-cols-3 gap-4">
-              <Stat value={detail.load.load1.toFixed(2)} label="load 1m" />
-              <Stat value={detail.load.load5.toFixed(2)} label="load 5m" />
-              <Stat value={detail.load.load15.toFixed(2)} label="load 15m" />
-            </div>
-          ) : (
-            <SectionLoading />
-          )}
-        </SectionCard>
-
-        <SectionCard title="运行时长">
-          {detailError ? (
-            <SectionError />
-          ) : detail ? (
-            <Stat
-              value={formatDuration(detail.uptime_sec)}
-              label={`自 ${new Date(detail.boot_time * 1000).toLocaleString('zh-CN')} 启动`}
-            />
-          ) : (
-            <SectionLoading />
-          )}
-        </SectionCard>
-      </div>
 
       <SectionCard title="内存细化">
         {detailError ? (
@@ -338,7 +456,7 @@ function DetailSections({
           <SectionLoading />
         )}
       </SectionCard>
-    </div>
+    </section>
   )
 }
 
@@ -346,7 +464,7 @@ function DetailSections({
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <Card>
-      <h2 className="mb-4 text-sm font-medium text-muted">{title}</h2>
+      <h3 className="mb-4 text-sm font-medium text-text">{title}</h3>
       {children}
     </Card>
   )
@@ -368,21 +486,18 @@ function SectionError() {
 function CoreGrid({ cores }: { cores: number[] }) {
   return (
     <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 xl:grid-cols-4">
-      {cores.map((pct, i) => {
-        const level = levelFor(pct)
+      {cores.map((p, i) => {
+        const level = levelFor(p)
         return (
           <div key={i} className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted">核 {i}</span>
-              <span className={`tabular-nums ${levelText[level]}`}>{pct.toFixed(0)}%</span>
+              <span className={`tabular-nums ${levelText[level]}`}>{p.toFixed(0)}%</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
               <div
                 className="h-full rounded-full transition-[width] duration-500"
-                style={{
-                  width: `${Math.min(100, Math.max(0, pct))}%`,
-                  background: levelStroke[level],
-                }}
+                style={{ width: `${clampPct(p)}%`, background: levelStroke[level] }}
               />
             </div>
           </div>
@@ -392,16 +507,14 @@ function CoreGrid({ cores }: { cores: number[] }) {
   )
 }
 
-// MemoryDetail 内存细化:swap 用量 + cached/buffers。
+// MemoryDetail 内存细化:swap 用量 + cached/buffers + 可用。
 function MemoryDetail({ memory }: { memory: DetailMetrics['memory'] }) {
-  const swapPct = memory.swap_total > 0 ? (memory.swap_used / memory.swap_total) * 100 : 0
+  const swapPct = pct(memory.swap_used, memory.swap_total)
   return (
     <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
       <Stat
         value={
-          <span className={levelText[levelFor(swapPct)]}>
-            {formatBytes(memory.swap_used)}
-          </span>
+          <span className={levelText[levelFor(swapPct)]}>{formatBytes(memory.swap_used)}</span>
         }
         label={`swap / ${formatBytes(memory.swap_total)}`}
       />
@@ -512,21 +625,34 @@ function ProcessTable({ procs }: { procs: ProcessInfo[] }) {
   )
 }
 
-// VitalCard 读数卡 + 细进度圈,圈色按阈值随利用率变化。
+// VitalCard 核心资源读数卡:大号 mono 读数 + 阈值变色 + 进度环 + 副标。视觉权重统一。
 function VitalCard({
   label,
   pct,
-  children,
+  reading,
+  unit,
+  sub,
 }: {
   label: string
   pct: number
-  children: React.ReactNode
+  reading: string
+  unit: string
+  sub: string
 }) {
+  const level = levelFor(pct)
   return (
-    <Card hoverable className="flex items-center justify-between">
-      <div className="flex flex-col gap-3">
+    <Card hoverable className="flex items-center justify-between gap-3">
+      <div className="flex min-w-0 flex-col gap-3">
         <span className="text-xs uppercase tracking-wider text-muted">{label}</span>
-        {children}
+        <div className="flex flex-col gap-1">
+          <span className="font-[family-name:var(--font-mono)] text-3xl font-medium tabular-nums tracking-tight">
+            <span className={levelText[level]}>{reading}</span>
+            <span className="text-muted">{unit}</span>
+          </span>
+          <span className="truncate text-xs lowercase tracking-wide text-muted" title={sub}>
+            {sub}
+          </span>
+        </div>
       </div>
       <ProgressRing pct={pct} />
     </Card>
@@ -539,7 +665,7 @@ function ProgressRing({ pct }: { pct: number }) {
   const stroke = 6
   const r = (size - stroke) / 2
   const circ = 2 * Math.PI * r
-  const clamped = Math.max(0, Math.min(100, pct))
+  const clamped = clampPct(pct)
   const offset = circ * (1 - clamped / 100)
   const color = levelStroke[levelFor(pct)]
   return (
