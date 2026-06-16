@@ -81,11 +81,15 @@ export default function Login() {
               onChange={(e) => setTotp(e.target.value.replace(/\D/g, '').slice(0, 6))}
             />
           )}
-          {error && (
-            <span role="alert" className="text-sm text-crit">
-              {error}
-            </span>
-          )}
+          {/* 错误文案固定占位淡入:始终保留行高,文案出现/消失都不挤动表单,杜绝闪烁。 */}
+          <p
+            role="alert"
+            aria-live="assertive"
+            className="min-h-5 text-sm leading-5 text-crit motion-safe:[animation:var(--animate-error-in)]"
+            key={error}
+          >
+            {error}
+          </p>
           <Button
             type="submit"
             disabled={submitting || (needTotp && totp.length !== 6)}
