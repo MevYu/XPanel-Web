@@ -95,10 +95,19 @@ function ModuleRow({ module, onChanged }: { module: ModuleView; onChanged: () =>
   return (
     <div className="flex items-center gap-4 px-5 py-3.5">
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="truncate text-sm font-medium text-text">{module.name}</span>
           {module.always_on && <Badge status="neutral">常驻</Badge>}
+          {module.health &&
+            (module.health.ok ? (
+              <Badge status="online">就绪</Badge>
+            ) : (
+              <Badge status="warn">依赖未就绪</Badge>
+            ))}
         </div>
+        {module.health && !module.health.ok && module.health.reason && (
+          <span className="text-xs text-warn">{module.health.reason}</span>
+        )}
         {(module.requires ?? []).length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted">依赖</span>

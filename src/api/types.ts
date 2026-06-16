@@ -4,6 +4,8 @@ export interface ModuleView {
   id: string; name: string; category: string
   requires: string[]; always_on: boolean
   enabled: boolean; nav: NavItem[]
+  // 后端依赖探测结果;ok=false 时 reason 说明缺哪个依赖。旧后端可能不返回。
+  health?: { ok: boolean; reason: string }
 }
 export interface Metrics {
   cpu_percent: number
