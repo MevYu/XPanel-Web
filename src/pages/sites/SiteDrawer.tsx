@@ -1,27 +1,78 @@
-import { useCallback, useEffect, useState } from 'react'
-import { apiFetch } from '../../api/client'
-import { Button } from '../../components/Button'
+import { useEffect, useState } from 'react'
 import { Badge } from '../../components/Badge'
-import { Spinner } from '../../components/Spinner'
-import { Globe, Code2, Boxes, X, FileCode2, Network, LayoutPanelTop } from 'lucide-react'
 import {
-  type Site,
-  DANGER,
-  errorText,
-  kindLabel,
-  kindAccent,
-  formatTime,
-} from './shared'
+  Globe,
+  Code2,
+  Boxes,
+  X,
+  LayoutPanelTop,
+  Network,
+  ShieldCheck,
+  Repeat,
+  Forward,
+  FileText,
+  Lock,
+  ArrowLeftRight,
+  ShieldAlert,
+  FolderTree,
+  ScrollText,
+  FileCode2,
+  type LucideIcon,
+} from 'lucide-react'
+import { type Site, type Kind, kindLabel, kindAccent } from './shared'
+import { OverviewTab } from './tabs/OverviewTab'
+import { DomainsTab } from './tabs/DomainsTab'
+import { SslTab } from './tabs/SslTab'
+import { RewriteTab } from './tabs/RewriteTab'
+import { ProxyTab } from './tabs/ProxyTab'
+import { PhpTab } from './tabs/PhpTab'
+import { DefaultDocsTab } from './tabs/DefaultDocsTab'
+import { DirProtectTab } from './tabs/DirProtectTab'
+import { RedirectsTab } from './tabs/RedirectsTab'
+import { AntiLeechTab } from './tabs/AntiLeechTab'
+import { RunDirTab } from './tabs/RunDirTab'
+import { LogsTab } from './tabs/LogsTab'
+import { ConfigTab } from './tabs/ConfigTab'
 
-type Tab = 'overview' | 'domains' | 'config'
+type TabKey =
+  | 'overview'
+  | 'domains'
+  | 'ssl'
+  | 'php'
+  | 'rewrite'
+  | 'proxy'
+  | 'docs'
+  | 'dir-protect'
+  | 'redirects'
+  | 'anti-leech'
+  | 'run-dir'
+  | 'logs'
+  | 'config'
 
-const TABS: { key: Tab; label: string; Icon: typeof Globe }[] = [
+interface TabDef {
+  key: TabKey
+  label: string
+  Icon: LucideIcon
+  kinds?: Kind[] // 限定可见的站点类型;空 = 全部
+}
+
+const ALL_TABS: TabDef[] = [
   { key: 'overview', label: '概览', Icon: LayoutPanelTop },
   { key: 'domains', label: '域名', Icon: Network },
+  { key: 'ssl', label: 'SSL', Icon: ShieldCheck },
+  { key: 'php', label: 'PHP', Icon: Code2, kinds: ['php'] },
+  { key: 'proxy', label: '反向代理', Icon: ArrowLeftRight, kinds: ['proxy'] },
+  { key: 'rewrite', label: '伪静态', Icon: Repeat, kinds: ['static', 'php'] },
+  { key: 'docs', label: '默认文档', Icon: FileText, kinds: ['static', 'php'] },
+  { key: 'dir-protect', label: '目录保护', Icon: Lock },
+  { key: 'redirects', label: '重定向', Icon: Forward },
+  { key: 'anti-leech', label: '防盗链', Icon: ShieldAlert },
+  { key: 'run-dir', label: '运行目录', Icon: FolderTree, kinds: ['static', 'php'] },
+  { key: 'logs', label: '日志', Icon: ScrollText },
   { key: 'config', label: '配置文件', Icon: FileCode2 },
 ]
 
-const kindIcon: Record<string, typeof Globe> = { static: Globe, php: Code2, proxy: Boxes }
+const kindIcon: Record<string, LucideIcon> = { static: Globe, php: Code2, proxy: Boxes }
 
 interface Props {
   site: Site
@@ -31,9 +82,10 @@ interface Props {
   onChanged: (site: Site) => void
 }
 
-/** SiteDrawer 站点详情右侧抽屉:tab 化(概览/域名/配置文件),写操作按角色门控。 */
+/** SiteDrawer 站点详情右侧抽屉:完整 aaPanel 级 tab 化设置,按站点类型动态显隐 tab。 */
 export function SiteDrawer({ site, canWrite, isAdmin, onClose, onChanged }: Props) {
-  const [tab, setTab] = useState<Tab>('overview')
+  const tabs = ALL_TABS.filter((t) => !t.kinds || t.kinds.includes(site.kind))
+  const [tab, setTab] = useState<TabKey>('overview')
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -82,226 +134,41 @@ export function SiteDrawer({ site, canWrite, isAdmin, onClose, onChanged }: Prop
           </button>
         </header>
 
-        <nav className="flex gap-1 border-b border-border px-4">
-          {TABS.map(({ key, label, Icon: TabIcon }) => {
+        <nav className="flex gap-0.5 overflow-x-auto border-b border-border px-4">
+          {tabs.map(({ key, label, Icon: TabIcon }) => {
             const active = tab === key
             return (
               <button
                 key={key}
                 onClick={() => setTab(key)}
-                className={`relative -mb-px flex items-center gap-1.5 px-3 py-3 text-sm font-medium transition outline-none ${
+                className={`relative -mb-px flex shrink-0 items-center gap-1.5 px-3 py-3 text-sm font-medium transition outline-none ${
                   active ? 'text-text' : 'text-muted hover:text-text'
                 }`}
               >
                 <TabIcon size={15} />
                 {label}
-                {active && (
-                  <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-brand" />
-                )}
+                {active && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-brand" />}
               </button>
             )
           })}
         </nav>
 
         <div className="flex-1 overflow-auto p-6">
-          {tab === 'overview' && <Overview site={site} canWrite={canWrite} onChanged={onChanged} />}
-          {tab === 'domains' && <Domains site={site} />}
-          {tab === 'config' && (
-            <ConfigTab site={site} isAdmin={isAdmin} onChanged={onChanged} />
-          )}
+          {tab === 'overview' && <OverviewTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+          {tab === 'domains' && <DomainsTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+          {tab === 'ssl' && <SslTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+          {tab === 'php' && <PhpTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+          {tab === 'proxy' && <ProxyTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+          {tab === 'rewrite' && <RewriteTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+          {tab === 'docs' && <DefaultDocsTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+          {tab === 'dir-protect' && <DirProtectTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+          {tab === 'redirects' && <RedirectsTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+          {tab === 'anti-leech' && <AntiLeechTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+          {tab === 'run-dir' && <RunDirTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+          {tab === 'logs' && <LogsTab site={site} />}
+          {tab === 'config' && <ConfigTab site={site} isAdmin={isAdmin} onChanged={onChanged} />}
         </div>
       </aside>
-    </div>
-  )
-}
-
-function Field({ label, children, mono }: { label: string; children: React.ReactNode; mono?: boolean }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <dt className="text-xs font-medium text-muted">{label}</dt>
-      <dd className={`text-sm text-text ${mono ? 'font-[family-name:var(--font-mono)] break-all' : ''}`}>
-        {children}
-      </dd>
-    </div>
-  )
-}
-
-function Overview({
-  site,
-  canWrite,
-  onChanged,
-}: {
-  site: Site
-  canWrite: boolean
-  onChanged: (s: Site) => void
-}) {
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-
-  async function toggle(enable: boolean) {
-    if (!canWrite) return
-    if (!enable && !window.confirm(`确认停用站点「${site.name}」?这将下线该站点。`)) return
-    setBusy(true)
-    setErr(null)
-    try {
-      const updated = await apiFetch<Site>(
-        `/api/m/sites/sites/${site.id}/${enable ? 'enable' : 'disable'}`,
-        { method: 'POST', headers: enable ? undefined : DANGER },
-      )
-      onChanged(updated)
-    } catch (e) {
-      setErr(errorText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-6">
-      <section className="rounded-(--radius-card) border border-border bg-surface p-5">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-medium text-text">运行状态</span>
-            <span className="text-xs text-muted">
-              {site.enabled ? '站点配置已下发,正在对外服务。' : '配置已从 nginx 移除,当前下线。'}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            {busy && <Spinner size={16} />}
-            {site.enabled ? (
-              <Button size="sm" variant="ghost" disabled={!canWrite} onClick={() => void toggle(false)}>
-                停用
-              </Button>
-            ) : (
-              <Button size="sm" disabled={!canWrite} onClick={() => void toggle(true)}>
-                启用
-              </Button>
-            )}
-          </div>
-        </div>
-        {err && <p className="mt-3 text-sm text-crit">{err}</p>}
-      </section>
-
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-5 rounded-(--radius-card) border border-border bg-surface p-5">
-        <Field label="站点名">{site.name}</Field>
-        <Field label="类型">{kindLabel[site.kind] ?? site.kind}</Field>
-        <Field label="监听端口" mono>:{site.listen}</Field>
-        <Field label="域名数">{site.domains.length}</Field>
-        <Field label="创建时间">{formatTime(site.created_at)}</Field>
-        <Field label="更新时间">{formatTime(site.updated_at)}</Field>
-      </dl>
-    </div>
-  )
-}
-
-function Domains({ site }: { site: Site }) {
-  return (
-    <div className="flex flex-col gap-3">
-      <p className="text-xs text-muted">
-        当前绑定的域名(来自创建时的配置)。修改域名请在配置文件 tab 调整。
-      </p>
-      <ul className="flex flex-col gap-2">
-        {site.domains.map((d) => (
-          <li
-            key={d}
-            className="flex items-center gap-3 rounded-(--radius-card) border border-border bg-surface px-4 py-3"
-          >
-            <Globe size={15} className="shrink-0 text-muted" />
-            <span className="truncate font-[family-name:var(--font-mono)] text-sm text-text">{d}</span>
-            <span className="ml-auto shrink-0 font-[family-name:var(--font-mono)] text-xs text-muted">
-              :{site.listen}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function ConfigTab({
-  site,
-  isAdmin,
-  onChanged,
-}: {
-  site: Site
-  isAdmin: boolean
-  onChanged: (s: Site) => void
-}) {
-  const [draft, setDraft] = useState(site.config)
-  const [loading, setLoading] = useState(true)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    try {
-      const full = await apiFetch<Site>(`/api/m/sites/sites/${site.id}`)
-      setDraft(full.config)
-    } catch {
-      setDraft(site.config)
-    } finally {
-      setLoading(false)
-    }
-  }, [site.id, site.config])
-
-  useEffect(() => {
-    void load()
-  }, [load])
-
-  async function save() {
-    if (!isAdmin || !window.confirm('确认替换站点配置?原始配置可绕过建站白名单,属危险操作。')) return
-    setBusy(true)
-    setErr(null)
-    try {
-      const updated = await apiFetch<Site>(`/api/m/sites/sites/${site.id}/config`, {
-        method: 'PUT',
-        headers: DANGER,
-        body: JSON.stringify({ config: draft }),
-      })
-      onChanged(updated)
-      setErr(null)
-    } catch (e) {
-      setErr(errorText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex h-40 items-center justify-center">
-        <Spinner size={22} />
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-muted">
-          生成的 nginx 配置。{isAdmin ? '编辑后保存会经 nginx -t 校验,失败则不生效。' : '仅 admin 可编辑。'}
-        </p>
-      </div>
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        spellCheck={false}
-        readOnly={!isAdmin}
-        className="h-[52vh] w-full resize-none rounded-(--radius-card) border border-border bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60"
-      />
-      {err && (
-        <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
-          {err}
-        </p>
-      )}
-      {isAdmin && (
-        <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => void save()} disabled={busy || draft === site.config}>
-            {busy && <Spinner size={14} />}
-            保存配置
-          </Button>
-          <span className="text-xs text-muted">危险操作,会立即重载 nginx。</span>
-        </div>
-      )}
     </div>
   )
 }
