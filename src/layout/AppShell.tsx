@@ -53,13 +53,13 @@ export function AppShell() {
       {/* 小屏抽屉:遮罩 + 左侧滑入 */}
       {drawerOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
           onClick={() => setDrawerOpen(false)}
           aria-hidden
         />
       )}
       <div
-        className={`fixed inset-y-0 left-0 z-40 transition-transform lg:hidden ${
+        className={`fixed inset-y-0 left-0 z-40 shadow-[var(--shadow-elevated)] transition-transform duration-(--dur-base) ease-(--ease-out) lg:hidden ${
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -67,7 +67,7 @@ export function AppShell() {
       </div>
 
       <div className="flex min-h-0 min-w-0 flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-surface/70 px-4 backdrop-blur-md sm:px-6">
           <IconButton
             icon={<Menu size={18} />}
             aria-label="打开菜单"

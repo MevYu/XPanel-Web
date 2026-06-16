@@ -1,17 +1,17 @@
 import type { HTMLAttributes } from 'react'
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
-  /** 开启后 hover 时微妙抬升:border 提亮 + 柔和阴影。 */
+  /** 开启后 hover 时微妙抬升:border 提亮 + 柔和阴影 + 上移 1px。 */
   hoverable?: boolean
 }
 
-/** Card 容器:surface 底 + border + radius-card,可选 hover 抬升。 */
+/** Card 容器:surface 底 + hairline 边 + 顶边内高光 + 柔和阴影,可选 hover 抬升。 */
 export function Card({ hoverable, className = '', ...rest }: CardProps) {
   return (
     <div
-      className={`rounded-(--radius-card) border border-border bg-surface p-5 ${
+      className={`rounded-(--radius-card) border border-border bg-surface p-5 shadow-[var(--shadow-card),var(--inset-hl)] ${
         hoverable
-          ? 'transition hover:border-surface-2 hover:shadow-[0_8px_24px_-12px_rgba(0,0,0,0.6)]'
+          ? 'transition-[border-color,box-shadow,transform] duration-(--dur-base) ease-(--ease-out) hover:-translate-y-0.5 hover:border-border-strong hover:shadow-[var(--shadow-elevated),var(--inset-hl)]'
           : ''
       } ${className}`}
       {...rest}

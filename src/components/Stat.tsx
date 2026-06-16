@@ -14,7 +14,7 @@ export function Stat({ value, label }: StatProps) {
       <span className="font-[family-name:var(--font-mono)] text-3xl font-medium tabular-nums tracking-tight text-text">
         {value}
       </span>
-      <span className="text-xs lowercase tracking-wide text-muted">{label}</span>
+      <span className="text-xs lowercase tracking-wide text-faint">{label}</span>
     </div>
   )
 }

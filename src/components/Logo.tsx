@@ -63,7 +63,7 @@ export function Logo({ size = 28, className }: LogoProps) {
 
       {/* 中心脉冲节点 */}
       <circle cx="16" cy="16" r="3.4" fill="url(#xpanel-logo-core)" />
-      <circle cx="16" cy="16" r="3.4" stroke="#0B0F14" strokeWidth="1" />
+      <circle cx="16" cy="16" r="3.4" stroke="#0A0E13" strokeWidth="1" />
     </svg>
   )
 }

@@ -1,18 +1,53 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #0B0F14;
-  --color-surface: #121822;
-  --color-surface-2: #1A222E;
+  /* 分层 surface:bg→surface→surface-2→elevated 微妙明度梯度,造出真实深色层次而非死黑。 */
+  --color-bg: #0A0E13;
+  --color-surface: #10151D;
+  --color-surface-2: #18202B;
+  --color-elevated: #1F2935;
   --color-border: #232C39;
-  --color-text: #E6EDF3;
+  --color-border-strong: #2E3845;
+
+  /* 文字层级:text→muted→faint,对比舒适。 */
+  --color-text: #E8EEF5;
   --color-muted: #8593A6;
+  --color-faint: #5C6878;
+
+  /* 品牌靛蓝 + 辅助梯度,克制使用:hover 提亮、soft 作选中底。 */
   --color-brand: #6E8BFF;
-  --color-brand-soft: rgba(110, 139, 255, 0.12);
+  --color-brand-bright: #8FA5FF;
+  --color-brand-dim: #4A63D6;
+  --color-brand-soft: rgba(110, 139, 255, 0.13);
+  --color-brand-faint: rgba(110, 139, 255, 0.07);
+
+  /* 语义状态色 + 各自 soft 底。 */
   --color-online: #3FB57F;
+  --color-online-soft: rgba(63, 181, 127, 0.13);
   --color-warn: #E8B339;
+  --color-warn-soft: rgba(232, 179, 57, 0.13);
   --color-crit: #E5484D;
+  --color-crit-soft: rgba(229, 72, 77, 0.13);
+
+  /* 圆角梯度。 */
+  --radius-sm: 8px;
   --radius-card: 12px;
+  --radius-lg: 16px;
+
+  /* 过渡时长:micro 用于 hover/active,base 用于较大位移/抬升。 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-micro: 150ms;
+  --dur-base: 200ms;
+
+  /* 精致阴影:由柔和扩散 + 紧贴投影叠出深度。 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 1px 1px rgba(0, 0, 0, 0.3), 0 8px 24px -14px rgba(0, 0, 0, 0.7);
+  --shadow-elevated: 0 2px 4px rgba(0, 0, 0, 0.35), 0 16px 40px -18px rgba(0, 0, 0, 0.8);
+  /* 品牌微辉光:仅关键元素(主按钮、选中、focus)使用。 */
+  --shadow-glow: 0 8px 24px -10px rgba(110, 139, 255, 0.5);
+  /* 顶边内高光:1px 半透明白,模拟受光面。 */
+  --inset-hl: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+
   --font-display: "Space Grotesk", system-ui, sans-serif;
   --font-sans: "Inter", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -35,15 +70,29 @@
 html, body, #root { height: 100%; }
 body {
   margin: 0;
-  background: var(--color-bg);
+  /* 极轻顶部品牌渐变,给死黑底注入一丝深度,落到纯 bg。 */
+  background:
+    radial-gradient(120% 60% at 50% -10%, rgba(110, 139, 255, 0.05), transparent 60%),
+    var(--color-bg);
+  background-attachment: fixed;
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
-/* 细滚动条,贴合暗色仪表台 */
+/* 细滚动条,贴合暗色仪表台;hover 提亮反馈。 */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 6px; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-border-strong); background-clip: padding-box; }
 ::-webkit-scrollbar-track { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--color-border) transparent; }
+
+::selection { background: var(--color-brand-soft); color: var(--color-text); }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }

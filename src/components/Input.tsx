@@ -6,27 +6,24 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   error?: string
 }
 
-/** Input 带 label 的输入框,error 非空时进入 crit 错误态并显示提示。 */
+/** Input 带 label 的输入框,error 非空时进入 crit 错误态并显示提示。focus 时 brand 边 + 微辉光。 */
 export function Input({ label, error, className = '', id, ...rest }: InputProps) {
   const autoId = useId()
   const inputId = id ?? autoId
   const errorId = error ? `${inputId}-error` : undefined
   return (
     <div className={`flex flex-col gap-1.5 ${className}`}>
-      <label
-        htmlFor={inputId}
-        className="text-sm font-medium text-muted"
-      >
+      <label htmlFor={inputId} className="text-sm font-medium text-muted">
         {label}
       </label>
       <input
         id={inputId}
         aria-invalid={error ? true : undefined}
         aria-describedby={errorId}
-        className={`h-10 rounded-(--radius-card) border bg-surface-2 px-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-40 ${
+        className={`h-10 rounded-(--radius-sm) border bg-surface-2/70 px-3 text-sm text-text outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-[border-color,box-shadow,background-color] duration-(--dur-micro) ease-(--ease-out) placeholder:text-faint hover:border-border-strong focus:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40 ${
           error
-            ? 'border-crit focus-visible:ring-crit/60'
-            : 'border-border focus-visible:ring-brand/60'
+            ? 'border-crit focus:border-crit focus:shadow-[0_0_0_3px_var(--color-crit-soft),inset_0_1px_2px_rgba(0,0,0,0.25)]'
+            : 'border-border focus:border-brand focus:shadow-[0_0_0_3px_var(--color-brand-soft),inset_0_1px_2px_rgba(0,0,0,0.25)]'
         }`}
         {...rest}
       />

@@ -5,7 +5,7 @@ interface SwitchProps {
   'aria-label'?: string
 }
 
-/** Switch 无障碍开关:role=switch、aria-checked、Space/Enter 切换,开态为 brand 色。 */
+/** Switch 无障碍开关:role=switch、aria-checked、Space/Enter 切换,开态为 brand 色 + 微辉光。 */
 export function Switch({ checked, onChange, disabled, ...rest }: SwitchProps) {
   const toggle = () => {
     if (!disabled) onChange(!checked)
@@ -24,15 +24,15 @@ export function Switch({ checked, onChange, disabled, ...rest }: SwitchProps) {
           toggle()
         }
       }}
-      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-40 ${
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-[background-color,border-color,box-shadow] duration-(--dur-micro) ease-(--ease-out) outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-40 ${
         checked
-          ? 'border-brand bg-brand hover:border-[#8AA1FF] hover:bg-[#8AA1FF] disabled:hover:border-brand disabled:hover:bg-brand'
-          : 'border-border bg-surface-2 hover:border-muted hover:bg-brand-soft disabled:hover:border-border disabled:hover:bg-surface-2'
+          ? 'border-brand bg-brand shadow-[0_2px_10px_-2px_rgba(110,139,255,0.55)] hover:border-brand-bright hover:bg-brand-bright disabled:hover:border-brand disabled:hover:bg-brand'
+          : 'border-border bg-surface-2 shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)] hover:border-muted hover:bg-brand-soft disabled:hover:border-border disabled:hover:bg-surface-2'
       }`}
     >
       <span
         aria-hidden
-        className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${
+        className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.4)] transition-transform duration-(--dur-micro) ease-(--ease-out) ${
           checked ? 'translate-x-[18px]' : 'translate-x-[3px]'
         }`}
       />

@@ -1,3 +1,5 @@
+import { useId } from 'react'
+
 interface SparklineProps {
   data: number[]
   width?: number
@@ -5,15 +7,18 @@ interface SparklineProps {
   className?: string
 }
 
-/** Sparkline 迷你折线:SVG polyline,brand 色,无坐标轴。数据点不足 2 个时不渲染线。 */
+/** Sparkline 迷你折线:SVG polyline + 线下品牌渐变填充,无坐标轴。数据点不足 2 个时不渲染。 */
 export function Sparkline({
   data,
   width = 120,
   height = 32,
   className = '',
 }: SparklineProps) {
+  const fillId = useId()
   const pad = 2
-  const points = toPoints(data, width, height, pad)
+  const line = toPoints(data, width, height, pad)
+  // 折线两端落到底边围成闭合区,作渐变填充。
+  const area = line ? `${pad},${height - pad} ${line} ${width - pad},${height - pad}` : null
   return (
     <svg
       width={width}
@@ -23,15 +28,24 @@ export function Sparkline({
       aria-hidden
       className={className}
     >
-      {points && (
-        <polyline
-          points={points}
-          fill="none"
-          stroke="var(--color-brand)"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+      {line && (
+        <>
+          <defs>
+            <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-brand)" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="var(--color-brand)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <polygon points={area!} fill={`url(#${fillId})`} stroke="none" />
+          <polyline
+            points={line}
+            fill="none"
+            stroke="var(--color-brand)"
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </>
       )}
     </svg>
   )
