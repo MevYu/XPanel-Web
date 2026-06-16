@@ -25,6 +25,50 @@ async function fetchText(path: string): Promise<string> {
   return res.text()
 }
 
+// 下载走裸 fetch 取 blob:apiFetch 会强制 JSON.parse,二进制响应会抛错。
+async function downloadBlob(path: string, filename: string): Promise<void> {
+  const t = tokenStore.get()
+  const res = await fetch(path, {
+    headers: t ? { Authorization: `Bearer ${t.access}` } : undefined,
+  })
+  if (!res.ok) throw new Error(await res.text())
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+function formatSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let n = bytes
+  let i = 0
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024
+    i++
+  }
+  return `${i === 0 ? n : n.toFixed(1)} ${units[i]}`
+}
+
+function formatDate(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+}
+
+interface Backup {
+  id: string
+  engine: string
+  db_name: string
+  filename: string
+  size: number
+  created_at: string
+}
+
 interface Settings {
   mysql_host: string
   mysql_port: number
@@ -200,7 +244,15 @@ function ListBox({
   )
 }
 
-function SqlEnginePanel({ engine, refreshKey }: { engine: Engine; refreshKey: number }) {
+function SqlEnginePanel({
+  engine,
+  refreshKey,
+  onBackupDone,
+}: {
+  engine: Engine
+  refreshKey: number
+  onBackupDone: () => void
+}) {
   const base = `/api/m/database/${engine}`
   const [databases, setDatabases] = useState<string[]>([])
   const [users, setUsers] = useState<string[]>([])
@@ -272,6 +324,13 @@ function SqlEnginePanel({ engine, refreshKey }: { engine: Engine; refreshKey: nu
     )
   }
 
+  function backupDb(name: string) {
+    void run('备份数据库', async () => {
+      await apiFetch(`${base}/databases/${encodeURIComponent(name)}/backup`, { method: 'POST' })
+      onBackupDone()
+    })
+  }
+
   function createUser() {
     const user = newUser.trim()
     if (!user || !newUserPass) return
@@ -338,9 +397,12 @@ function SqlEnginePanel({ engine, refreshKey }: { engine: Engine; refreshKey: nu
           <ListBox loading={loading} error={loadErr} items={databases}
             empty="暂无数据库"
             render={(name) => (
-              <div key={name} className="flex items-center justify-between px-4 py-2.5">
+              <div key={name} className="flex items-center justify-between gap-2 px-4 py-2.5">
                 <span className="truncate font-[family-name:var(--font-mono)] text-sm text-text">{name}</span>
-                <Button size="sm" variant="danger" onClick={() => dropDb(name)} disabled={busy}>删除</Button>
+                <div className="flex items-center gap-1.5">
+                  <Button size="sm" variant="ghost" onClick={() => backupDb(name)} disabled={busy}>备份</Button>
+                  <Button size="sm" variant="danger" onClick={() => dropDb(name)} disabled={busy}>删除</Button>
+                </div>
               </div>
             )} />
         </Card>
@@ -462,21 +524,137 @@ function RedisPanel() {
   )
 }
 
-type Tab = 'mysql' | 'postgres' | 'redis' | 'settings'
+function BackupsPanel({ refreshKey }: { refreshKey: number }) {
+  const [backups, setBackups] = useState<Backup[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+
+  const load = useCallback(async () => {
+    setLoadErr(null)
+    setLoading(true)
+    try {
+      const data = await apiFetch<Backup[]>('/api/m/database/backups')
+      setBackups(Array.isArray(data) ? data : [])
+    } catch (e) {
+      setLoadErr(errorText(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load, refreshKey])
+
+  async function run(label: string, fn: () => Promise<void>) {
+    setBusy(true)
+    setFeedback(null)
+    try {
+      await fn()
+      setFeedback({ kind: 'ok', text: `${label}成功` })
+      await load()
+    } catch (e) {
+      setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function restore(b: Backup) {
+    if (!window.confirm(`确认用备份「${b.filename}」恢复数据库「${b.db_name}」?现有数据将被覆盖,不可恢复。`)) return
+    void run('恢复', () =>
+      apiFetch(`/api/m/database/backups/${encodeURIComponent(b.id)}/restore`, {
+        method: 'POST',
+        headers: DANGER,
+      }),
+    )
+  }
+
+  function remove(b: Backup) {
+    if (!window.confirm(`确认删除备份「${b.filename}」?此操作不可恢复。`)) return
+    void run('删除备份', () =>
+      apiFetch(`/api/m/database/backups/${encodeURIComponent(b.id)}`, {
+        method: 'DELETE',
+        headers: DANGER,
+      }),
+    )
+  }
+
+  async function download(b: Backup) {
+    setFeedback(null)
+    try {
+      await downloadBlob(`/api/m/database/backups/${encodeURIComponent(b.id)}/download`, b.filename)
+    } catch (e) {
+      setFeedback({ kind: 'err', text: errorText(e) })
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-text">备份记录</h3>
+        <Button size="sm" variant="ghost" onClick={() => void load()} disabled={loading}>刷新</Button>
+      </div>
+
+      {feedback && (
+        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
+          {feedback.text}
+        </p>
+      )}
+
+      <div className="rounded-(--radius-card) border border-border">
+        {loading ? (
+          <div className="flex h-24 items-center justify-center"><Spinner size={20} /></div>
+        ) : loadErr ? (
+          <p className="p-4 text-sm text-crit">{loadErr}</p>
+        ) : backups.length === 0 ? (
+          <p className="p-4 text-sm text-muted">暂无备份。在 MySQL / PostgreSQL 标签的库列表中点击「备份」即可创建。</p>
+        ) : (
+          <div className="max-h-96 divide-y divide-border overflow-auto">
+            {backups.map((b) => (
+              <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <Badge status="neutral">{b.engine}</Badge>
+                    <span className="truncate font-[family-name:var(--font-mono)] text-sm text-text">{b.db_name}</span>
+                  </div>
+                  <p className="mt-0.5 truncate text-xs text-muted">
+                    {b.filename} · {formatSize(b.size)} · {formatDate(b.created_at)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button size="sm" variant="ghost" onClick={() => void download(b)}>下载</Button>
+                  <Button size="sm" onClick={() => restore(b)} disabled={busy}>恢复</Button>
+                  <Button size="sm" variant="danger" onClick={() => remove(b)} disabled={busy}>删除</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+type Tab = 'mysql' | 'postgres' | 'redis' | 'backups' | 'settings'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'mysql', label: 'MySQL' },
   { key: 'postgres', label: 'PostgreSQL' },
   { key: 'redis', label: 'Redis' },
+  { key: 'backups', label: '备份记录' },
   { key: 'settings', label: '连接设置' },
 ]
 
-/** Database 数据库:连接设置,MySQL/PostgreSQL 库与用户管理、授权改密,Redis info 与清库。 */
+/** Database 数据库:连接设置,MySQL/PostgreSQL 库与用户管理、授权改密、库级备份与恢复,Redis info 与清库。 */
 export default function Database() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
   const [tab, setTab] = useState<Tab>('mysql')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [backupsKey, setBackupsKey] = useState(0)
 
   if (!isAdmin) {
     return (
@@ -502,9 +680,14 @@ export default function Database() {
         ))}
       </div>
 
-      {tab === 'mysql' && <SqlEnginePanel engine="mysql" refreshKey={refreshKey} />}
-      {tab === 'postgres' && <SqlEnginePanel engine="postgres" refreshKey={refreshKey} />}
+      {tab === 'mysql' && (
+        <SqlEnginePanel engine="mysql" refreshKey={refreshKey} onBackupDone={() => setBackupsKey((k) => k + 1)} />
+      )}
+      {tab === 'postgres' && (
+        <SqlEnginePanel engine="postgres" refreshKey={refreshKey} onBackupDone={() => setBackupsKey((k) => k + 1)} />
+      )}
       {tab === 'redis' && <RedisPanel />}
+      {tab === 'backups' && <BackupsPanel refreshKey={backupsKey} />}
       {tab === 'settings' && <SettingsCard onSaved={() => setRefreshKey((k) => k + 1)} />}
     </div>
   )
