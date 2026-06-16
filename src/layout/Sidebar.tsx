@@ -4,6 +4,7 @@ import { LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { useModules } from '../hooks/useModules'
 import { IconButton } from '../components/IconButton'
+import { Logo } from '../components/Logo'
 import { iconFor } from './icons'
 import type { NavItem } from '../api/types'
 
@@ -41,8 +42,8 @@ export function Sidebar() {
         collapsed ? 'w-16' : 'w-60'
       }`}
     >
-      <div className="flex h-14 items-center gap-2.5 px-4">
-        <span className="h-2 w-2 shrink-0 rounded-full bg-online" aria-hidden />
+      <div className={`flex h-14 items-center px-4 ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
+        <Logo size={26} className="shrink-0" />
         {!collapsed && (
           <span className="font-[family-name:var(--font-display)] text-lg font-semibold tracking-tight text-text">
             XPanel

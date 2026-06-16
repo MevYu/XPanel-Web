@@ -5,6 +5,7 @@ import { TwoFactorRequired, useAuth } from '../auth/AuthContext'
 import { Button } from '../components/Button'
 import { Card } from '../components/Card'
 import { Input } from '../components/Input'
+import { Logo } from '../components/Logo'
 
 export default function Login() {
   const { login } = useAuth()
@@ -51,10 +52,7 @@ export default function Login() {
       />
       <Card className="relative z-10 w-full max-w-sm border-surface-2/70 bg-surface/80 p-7 shadow-[0_24px_60px_-30px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm">
         <div className="mb-7 flex flex-col items-center gap-3 text-center">
-          <span className="relative flex h-2.5 w-2.5 items-center justify-center" aria-hidden>
-            <span className="absolute inline-flex h-full w-full rounded-full bg-online/60 motion-safe:animate-breathe" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-online shadow-[0_0_8px_var(--color-online)]" />
-          </span>
+          <Logo size={52} />
           <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight text-text">
             XPanel
           </h1>
