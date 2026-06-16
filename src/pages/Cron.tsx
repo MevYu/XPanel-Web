@@ -68,22 +68,38 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 
-/** schedule 转可读中文,raw 直接回显表达式。 */
-function describeSchedule(s: CronSchedule): string {
-  switch (s.kind) {
-    case 'every_n_minutes':
-      return `每 ${s.minute ?? 1} 分钟`
-    case 'hourly_at':
-      return `每小时第 ${s.minute ?? 0} 分`
-    case 'daily_at':
-      return `每天 ${pad2(s.hour ?? 0)}:${pad2(s.minute ?? 0)}`
-    case 'weekly_at':
-      return `${WEEKDAYS[s.weekday ?? 0]} ${pad2(s.hour ?? 0)}:${pad2(s.minute ?? 0)}`
-    case 'monthly_at':
-      return `每月 ${s.day ?? 1} 日 ${pad2(s.hour ?? 0)}:${pad2(s.minute ?? 0)}`
-    case 'raw':
-      return s.expr || '—'
+/**
+ * 把后端持久化的 5 段 cron 表达式可读化。识别常见模式(后端 Schedule.Build 产物
+ * 与典型手写表达式),识别不了就原样回显。全程空值保护,绝不抛错。
+ */
+function describeSchedule(expr: string | undefined | null): string {
+  const raw = (expr ?? '').trim()
+  if (!raw) return '—'
+  const f = raw.split(/\s+/)
+  if (f.length !== 5) return raw
+  const [min, hour, dom, mon, dow] = f
+  const allFree = (...xs: string[]) => xs.every((x) => x === '*')
+
+  // 每 N 分钟: */N * * * *
+  const everyMin = /^\*\/(\d+)$/.exec(min)
+  if (everyMin && allFree(hour, dom, mon, dow)) return `每 ${everyMin[1]} 分钟`
+  // 每小时第 M 分: M * * * *
+  if (/^\d+$/.test(min) && allFree(hour, dom, mon, dow)) {
+    return Number(min) === 0 ? '每小时' : `每小时第 ${Number(min)} 分`
   }
+  // 每天 HH:MM: M H * * *
+  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && allFree(dom, mon, dow)) {
+    return `每天 ${pad2(Number(hour))}:${pad2(Number(min))}`
+  }
+  // 每周 W 的 HH:MM: M H * * W
+  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === '*' && mon === '*' && /^[0-6]$/.test(dow)) {
+    return `${WEEKDAYS[Number(dow)]} ${pad2(Number(hour))}:${pad2(Number(min))}`
+  }
+  // 每月 D 的 HH:MM: M H D * *
+  if (/^\d+$/.test(min) && /^\d+$/.test(hour) && /^\d+$/.test(dom) && mon === '*' && dow === '*') {
+    return `每月 ${Number(dom)} 日 ${pad2(Number(hour))}:${pad2(Number(min))}`
+  }
+  return raw
 }
 
 interface FormState {
@@ -105,10 +121,11 @@ const emptyForm: FormState = {
 }
 
 function jobToForm(job: CronJob): FormState {
+  // 后端只回 expr,不回结构化 schedule:编辑时落到「高级 cron 表达式」模式并预填 expr。
   return {
     id: job.id,
     type: job.type,
-    schedule: { ...job.schedule },
+    schedule: { kind: 'raw', expr: job.expr ?? '' },
     payload: { ...job.payload },
     comment: job.comment,
     enabled: job.enabled,
@@ -435,7 +452,7 @@ export default function Cron() {
                   </div>
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                     <span className="font-[family-name:var(--font-mono)]">
-                      {describeSchedule(job.schedule)}
+                      {describeSchedule(job.expr)}
                     </span>
                     <span>
                       上次执行 {fmtTime(job.last_run_at)}
