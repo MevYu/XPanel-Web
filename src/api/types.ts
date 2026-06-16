@@ -75,7 +75,9 @@ export interface CronPayload {
 
 export interface CronJob {
   id: number
-  schedule: CronSchedule
+  // 后端只持久化 cron 表达式;列表/详情返回 expr,不返回结构化 schedule。
+  expr: string
+  schedule?: CronSchedule
   type: CronJobType
   payload: CronPayload
   comment: string
