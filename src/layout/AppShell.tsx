@@ -44,9 +44,9 @@ export function AppShell() {
   }, [pathname])
 
   return (
-    <div className="grid h-full lg:grid-cols-[auto_1fr]">
-      {/* 大屏常驻侧栏 */}
-      <div className="hidden lg:block">
+    <div className="grid h-dvh overflow-hidden lg:grid-cols-[auto_1fr]">
+      {/* 大屏常驻侧栏:固定列,菜单多时只在侧栏内部滚 */}
+      <div className="hidden min-h-0 lg:block">
         <Sidebar />
       </div>
 
@@ -66,8 +66,8 @@ export function AppShell() {
         <Sidebar />
       </div>
 
-      <div className="flex min-w-0 flex-col">
-        <header className="flex h-14 items-center gap-3 border-b border-border px-4 sm:px-6">
+      <div className="flex min-h-0 min-w-0 flex-col">
+        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
           <IconButton
             icon={<Menu size={18} />}
             aria-label="打开菜单"
