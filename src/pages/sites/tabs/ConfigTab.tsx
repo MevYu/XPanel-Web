@@ -3,8 +3,9 @@ import { apiFetch } from '../../../api/client'
 import { Button } from '../../../components/Button'
 import { Spinner } from '../../../components/Spinner'
 import { AlertTriangle } from 'lucide-react'
-import { type Site, DANGER, errorText, textareaClass } from '../shared'
+import { type Site, DANGER, errorText } from '../shared'
 import { TabLoading } from '../tabui'
+import { CodeEditor } from '../../../components/CodeEditor'
 
 /** ConfigTab 配置文件:直接编辑生成的 nginx 配置。危险操作,仅 admin + 二次确认。 */
 export function ConfigTab({
@@ -71,12 +72,13 @@ export function ConfigTab({
           {isAdmin ? '保存经 nginx -t 校验,失败则回滚不生效。' : '仅 admin 可编辑。'}
         </span>
       </div>
-      <textarea
+      <CodeEditor
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        spellCheck={false}
+        onChange={setDraft}
+        language="nginx"
         readOnly={!isAdmin}
-        className={`${textareaClass} h-[52vh] resize-none`}
+        onSave={isAdmin ? () => void save() : undefined}
+        height="52vh"
       />
       {err && (
         <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">

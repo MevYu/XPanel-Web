@@ -24,6 +24,8 @@ import { Spinner } from '../components/Spinner'
 import { formatBytes } from '../lib/format'
 import type { DirEntry, Share } from '../api/types'
 import { FileIcon, isArchive } from './files/FileIcon'
+import { CodeEditor } from '../components/CodeEditor'
+import { languageFromFilename, languageLabel } from '../components/codeEditorLang'
 
 const DANGER = { 'X-Confirm-Danger': '1' }
 
@@ -80,7 +82,12 @@ export default function Files() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const fileInput = useRef<HTMLInputElement | null>(null)
 
-  const [editing, setEditing] = useState<{ path: string; text: string } | null>(null)
+  const [editing, setEditing] = useState<{
+    path: string
+    text: string
+    saved: string
+  } | null>(null)
+  const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState<{ path: string; isDir: boolean } | null>(null)
   const [showShares, setShowShares] = useState(false)
 
@@ -146,30 +153,40 @@ export default function Files() {
   }
 
   async function openEditor(entry: DirEntry) {
+    const path = joinPath(cwd, entry.name)
     try {
-      const res = await fetch(
-        `/api/m/files/read?path=${encodeURIComponent(joinPath(cwd, entry.name))}`,
-        { headers: authHeaders() },
-      )
-      if (!res.ok) throw new Error(await res.text())
-      setEditing({ path: joinPath(cwd, entry.name), text: await res.text() })
+      const res = await fetch(`/api/m/files/read?path=${encodeURIComponent(path)}`, {
+        headers: authHeaders(),
+      })
+      if (!res.ok) {
+        // 后端对超大(413)/二进制(415)返回明确文本,直接提示而非进编辑器。
+        const detail = (await res.text()).trim()
+        if (res.status === 413) throw new Error('文件过大,无法在线编辑(上限 5 MiB)。')
+        if (res.status === 415) throw new Error('二进制文件,无法在线编辑。')
+        throw new Error(detail || '读取文件失败')
+      }
+      const text = await res.text()
+      setEditing({ path, text, saved: text })
     } catch (e) {
       setErr(errorText(e))
     }
   }
 
   async function saveEditor() {
-    if (!editing) return
+    if (!editing || saving) return
+    setSaving(true)
     try {
       await apiFetch(`/api/m/files/write?path=${encodeURIComponent(editing.path)}`, {
         method: 'POST',
         body: editing.text,
       })
-      setEditing(null)
-      flash('已保存')
+      setEditing({ ...editing, saved: editing.text })
+      flash(`已保存 ${editing.path}`)
       await refresh()
     } catch (e) {
       setErr(errorText(e))
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -532,9 +549,18 @@ export default function Files() {
         <EditorModal
           path={editing.path}
           text={editing.text}
+          dirty={editing.text !== editing.saved}
+          saving={saving}
           onChange={(t) => setEditing({ ...editing, text: t })}
           onSave={() => void saveEditor()}
-          onClose={() => setEditing(null)}
+          onClose={() => {
+            if (
+              editing.text !== editing.saved &&
+              !window.confirm('有未保存的改动,确认关闭?')
+            )
+              return
+            setEditing(null)
+          }}
         />
       )}
 
@@ -566,34 +592,58 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
 function EditorModal({
   path,
   text,
+  dirty,
+  saving,
   onChange,
   onSave,
   onClose,
 }: {
   path: string
   text: string
+  dirty: boolean
+  saving: boolean
   onChange: (t: string) => void
   onSave: () => void
   onClose: () => void
 }) {
+  const lang = languageFromFilename(path)
   return (
-    <Modal onClose={onClose}>
-      <div className="flex flex-col gap-3">
-        <h2 className="truncate text-sm font-medium text-text">编辑 {path}</h2>
-        <textarea
-          value={text}
-          onChange={(e) => onChange(e.target.value)}
-          spellCheck={false}
-          className="h-80 w-full rounded-(--radius-card) border border-border bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
-        />
+    <div className="fixed inset-0 z-50 flex flex-col bg-bg/95 p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Pencil size={16} className="shrink-0 text-brand" />
+          <h2 className="truncate text-sm font-medium text-text" title={path}>
+            {path}
+          </h2>
+          <span className="shrink-0 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-xs text-muted">
+            {languageLabel(lang)}
+          </span>
+          {dirty && (
+            <span className="shrink-0 rounded bg-warn/15 px-1.5 py-0.5 text-xs text-warn">
+              未保存
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2">
-          <Button onClick={onSave}>保存</Button>
-          <Button variant="ghost" onClick={onClose}>
-            取消
+          <span className="hidden text-xs text-muted sm:inline">Ctrl/Cmd+S 保存</span>
+          <Button onClick={onSave} disabled={saving || !dirty}>
+            {saving ? '保存中…' : '保存'}
+          </Button>
+          <Button variant="ghost" onClick={onClose} disabled={saving}>
+            关闭
           </Button>
         </div>
       </div>
-    </Modal>
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <CodeEditor
+          value={text}
+          onChange={onChange}
+          filename={path}
+          onSave={onSave}
+          height="100%"
+        />
+      </div>
+    </div>
   )
 }
 

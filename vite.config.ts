@@ -18,6 +18,9 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules/recharts')) return 'recharts'
+          if (/node_modules\/(@codemirror|@uiw\/react-codemirror|@lezer|codemirror|style-mod|w3c-keyname|crelt)\//.test(id)) {
+            return 'codemirror'
+          }
           if (/node_modules\/(react|react-dom|react-router|react-router-dom)\//.test(id)) {
             return 'react'
           }

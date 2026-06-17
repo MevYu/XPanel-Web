@@ -7,6 +7,7 @@ import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
+import { CodeEditor } from '../components/CodeEditor'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -42,9 +43,6 @@ async function putText(path: string, body: string): Promise<void> {
 
 const fieldClass =
   'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-40'
-
-const textareaClass =
-  'w-full resize-y rounded-(--radius-card) border border-border bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60 disabled:cursor-not-allowed disabled:opacity-40'
 
 interface VersionInfo {
   version: string
@@ -268,13 +266,13 @@ function RawIniTab({ version, canWrite }: { version: string; canWrite: boolean }
       <p className="text-xs text-warn">
         直接编辑原始文件,语法错误会导致 php-fpm 启动失败。请谨慎操作,保存需二次确认。
       </p>
-      <textarea
-        className={textareaClass}
-        rows={24}
-        spellCheck={false}
+      <CodeEditor
         value={text}
-        disabled={!canWrite}
-        onChange={(e) => setText(e.target.value)}
+        onChange={setText}
+        language="ini"
+        readOnly={!canWrite}
+        onSave={canWrite ? () => void save() : undefined}
+        height="58vh"
       />
       <div className="flex items-center gap-2">
         <Button size="sm" variant="danger" onClick={() => void save()} disabled={!canWrite || busy}>
