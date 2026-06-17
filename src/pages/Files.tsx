@@ -350,6 +350,20 @@ export default function Files() {
     [],
   )
 
+  // sidebarMkdir / sidebarCreateFile 供编辑器文件树工具条新建用,不触碰主列表(侧栏自行刷新)。
+  const sidebarMkdir = useCallback(async (path: string): Promise<void> => {
+    await apiFetch(`/api/m/files/mkdir?path=${encodeURIComponent(path)}`, {
+      method: 'POST',
+    })
+  }, [])
+
+  const sidebarCreateFile = useCallback(async (path: string): Promise<void> => {
+    await apiFetch(`/api/m/files/write?path=${encodeURIComponent(path)}`, {
+      method: 'POST',
+      body: '',
+    })
+  }, [])
+
   async function upload(file: File) {
     const fd = new FormData()
     fd.append('file', file)
@@ -1074,9 +1088,12 @@ export default function Files() {
           initialPath={editing.path}
           initialText={editing.text}
           rootDir={cwd}
+          canWrite={canWrite}
           readFileText={readFileText}
           listDir={listDir}
           writeFile={writeFile}
+          mkdir={sidebarMkdir}
+          createFile={sidebarCreateFile}
           onClose={() => setEditing(null)}
         />
       )}
@@ -2004,17 +2021,23 @@ function EditorModal({
   initialPath,
   initialText,
   rootDir,
+  canWrite,
   readFileText,
   listDir,
   writeFile,
+  mkdir,
+  createFile,
   onClose,
 }: {
   initialPath: string
   initialText: string
   rootDir: string
+  canWrite: boolean
   readFileText: (path: string) => Promise<string>
   listDir: (path: string) => Promise<DirEntry[]>
   writeFile: (path: string, text: string) => Promise<void>
+  mkdir: (path: string) => Promise<void>
+  createFile: (path: string) => Promise<void>
   onClose: () => void
 }) {
   const editorRef = useRef<CodeEditorViewHandle>(null)
@@ -2025,6 +2048,7 @@ function EditorModal({
   })
   const [wrap, setWrap] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [reloading, setReloading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [windowState, setWindowState] = useState<WindowState>('normal')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -2062,6 +2086,23 @@ function EditorModal({
       setErr(errorText(e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  // reload 从磁盘重新拉取当前文件内容并重置未保存态;有脏改动先确认放弃。
+  async function reload() {
+    if (reloading) return
+    if (dirty && !window.confirm('放弃未保存的改动并重新加载?')) return
+    setReloading(true)
+    setErr(null)
+    try {
+      const text = await readFileText(file.path)
+      setFile((f) => ({ ...f, text, saved: text }))
+      setCursor({ line: 1, col: 1, chars: text.length })
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setReloading(false)
     }
   }
 
@@ -2162,6 +2203,13 @@ function EditorModal({
               <Save size={14} />
               {saving ? '保存中…' : '保存'}
             </Button>
+            <IconButton
+              aria-label="重新加载"
+              title="从磁盘重新加载"
+              icon={<RefreshCw size={15} className={reloading ? 'animate-spin' : ''} />}
+              onClick={() => void reload()}
+              disabled={reloading}
+            />
             <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
             <IconButton
               aria-label="查找 / 替换"
@@ -2218,8 +2266,11 @@ function EditorModal({
             <FileTreeSidebar
               rootDir={rootDir}
               activePath={file.path}
+              canWrite={canWrite}
               listDir={listDir}
               onOpenFile={(p) => void openFile(p)}
+              mkdir={mkdir}
+              createFile={createFile}
             />
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
