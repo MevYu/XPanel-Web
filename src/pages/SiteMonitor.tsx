@@ -5,23 +5,490 @@ import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
+import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Stat } from '../components/Stat'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
-import { Activity, Globe, Plus, RefreshCw, Settings2 } from 'lucide-react'
+import { Activity, Globe, Plus, RefreshCw, BarChart3 } from 'lucide-react'
 import { uid } from '../lib/uid'
 import type { StatusSlice, TrendPoint } from './SiteMonitorCharts'
 
 const SiteMonitorCharts = lazy(() => import('./SiteMonitorCharts'))
+
+const DANGER = { 'X-Confirm-Danger': '1' }
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
   return msg || '操作失败,请稍后重试'
 }
 
+type ProbeStatus = 'up' | 'down' | 'unknown'
+
+interface Target {
+  id: number
+  name: string
+  url: string
+  interval_sec: number
+  timeout_sec: number
+  enabled: boolean
+  created_at: number
+  last_status: ProbeStatus
+  last_code: number
+  last_latency_ms: number
+  last_checked_at: number
+  availability: number
+}
+
+interface TargetForm {
+  name: string
+  url: string
+  interval_sec: number
+  timeout_sec: number
+  enabled: boolean
+}
+
 const fieldClass =
-  'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
+  'h-10 rounded-(--radius-sm) border border-border bg-surface-2/70 px-3 text-sm text-text outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-[border-color,box-shadow,background-color] duration-(--dur-micro) ease-(--ease-out) hover:border-border-strong focus:border-brand focus:bg-surface-2 focus:shadow-[0_0_0_3px_var(--color-brand-soft),inset_0_1px_2px_rgba(0,0,0,0.25)]'
+
+const STATUS_META: Record<ProbeStatus, { badge: 'online' | 'crit' | 'neutral'; text: string }> = {
+  up: { badge: 'online', text: '在线' },
+  down: { badge: 'crit', text: '离线' },
+  unknown: { badge: 'neutral', text: '未知' },
+}
+
+function fmtLatency(ms: number, status: ProbeStatus): string {
+  if (status === 'unknown') return '—'
+  return `${ms} ms`
+}
+
+function fmtAvailability(a: number): string {
+  return `${Math.round(Math.max(0, Math.min(1, a)) * 100)}%`
+}
+
+function fmtChecked(ts: number): string {
+  if (!ts) return '从未'
+  const diff = Math.floor(Date.now() / 1000) - ts
+  if (diff < 60) return '刚刚'
+  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`
+  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`
+  return new Date(ts * 1000).toLocaleString()
+}
+
+const EMPTY_FORM: TargetForm = {
+  name: '',
+  url: '',
+  interval_sec: 60,
+  timeout_sec: 10,
+  enabled: true,
+}
+
+/**
+ * 网站监控:主动探测被监控目标(HTTP 健康检查),实时显示状态/响应时延/可用率。
+ * 原 nginx 访问日志分析降为「流量分析」分区(目标详情内懒加载图表)。
+ */
+export default function SiteMonitor() {
+  const { role } = useAuth()
+  const isAdmin = role === 'admin'
+  const canWrite = role === 'admin' || role === 'operator'
+
+  const [targets, setTargets] = useState<Target[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadErr, setLoadErr] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  // editing: null=关闭, {id:null}=新建, {id:number}=编辑
+  const [editing, setEditing] = useState<{ id: number | null; form: TargetForm } | null>(null)
+  const [formErr, setFormErr] = useState<string | null>(null)
+  const [trafficId, setTrafficId] = useState<number | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadErr(null)
+    try {
+      const list = await apiFetch<Target[]>('/api/m/sitemonitor/targets')
+      setTargets(list ?? [])
+    } catch (e) {
+      setLoadErr(errorText(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  async function submit() {
+    if (!editing || busy || !canWrite) return
+    const form = editing.form
+    const name = form.name.trim()
+    const url = form.url.trim()
+    if (!name) {
+      setFormErr('请填写名称')
+      return
+    }
+    if (!/^https?:\/\/.+/i.test(url)) {
+      setFormErr('请填写有效的 http(s) URL')
+      return
+    }
+    const interval = Math.max(1, Math.floor(form.interval_sec) || 0)
+    const timeout = Math.max(1, Math.floor(form.timeout_sec) || 0)
+    setBusy(true)
+    setFormErr(null)
+    setFeedback(null)
+    const body = JSON.stringify({
+      name,
+      url,
+      interval_sec: interval,
+      timeout_sec: timeout,
+      enabled: form.enabled,
+    })
+    try {
+      if (editing.id == null) {
+        await apiFetch('/api/m/sitemonitor/targets', { method: 'POST', body })
+      } else {
+        await apiFetch(`/api/m/sitemonitor/targets/${editing.id}`, { method: 'PUT', body })
+      }
+      setFeedback({ kind: 'ok', text: editing.id == null ? `已添加监控「${name}」` : '监控已更新' })
+      setEditing(null)
+      await load()
+    } catch (e) {
+      setFormErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove(t: Target) {
+    if (busy || !isAdmin) return
+    if (!window.confirm(`确认删除监控「${t.name}」?此操作不可恢复。`)) return
+    setBusy(true)
+    setFeedback(null)
+    try {
+      await apiFetch(`/api/m/sitemonitor/targets/${t.id}`, { method: 'DELETE', headers: DANGER })
+      if (trafficId === t.id) setTrafficId(null)
+      setFeedback({ kind: 'ok', text: `监控「${t.name}」已删除` })
+      await load()
+    } catch (e) {
+      setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const stats = useMemo(() => {
+    const total = targets.length
+    const up = targets.filter((t) => t.last_status === 'up').length
+    const down = targets.filter((t) => t.last_status === 'down').length
+    const avg = total ? targets.reduce((s, t) => s + (t.availability || 0), 0) / total : 0
+    return { total, up, down, avg }
+  }, [targets])
+
+  const columns: Column<Target>[] = useMemo(
+    () => [
+      {
+        key: 'name',
+        header: '名称',
+        cell: (t) => (
+          <span className="inline-flex items-center gap-2 font-medium text-text">
+            <Globe size={15} className="shrink-0 text-warn" />
+            <span className="truncate">{t.name}</span>
+          </span>
+        ),
+      },
+      {
+        key: 'url',
+        header: 'URL',
+        cell: (t) => (
+          <span className="block max-w-[280px] truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+            {t.url}
+          </span>
+        ),
+      },
+      {
+        key: 'status',
+        header: '状态',
+        width: '88px',
+        cell: (t) => {
+          const m = STATUS_META[t.last_status] ?? STATUS_META.unknown
+          return <Badge status={m.badge}>{m.text}</Badge>
+        },
+      },
+      {
+        key: 'latency',
+        header: '响应时间',
+        width: '96px',
+        align: 'right',
+        cell: (t) => (
+          <span className="tabular-nums text-text">{fmtLatency(t.last_latency_ms, t.last_status)}</span>
+        ),
+      },
+      {
+        key: 'avail',
+        header: '可用率',
+        width: '88px',
+        align: 'right',
+        cell: (t) => <span className="tabular-nums text-text">{fmtAvailability(t.availability)}</span>,
+      },
+      {
+        key: 'checked',
+        header: '最近检测',
+        width: '120px',
+        cell: (t) => <span className="text-xs text-muted">{fmtChecked(t.last_checked_at)}</span>,
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '150px',
+        align: 'right',
+        cell: (t) => (
+          <ActionLinks>
+            <ActionLink
+              disabled={!canWrite}
+              title={canWrite ? '编辑监控' : '需要 operator 角色'}
+              onClick={() => {
+                setFormErr(null)
+                setEditing({
+                  id: t.id,
+                  form: {
+                    name: t.name,
+                    url: t.url,
+                    interval_sec: t.interval_sec,
+                    timeout_sec: t.timeout_sec,
+                    enabled: t.enabled,
+                  },
+                })
+              }}
+            >
+              编辑
+            </ActionLink>
+            <ActionLink
+              danger
+              disabled={!isAdmin}
+              title={isAdmin ? '删除监控' : '需要 admin 角色'}
+              onClick={() => void remove(t)}
+            >
+              删除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    // remove 闭包随 busy 变化,但读的是最新值;仅依赖角色门控足够。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isAdmin, canWrite],
+  )
+
+  const trafficTarget = trafficId == null ? null : targets.find((t) => t.id === trafficId) ?? null
+
+  return (
+    <div className="flex flex-col gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+            网站监控
+          </h1>
+          <p className="text-xs text-muted">
+            主动探测被监控目标的 HTTP 健康状态,实时展示在线状态、响应时延与可用率。
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="md"
+            disabled={!canWrite}
+            title={canWrite ? undefined : '需要 operator 角色'}
+            onClick={() => {
+              setFormErr(null)
+              setEditing({ id: null, form: { ...EMPTY_FORM } })
+            }}
+          >
+            <Plus size={15} />
+            添加监控
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
+            <RefreshCw size={15} className={loading ? 'animate-spin' : undefined} />
+            刷新
+          </Button>
+        </div>
+      </header>
+
+      {loadErr && targets.length === 0 && !loading && (
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
+          </Button>
+        </p>
+      )}
+
+      {loading && targets.length === 0 ? (
+        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      ) : (
+        <>
+          <Card className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Stat value={stats.total.toLocaleString()} label="监控目标" />
+            <Stat value={stats.up.toLocaleString()} label="在线" />
+            <Stat value={stats.down.toLocaleString()} label="离线" />
+            <Stat value={fmtAvailability(stats.avg)} label="平均可用率" />
+          </Card>
+
+          <Table
+            columns={columns}
+            rows={targets}
+            rowKey={(t) => t.id}
+            emptyText={
+              <span className="flex flex-col items-center gap-1 py-6">
+                <Activity size={22} className="text-warn" />
+                <span className="text-sm font-medium text-text">还没有监控目标</span>
+                <span className="text-xs text-muted">
+                  {canWrite
+                    ? '点击右上「添加监控」配置第一个探测目标。'
+                    : '尚无监控目标,添加需要 operator 角色。'}
+                </span>
+              </span>
+            }
+          />
+
+          {targets.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted">流量分析(基于 nginx 访问日志):</span>
+              {targets.map((t) => (
+                <Button
+                  key={t.id}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setTrafficId(t.id)}
+                >
+                  <BarChart3 size={13} />
+                  {t.name}
+                </Button>
+              ))}
+            </div>
+          )}
+
+          {!canWrite && (
+            <p className="text-xs text-muted">添加 / 编辑监控需要 operator 角色,删除需要 admin。</p>
+          )}
+        </>
+      )}
+
+      {editing && (
+        <Modal
+          title={editing.id == null ? '添加监控' : '编辑监控'}
+          size="sm"
+          onClose={() => setEditing(null)}
+        >
+          <div className="flex flex-col gap-4">
+            <Input
+              label="名称"
+              value={editing.form.name}
+              onChange={(e) =>
+                setEditing((s) => (s ? { ...s, form: { ...s.form, name: e.target.value } } : s))
+              }
+            />
+            <Input
+              label="URL"
+              placeholder="https://example.com/health"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              className="font-[family-name:var(--font-mono)]"
+              value={editing.form.url}
+              onChange={(e) =>
+                setEditing((s) => (s ? { ...s, form: { ...s.form, url: e.target.value } } : s))
+              }
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-muted">检测间隔(秒)</span>
+                <input
+                  className={fieldClass}
+                  inputMode="numeric"
+                  value={editing.form.interval_sec}
+                  onChange={(e) =>
+                    setEditing((s) =>
+                      s
+                        ? {
+                            ...s,
+                            form: {
+                              ...s.form,
+                              interval_sec: Number(e.target.value.replace(/\D/g, '')) || 0,
+                            },
+                          }
+                        : s,
+                    )
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-muted">超时(秒)</span>
+                <input
+                  className={fieldClass}
+                  inputMode="numeric"
+                  value={editing.form.timeout_sec}
+                  onChange={(e) =>
+                    setEditing((s) =>
+                      s
+                        ? {
+                            ...s,
+                            form: {
+                              ...s.form,
+                              timeout_sec: Number(e.target.value.replace(/\D/g, '')) || 0,
+                            },
+                          }
+                        : s,
+                    )
+                  }
+                />
+              </label>
+            </div>
+            <label className="flex items-center justify-between gap-3">
+              <span className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium text-text">启用探测</span>
+                <span className="text-xs text-muted">关闭后保留配置但不主动检测。</span>
+              </span>
+              <Switch
+                checked={editing.form.enabled}
+                aria-label="启用探测"
+                onChange={(next) =>
+                  setEditing((s) => (s ? { ...s, form: { ...s.form, enabled: next } } : s))
+                }
+              />
+            </label>
+            {formErr && <p className="text-sm text-crit">{formErr}</p>}
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={() => setEditing(null)}>
+                取消
+              </Button>
+              <Button onClick={() => void submit()} disabled={busy}>
+                {busy && <Spinner size={14} />}
+                {editing.id == null ? '添加' : '保存'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {trafficTarget && (
+        <Modal
+          title={`流量分析 · ${trafficTarget.name}`}
+          size="lg"
+          onClose={() => setTrafficId(null)}
+        >
+          <TrafficSection target={trafficTarget} />
+        </Modal>
+      )}
+
+      {feedback && (
+        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
+          {feedback.text}
+        </p>
+      )}
+    </div>
+  )
+}
 
 interface StatusBuckets {
   '2xx': number
@@ -29,12 +496,6 @@ interface StatusBuckets {
   '4xx': number
   '5xx': number
   other: number
-}
-
-interface SiteStat {
-  host: string
-  requests: number
-  bytes: number
 }
 
 interface Count {
@@ -47,25 +508,8 @@ interface Report {
   total_bytes: number
   unique_ips: number
   status: StatusBuckets
-  sites: SiteStat[]
   top_urls: Count[]
-  top_ips: Count[]
-  top_uas: Count[]
 }
-
-interface Settings {
-  log_root: string
-  access_log: string
-  max_lines: number
-}
-
-type TopKind = 'url' | 'ip' | 'ua'
-
-const RANGES: { label: string; hours: number; granularity: 'hour' | 'day' }[] = [
-  { label: '近 1 小时', hours: 1, granularity: 'hour' },
-  { label: '近 24 小时', hours: 24, granularity: 'hour' },
-  { label: '近 7 天', hours: 24 * 7, granularity: 'day' },
-]
 
 const STATUS_COLORS: Record<keyof StatusBuckets, string> = {
   '2xx': '#34d399',
@@ -87,93 +531,38 @@ function fmtBytes(n: number): string {
   return `${v.toFixed(1)} ${units[i]}`
 }
 
-/** errorRate 全局 4xx+5xx 占比(0..1);无请求时为 0。后端不按站点分桶状态码,只能取全局。 */
-function errorRate(s: StatusBuckets, total: number): number {
-  if (total <= 0) return 0
-  return (s['4xx'] + s['5xx']) / total
-}
-
-interface SiteRow extends SiteStat {
-  key: string
-  display: string
-  online: boolean
-  state: 'online' | 'warn' | 'crit'
-}
-
-/**
- * 网站监控:aaPanel 风格被监控站点表(host 来自 nginx 访问日志聚合)。
- * 后端是只读日志分析,无按站点的上线探测/响应时延/历史可用率,故响应时间列为占位、
- * 可用率取全局错误率反推、状态按「时段内是否有请求」判在线/离线。详情弹窗看真实趋势/状态码图。
- */
-export default function SiteMonitor() {
-  const { role } = useAuth()
-  const isAdmin = role === 'admin'
-
-  const [rangeIdx, setRangeIdx] = useState(1)
+/** 流量分析:沿用既有 nginx 日志分析端点,展示趋势与状态码分布。探测目标的可用性数据在主表。 */
+function TrafficSection({ target }: { target: Target }) {
   const [report, setReport] = useState<Report | null>(null)
   const [trend, setTrend] = useState<TrendPoint[]>([])
-  const [topKind, setTopKind] = useState<TopKind>('url')
-  const [top, setTop] = useState<Count[]>([])
-  const [settings, setSettings] = useState<Settings | null>(null)
-
   const [loading, setLoading] = useState(true)
-  const [loadErr, setLoadErr] = useState<string | null>(null)
-  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const [detailHost, setDetailHost] = useState<string | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    setLoadErr(null)
-    const r = RANGES[rangeIdx]
-    const from = Math.floor(Date.now() / 1000) - r.hours * 3600
-    const q = `from=${from}&top=10`
-    try {
-      const [rep, tr, tp] = await Promise.all([
-        apiFetch<Report>(`/api/m/sitemonitor/overview?${q}`),
-        apiFetch<TrendPoint[]>(`/api/m/sitemonitor/trend?${q}&granularity=${r.granularity}`),
-        apiFetch<Count[]>(`/api/m/sitemonitor/top?${q}&kind=${topKind}`),
-      ])
-      setReport(rep)
-      setTrend(tr ?? [])
-      setTop(tp ?? [])
-      if (isAdmin && !settings) {
-        setSettings(await apiFetch<Settings>('/api/m/sitemonitor/settings'))
-      }
-    } catch (e) {
-      setLoadErr(errorText(e))
-    } finally {
-      setLoading(false)
-    }
-    // settings 仅首次取,故不入依赖。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeIdx, topKind, isAdmin])
+  const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
-    void load()
-  }, [load])
-
-  async function saveSettings() {
-    if (!settings || busy || !isAdmin) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      const res = await apiFetch<Settings>('/api/m/sitemonitor/settings', {
-        method: 'PUT',
-        body: JSON.stringify({ ...settings, max_lines: Number(settings.max_lines) || 0 }),
+    let alive = true
+    const from = Math.floor(Date.now() / 1000) - 24 * 3600
+    const q = `from=${from}&top=10`
+    setLoading(true)
+    setErr(null)
+    Promise.all([
+      apiFetch<Report>(`/api/m/sitemonitor/overview?${q}`),
+      apiFetch<TrendPoint[]>(`/api/m/sitemonitor/trend?${q}&granularity=hour`),
+    ])
+      .then(([rep, tr]) => {
+        if (!alive) return
+        setReport(rep)
+        setTrend(tr ?? [])
       })
-      setSettings(res)
-      setFeedback({ kind: 'ok', text: '设置已保存' })
-      setSettingsOpen(false)
-      await load()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
+      .catch((e) => {
+        if (alive) setErr(errorText(e))
+      })
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+    return () => {
+      alive = false
     }
-  }
+  }, [target.id])
 
   const statusSlices: StatusSlice[] = report
     ? (Object.keys(STATUS_COLORS) as (keyof StatusBuckets)[]).map((k) => ({
@@ -183,340 +572,51 @@ export default function SiteMonitor() {
       }))
     : []
 
-  // 派生可用率:无按站点历史可用率,取全局 4xx+5xx 错误率反推。
-  const availPct = report
-    ? Math.max(0, 100 - Math.round(errorRate(report.status, report.total_requests) * 100))
-    : 100
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Spinner size={24} />
+      </div>
+    )
+  }
 
-  // 站点行:时段内有请求 = 在线;全局错误率偏高(>5%)整体标异常(warn)。
-  const rows: SiteRow[] = useMemo(() => {
-    const sites = report?.sites ?? []
-    const degraded = report ? errorRate(report.status, report.total_requests) > 0.05 : false
-    return sites.map((s) => {
-      const host = s.host && s.host !== '-' ? s.host : '(未知 host)'
-      const online = s.requests > 0
-      const state: SiteRow['state'] = !online ? 'crit' : degraded ? 'warn' : 'online'
-      return { ...s, key: uid(), display: host, online, state }
-    })
-  }, [report])
-
-  const onlineCount = rows.filter((r) => r.online).length
-  const offlineCount = rows.length - onlineCount
-
-  const columns: Column<SiteRow>[] = useMemo(
-    () => [
-      {
-        key: 'name',
-        header: '站点',
-        cell: (s) => (
-          <button
-            type="button"
-            onClick={() => setDetailHost(s.display)}
-            className="inline-flex items-center gap-2 rounded-sm font-medium text-text outline-none transition hover:text-brand focus-visible:ring-2 focus-visible:ring-brand/60"
-          >
-            <Globe size={15} className="shrink-0 text-warn" />
-            <span className="truncate font-[family-name:var(--font-mono)] text-[13px]">
-              {s.display}
-            </span>
-          </button>
-        ),
-      },
-      {
-        key: 'url',
-        header: 'URL',
-        cell: (s) => (
-          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
-            {s.display === '(未知 host)' ? '—' : `http://${s.display}/`}
-          </span>
-        ),
-      },
-      {
-        key: 'status',
-        header: '状态',
-        width: '92px',
-        cell: (s) => (
-          <Badge status={s.state}>
-            {s.state === 'online' ? '在线' : s.state === 'warn' ? '异常' : '离线'}
-          </Badge>
-        ),
-      },
-      {
-        key: 'resp',
-        header: '响应时间',
-        width: '100px',
-        align: 'right',
-        cell: () => (
-          <span className="tabular-nums text-muted" title="后端日志分析未采集响应时延,暂无数据">
-            —
-          </span>
-        ),
-      },
-      {
-        key: 'avail',
-        header: '可用率',
-        width: '96px',
-        align: 'right',
-        cell: (s) => (
-          <span
-            className="tabular-nums text-text"
-            title="由全时段 4xx+5xx 错误率反推(后端无按站点历史可用率)"
-          >
-            {s.online ? `${availPct}%` : '0%'}
-          </span>
-        ),
-      },
-      {
-        key: 'reqs',
-        header: '请求 / 带宽',
-        cell: (s) => (
-          <span className="text-xs text-muted">
-            {s.requests.toLocaleString()} · {fmtBytes(s.bytes)}
-          </span>
-        ),
-      },
-      {
-        key: 'last',
-        header: '最近检测',
-        width: '110px',
-        cell: (s) => (
-          <span className="text-xs text-muted">{s.online ? RANGES[rangeIdx].label : '—'}</span>
-        ),
-      },
-      {
-        key: 'actions',
-        header: '操作',
-        width: '140px',
-        align: 'right',
-        cell: (s) => (
-          <ActionLinks>
-            <ActionLink onClick={() => setDetailHost(s.display)}>详情</ActionLink>
-            <ActionLink
-              disabled={!isAdmin}
-              title={isAdmin ? '编辑监控设置' : '需要 admin 角色'}
-              onClick={() => setSettingsOpen(true)}
-            >
-              编辑
-            </ActionLink>
-          </ActionLinks>
-        ),
-      },
-    ],
-    [isAdmin, availPct, rangeIdx],
-  )
+  if (err || !report) {
+    return <p className="py-6 text-center text-sm text-muted">{err ?? '暂无流量数据。'}</p>
+  }
 
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            网站监控
-          </h1>
-          <p className="text-xs text-muted">
-            基于 nginx 访问日志的站点可用性与流量概览,详情可查看趋势与状态码分布。
-          </p>
-        </div>
-      </header>
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Button size="md" disabled={!isAdmin} onClick={() => setSettingsOpen(true)}>
-            <Plus size={15} />
-            添加监控
-          </Button>
-          <Button
-            variant="ghost"
-            size="md"
-            disabled={!isAdmin}
-            onClick={() => setSettingsOpen(true)}
-          >
-            <Settings2 size={15} />
-            设置
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">
-            {RANGES.map((r, i) => (
-              <button
-                key={r.label}
-                onClick={() => setRangeIdx(i)}
-                className={`h-9 rounded-sm px-3 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-                  i === rangeIdx
-                    ? 'bg-surface-2 text-text'
-                    : 'text-muted hover:bg-surface-2/60 hover:text-text'
-                }`}
-              >
-                {r.label}
-              </button>
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <Stat value={report.total_requests.toLocaleString()} label="请求数" />
+        <Stat value={fmtBytes(report.total_bytes)} label="带宽" />
+        <Stat value={report.unique_ips.toLocaleString()} label="独立 IP (UV)" />
+      </div>
+      <div className="flex flex-col gap-3">
+        <h3 className="text-sm font-medium text-text">近 24 小时趋势与状态码分布</h3>
+        <Suspense
+          fallback={
+            <div className="flex h-64 items-center justify-center">
+              <Spinner size={24} />
+            </div>
+          }
+        >
+          <SiteMonitorCharts trend={trend} status={statusSlices} />
+        </Suspense>
+      </div>
+      {report.top_urls.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-sm font-medium text-text">Top URL</h3>
+          <div className="divide-y divide-border rounded-(--radius-card) border border-border">
+            {report.top_urls.map((c) => (
+              <div key={uid()} className="flex items-center gap-3 px-4 py-2 text-sm">
+                <span className="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-muted">
+                  {c.key}
+                </span>
+                <span className="shrink-0 tabular-nums text-text">{c.count.toLocaleString()}</span>
+              </div>
             ))}
           </div>
-          <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
-            <RefreshCw size={15} className={loading ? 'animate-spin' : undefined} />
-            刷新
-          </Button>
         </div>
-      </div>
-
-      {loadErr && !report && !loading && (
-        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
-          {loadErr}
-          <Button size="sm" variant="ghost" onClick={() => void load()}>
-            重试
-          </Button>
-        </p>
-      )}
-
-      {loading && !report ? (
-        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
-      ) : report ? (
-        <>
-          <Card className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Stat value={rows.length.toLocaleString()} label="监控站点" />
-            <Stat value={onlineCount.toLocaleString()} label="在线" />
-            <Stat value={offlineCount.toLocaleString()} label="离线" />
-            <Stat value={`${availPct}%`} label="可用率 (派生)" />
-          </Card>
-
-          <Table
-            columns={columns}
-            rows={rows}
-            rowKey={(s) => s.key}
-            onRowClick={(s) => setDetailHost(s.display)}
-            emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <Activity size={22} className="text-warn" />
-                <span className="text-sm font-medium text-text">还没有监控目标</span>
-                <span className="text-xs text-muted">
-                  该时段内日志无站点请求记录。点击「添加监控」配置日志路径,或换个时间范围。
-                </span>
-              </span>
-            }
-          />
-
-          {!isAdmin && <p className="text-xs text-muted">添加 / 编辑监控配置需要 admin 角色。</p>}
-        </>
-      ) : null}
-
-      {detailHost && report && (
-        <Modal title={`监控详情 · ${detailHost}`} size="lg" onClose={() => setDetailHost(null)}>
-          <div className="flex flex-col gap-5">
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Stat value={report.total_requests.toLocaleString()} label="请求数" />
-              <Stat value={fmtBytes(report.total_bytes)} label="带宽" />
-              <Stat value={report.unique_ips.toLocaleString()} label="独立 IP (UV)" />
-              <Stat
-                value={`${Math.round(errorRate(report.status, report.total_requests) * 100)}%`}
-                label="错误率 (4xx+5xx)"
-              />
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <h3 className="text-sm font-medium text-text">趋势与状态码分布</h3>
-              <Suspense
-                fallback={
-                  <div className="flex h-64 items-center justify-center">
-                    <Spinner size={24} />
-                  </div>
-                }
-              >
-                <SiteMonitorCharts trend={trend} status={statusSlices} />
-              </Suspense>
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium text-text">Top 排行</h3>
-                <div className="flex gap-1">
-                  {(['url', 'ip', 'ua'] as TopKind[]).map((k) => (
-                    <Button
-                      key={k}
-                      size="sm"
-                      variant={k === topKind ? 'primary' : 'ghost'}
-                      onClick={() => setTopKind(k)}
-                    >
-                      {k.toUpperCase()}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-              {top.length === 0 ? (
-                <p className="py-3 text-sm text-muted">暂无数据。</p>
-              ) : (
-                <div className="divide-y divide-border rounded-(--radius-card) border border-border">
-                  {top.map((c) => (
-                    <div key={uid()} className="flex items-center gap-3 px-4 py-2 text-sm">
-                      <span className="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-muted">
-                        {c.key}
-                      </span>
-                      <span className="shrink-0 tabular-nums text-text">
-                        {c.count.toLocaleString()}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <p className="text-xs text-muted">
-              注:后端为只读日志分析,响应时延与按站点历史可用率暂未采集,表中相应列为占位或派生值。
-            </p>
-          </div>
-        </Modal>
-      )}
-
-      {settingsOpen && isAdmin && settings && (
-        <Modal title="监控设置 · 日志路径" size="md" onClose={() => setSettingsOpen(false)}>
-          <div className="flex flex-col gap-4">
-            <Input
-              label="日志根目录 (log_root)"
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              className="font-[family-name:var(--font-mono)]"
-              value={settings.log_root}
-              onChange={(e) => setSettings((s) => (s ? { ...s, log_root: e.target.value } : s))}
-            />
-            <Input
-              label="默认访问日志 (access_log)"
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              className="font-[family-name:var(--font-mono)]"
-              value={settings.access_log}
-              onChange={(e) => setSettings((s) => (s ? { ...s, access_log: e.target.value } : s))}
-            />
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-muted">尾部读取行数上限 (max_lines)</span>
-              <input
-                className={fieldClass}
-                inputMode="numeric"
-                value={settings.max_lines}
-                onChange={(e) =>
-                  setSettings((s) =>
-                    s ? { ...s, max_lines: Number(e.target.value.replace(/\D/g, '')) || 0 } : s,
-                  )
-                }
-              />
-            </label>
-            <p className="text-xs text-muted">
-              被监控站点由该日志解析出的 host 自动列出,无需逐站添加。
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="ghost" onClick={() => setSettingsOpen(false)}>
-                取消
-              </Button>
-              <Button onClick={() => void saveSettings()} disabled={busy}>
-                {busy && <Spinner size={14} />}
-                保存设置
-              </Button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
-          {feedback.text}
-        </p>
       )}
     </div>
   )
