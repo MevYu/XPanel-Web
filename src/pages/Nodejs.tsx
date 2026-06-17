@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { Card } from '../components/Card'
-import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
+import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
+import { Modal } from '../components/Modal'
+import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Plus, Settings2, Search, Hexagon } from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -15,7 +17,7 @@ function errorText(e: unknown): string {
 const DANGER = { 'X-Confirm-Danger': '1' }
 
 const selectClass =
-  'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
+  'h-10 rounded-(--radius-sm) border border-border bg-surface-2 px-3 text-sm text-text outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
 
 interface Project {
   id: number
@@ -48,27 +50,46 @@ interface CreateForm {
 
 const emptyForm: CreateForm = { name: '', directory: '', command: '', port: '', node_version: '' }
 
-/** Nodejs:列出项目,创建(目录/命令/端口/版本),启停/重启,查看状态与日志,模块设置。 */
+// supervisor 状态文本含 RUNNING 视为运行中,其余(STOPPED/FATAL/…)按已停止处理。
+function isRunning(status: string): boolean {
+  return /RUNNING/i.test(status)
+}
+
+/** Nodejs:紧凑项目表 + 添加项目弹窗 + 日志弹窗 + 路径设置弹窗(对标 aaPanel 项目列表)。 */
 export default function Nodejs() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
   const canWrite = role === 'admin' || role === 'operator'
 
   const [projects, setProjects] = useState<Project[]>([])
+  const [statuses, setStatuses] = useState<Record<number, string>>({})
   const [nodeVersions, setNodeVersions] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
-  const [form, setForm] = useState<CreateForm>(emptyForm)
+  const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
-  const [openId, setOpenId] = useState<number | null>(null)
-  const [status, setStatus] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [form, setForm] = useState<CreateForm>(emptyForm)
+
+  const [logProject, setLogProject] = useState<Project | null>(null)
+  const [logStatus, setLogStatus] = useState('')
   const [logs, setLogs] = useState('')
   const [stream, setStream] = useState<'stdout' | 'stderr'>('stdout')
 
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [settings, setSettings] = useState<NodeSettings>(emptySettings)
-  const [showSettings, setShowSettings] = useState(false)
+  const [settingsBusy, setSettingsBusy] = useState(false)
+
+  const refreshStatus = useCallback(async (id: number) => {
+    try {
+      const s = await apiFetch<string>(`/api/m/nodejs/projects/${id}/status`)
+      setStatuses((prev) => ({ ...prev, [id]: typeof s === 'string' ? s : '' }))
+    } catch {
+      setStatuses((prev) => ({ ...prev, [id]: '' }))
+    }
+  }, [])
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -79,12 +100,13 @@ export default function Nodejs() {
       ])
       setProjects(ps)
       setNodeVersions(vs ?? [])
+      void Promise.all(ps.map((p) => refreshStatus(p.id)))
     } catch (e) {
       setLoadErr(errorText(e))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [refreshStatus])
 
   useEffect(() => {
     void load()
@@ -98,7 +120,7 @@ export default function Nodejs() {
     form.command.trim().length > 0 &&
     portValid &&
     !busy &&
-    canWrite
+    isAdmin
 
   async function create() {
     if (!canSubmit) return
@@ -117,6 +139,7 @@ export default function Nodejs() {
       })
       setFeedback({ kind: 'ok', text: '项目已创建' })
       setForm(emptyForm)
+      setCreating(false)
       await load()
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
@@ -136,8 +159,8 @@ export default function Nodejs() {
         headers: verb === 'stop' ? DANGER : undefined,
       })
       setFeedback({ kind: 'ok', text: `${p.name}:${verb} 已执行` })
-      if (openId === p.id) setStatus(typeof res === 'string' ? res : '')
-      else await refreshStatus(p.id)
+      if (logProject?.id === p.id) setLogStatus(typeof res === 'string' ? res : '')
+      await refreshStatus(p.id)
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
     } finally {
@@ -152,22 +175,13 @@ export default function Nodejs() {
     setFeedback(null)
     try {
       await apiFetch(`/api/m/nodejs/projects/${p.id}`, { method: 'DELETE', headers: DANGER })
-      if (openId === p.id) setOpenId(null)
+      if (logProject?.id === p.id) setLogProject(null)
       setFeedback({ kind: 'ok', text: '项目已删除' })
       await load()
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
     } finally {
       setBusy(false)
-    }
-  }
-
-  async function refreshStatus(id: number) {
-    try {
-      const s = await apiFetch<string>(`/api/m/nodejs/projects/${id}/status`)
-      setStatus(typeof s === 'string' ? s : '')
-    } catch (e) {
-      setStatus(errorText(e))
     }
   }
 
@@ -181,13 +195,9 @@ export default function Nodejs() {
     }
   }, [])
 
-  async function open(p: Project) {
-    if (openId === p.id) {
-      setOpenId(null)
-      return
-    }
-    setOpenId(p.id)
-    setStatus('')
+  async function openLogs(p: Project) {
+    setLogProject(p)
+    setLogStatus(statuses[p.id] ?? '')
     setLogs('')
     setStream('stdout')
     await Promise.all([refreshStatus(p.id), loadLogs(p.id, 'stdout')])
@@ -199,11 +209,7 @@ export default function Nodejs() {
   }
 
   async function openSettings() {
-    if (showSettings) {
-      setShowSettings(false)
-      return
-    }
-    setShowSettings(true)
+    setSettingsOpen(true)
     try {
       const s = await apiFetch<NodeSettings>('/api/m/nodejs/settings')
       setSettings(s)
@@ -214,221 +220,357 @@ export default function Nodejs() {
 
   async function saveSettings() {
     if (!isAdmin) return
-    setBusy(true)
+    setSettingsBusy(true)
     setFeedback(null)
     try {
       await apiFetch('/api/m/nodejs/settings', { method: 'PUT', body: JSON.stringify(settings) })
       setFeedback({ kind: 'ok', text: '设置已保存' })
+      setSettingsOpen(false)
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
     } finally {
-      setBusy(false)
+      setSettingsBusy(false)
     }
   }
 
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return projects
+    return projects.filter(
+      (p) => p.name.toLowerCase().includes(q) || p.directory.toLowerCase().includes(q),
+    )
+  }, [projects, query])
+
+  const columns: Column<Project>[] = useMemo(
+    () => [
+      {
+        key: 'name',
+        header: '项目名',
+        cell: (p) => (
+          <button
+            type="button"
+            onClick={() => void openLogs(p)}
+            className="inline-flex items-center gap-2 rounded-sm font-medium text-text outline-none transition hover:text-brand focus-visible:ring-2 focus-visible:ring-brand/60"
+          >
+            <Hexagon size={15} className="shrink-0 text-warn" />
+            <span className="truncate">{p.name}</span>
+          </button>
+        ),
+      },
+      {
+        key: 'directory',
+        header: '路径',
+        cell: (p) => (
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+            {p.directory || '—'}
+          </span>
+        ),
+      },
+      {
+        key: 'port',
+        header: '端口',
+        width: '80px',
+        cell: (p) => (
+          <span className="font-[family-name:var(--font-mono)] text-xs text-muted">:{p.port}</span>
+        ),
+      },
+      {
+        key: 'status',
+        header: '状态',
+        width: '92px',
+        cell: (p) => {
+          const s = statuses[p.id]
+          if (s === undefined) return <span className="text-xs text-faint">…</span>
+          const run = isRunning(s)
+          return <Badge status={run ? 'online' : 'neutral'}>{run ? '运行中' : '已停止'}</Badge>
+        },
+      },
+      {
+        key: 'command',
+        header: '启动命令',
+        cell: (p) => (
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+            {p.command}
+            {p.node_version && <span className="text-text/60"> · {p.node_version}</span>}
+          </span>
+        ),
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '230px',
+        align: 'right',
+        cell: (p) => (
+          <ActionLinks>
+            <ActionLink disabled={!canWrite || busy} onClick={() => void action(p, 'start')}>
+              启动
+            </ActionLink>
+            <ActionLink danger disabled={!canWrite || busy} onClick={() => void action(p, 'stop')}>
+              停止
+            </ActionLink>
+            <ActionLink disabled={!canWrite || busy} onClick={() => void action(p, 'restart')}>
+              重启
+            </ActionLink>
+            <ActionLink onClick={() => void openLogs(p)}>日志</ActionLink>
+            <ActionLink
+              danger
+              disabled={!isAdmin || busy}
+              title={isAdmin ? '删除项目' : '需要 admin 角色'}
+              onClick={() => void remove(p)}
+            >
+              删除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [statuses, isAdmin, canWrite, busy],
+  )
+
   return (
     <div className="flex flex-col gap-4">
-      <Card className="flex flex-col gap-4">
-        <h2 className="text-sm font-medium text-text">创建项目</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Input
-            label="名称"
-            placeholder="项目名"
-            value={form.name}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-          />
-          <Input
-            label="目录"
-            placeholder="相对 base_dir 或绝对路径"
-            value={form.directory}
-            spellCheck={false}
-            onChange={(e) => setForm((f) => ({ ...f, directory: e.target.value }))}
-          />
-          <Input
-            label="启动命令"
-            placeholder="例如 node index.js"
-            value={form.command}
-            spellCheck={false}
-            className="font-[family-name:var(--font-mono)]"
-            onChange={(e) => setForm((f) => ({ ...f, command: e.target.value }))}
-          />
-          <Input
-            label="端口"
-            placeholder="1-65535"
-            inputMode="numeric"
-            value={form.port}
-            error={form.port.length > 0 && !portValid ? '端口需为 1–65535' : undefined}
-            onChange={(e) => setForm((f) => ({ ...f, port: e.target.value }))}
-          />
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-muted">Node 版本</span>
-            <select
-              value={form.node_version}
-              onChange={(e) => setForm((f) => ({ ...f, node_version: e.target.value }))}
-              className={selectClass}
-            >
-              <option value="">默认</option>
-              {nodeVersions.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </label>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+            Node 项目
+          </h1>
+          <p className="text-xs text-muted">
+            {projects.length > 0
+              ? `共 ${projects.length} 个项目`
+              : '托管 Node 进程,supervisor 守护启停'}
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => void create()} disabled={!canSubmit}>
-            创建
-          </Button>
-          {busy && <Spinner size={16} />}
-        </div>
-        {!canWrite && <p className="text-xs text-muted">创建与启停需要 operator 角色。</p>}
-      </Card>
+      </header>
 
-      <Card className="p-0">
-        <div className="flex items-center justify-between px-5 py-3">
-          <span className="text-sm font-medium text-text">项目列表</span>
-          <Button size="sm" variant="ghost" onClick={() => void openSettings()}>
-            {showSettings ? '收起设置' : '设置'}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Button
+            size="md"
+            disabled={!isAdmin}
+            title={isAdmin ? undefined : '创建项目需要 admin 角色'}
+            onClick={() => {
+              setForm(emptyForm)
+              setCreating(true)
+            }}
+          >
+            <Plus size={15} />
+            添加项目
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => void openSettings()}>
+            <Settings2 size={15} />
+            设置
           </Button>
         </div>
+        <div className="relative w-56">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索项目名或路径"
+            spellCheck={false}
+            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          />
+        </div>
+      </div>
 
-        {showSettings && (
-          <div className="flex flex-col gap-4 border-t border-border px-5 py-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                label="项目根目录 base_dir"
-                value={settings.base_dir}
-                spellCheck={false}
-                disabled={!isAdmin}
-                onChange={(e) => setSettings((s) => ({ ...s, base_dir: e.target.value }))}
-              />
-              <Input
-                label="Node 安装目录 node_dir"
-                value={settings.node_dir}
-                spellCheck={false}
-                disabled={!isAdmin}
-                onChange={(e) => setSettings((s) => ({ ...s, node_dir: e.target.value }))}
-              />
-              <Input
-                label="进程配置目录 conf_dir"
-                value={settings.conf_dir}
-                spellCheck={false}
-                disabled={!isAdmin}
-                onChange={(e) => setSettings((s) => ({ ...s, conf_dir: e.target.value }))}
-              />
-              <Input
-                label="日志目录 log_dir"
-                value={settings.log_dir}
-                spellCheck={false}
-                disabled={!isAdmin}
-                onChange={(e) => setSettings((s) => ({ ...s, log_dir: e.target.value }))}
-              />
-            </div>
-            <div>
-              <Button size="sm" onClick={() => void saveSettings()} disabled={!isAdmin || busy}>
-                保存设置
-              </Button>
-            </div>
-            {!isAdmin && <p className="text-xs text-muted">设置需要 admin 角色。</p>}
-          </div>
-        )}
+      {loadErr && projects.length === 0 && !loading && (
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
+          </Button>
+        </p>
+      )}
 
-        {loading ? (
-          <div className="flex h-32 items-center justify-center">
-            <Spinner size={24} />
-          </div>
-        ) : loadErr && projects.length === 0 ? (
-          <p className="p-5 text-sm text-muted">{loadErr}</p>
-        ) : projects.length === 0 ? (
-          <p className="p-5 text-sm text-muted">暂无项目。</p>
-        ) : (
-          <div className="divide-y divide-border border-t border-border">
-            {projects.map((p) => (
-              <div key={p.id} className="flex flex-col gap-3 px-5 py-3.5">
-                <div className="flex items-center gap-4">
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium text-text">{p.name}</span>
-                      <Badge status="neutral">:{p.port}</Badge>
-                      {p.node_version && <Badge status="neutral">{p.node_version}</Badge>}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-[family-name:var(--font-mono)] text-xs text-muted">
-                      <span className="truncate">{p.directory}</span>
-                      <span className="truncate">{p.command}</span>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => void open(p)}>
-                      {openId === p.id ? '收起' : '详情'}
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => void action(p, 'start')} disabled={!canWrite || busy}>
-                      启动
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => void action(p, 'restart')} disabled={!canWrite || busy}>
-                      重启
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => void action(p, 'stop')} disabled={!canWrite || busy}>
-                      停止
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      onClick={() => void remove(p)}
-                      disabled={!isAdmin || busy}
-                      title={isAdmin ? undefined : '需要 admin 角色'}
-                    >
-                      删除
-                    </Button>
-                  </div>
-                </div>
+      {loading ? (
+        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      ) : (
+        <Table
+          columns={columns}
+          rows={visible}
+          rowKey={(p) => p.id}
+          emptyText={
+            <span className="flex flex-col items-center gap-1 py-6">
+              <span className="text-sm font-medium text-text">
+                {projects.length === 0 ? '还没有项目' : '没有匹配的项目'}
+              </span>
+              <span className="text-xs text-muted">
+                {projects.length === 0
+                  ? '点击「添加项目」托管你的第一个 Node 进程。'
+                  : '换个关键词试试。'}
+              </span>
+            </span>
+          }
+        />
+      )}
 
-                {openId === p.id && (
-                  <div className="flex flex-col gap-3 rounded-(--radius-card) border border-border bg-surface-2 p-4">
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-xs font-medium text-muted">状态</span>
-                      <pre className="overflow-auto rounded-(--radius-card) bg-bg p-3 font-[family-name:var(--font-mono)] text-xs text-text whitespace-pre-wrap">
-                        {status.trim() || '无状态输出'}
-                      </pre>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-muted">日志</span>
-                      <Button
-                        size="sm"
-                        variant={stream === 'stdout' ? 'primary' : 'ghost'}
-                        onClick={() => switchStream(p.id, 'stdout')}
-                      >
-                        stdout
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant={stream === 'stderr' ? 'primary' : 'ghost'}
-                        onClick={() => switchStream(p.id, 'stderr')}
-                      >
-                        stderr
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => void loadLogs(p.id, stream)}>
-                        刷新
-                      </Button>
-                    </div>
-                    <pre className="max-h-72 overflow-auto rounded-(--radius-card) bg-bg p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
-                      {logs.trim() || '无日志输出'}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      {!canWrite && (
+        <p className="text-xs text-muted">启停需要 operator 角色,创建与删除需要 admin。</p>
+      )}
 
       {feedback && (
         <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
           {feedback.text}
         </p>
+      )}
+
+      {creating && (
+        <Modal title="添加项目" size="sm" onClose={() => setCreating(false)}>
+          <div className="flex flex-col gap-4">
+            <Input
+              label="名称"
+              placeholder="项目名"
+              value={form.name}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoFocus
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            />
+            <Input
+              label="目录"
+              placeholder="相对 base_dir 或绝对路径"
+              value={form.directory}
+              spellCheck={false}
+              className="font-[family-name:var(--font-mono)]"
+              onChange={(e) => setForm((f) => ({ ...f, directory: e.target.value }))}
+            />
+            <Input
+              label="启动命令"
+              placeholder="例如 node index.js"
+              value={form.command}
+              spellCheck={false}
+              className="font-[family-name:var(--font-mono)]"
+              onChange={(e) => setForm((f) => ({ ...f, command: e.target.value }))}
+            />
+            <Input
+              label="端口"
+              placeholder="1-65535"
+              inputMode="numeric"
+              value={form.port}
+              error={form.port.length > 0 && !portValid ? '端口需为 1–65535' : undefined}
+              onChange={(e) => setForm((f) => ({ ...f, port: e.target.value }))}
+            />
+            <label className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-muted">Node 版本</span>
+              <select
+                value={form.node_version}
+                onChange={(e) => setForm((f) => ({ ...f, node_version: e.target.value }))}
+                className={selectClass}
+              >
+                <option value="">默认</option>
+                {nodeVersions.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {!isAdmin && <p className="text-xs text-muted">创建项目需要 admin 角色。</p>}
+
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={() => setCreating(false)}>
+                取消
+              </Button>
+              <Button onClick={() => void create()} disabled={!canSubmit}>
+                {busy && <Spinner size={14} />}
+                创建
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {logProject && (
+        <Modal title={`${logProject.name} · 日志`} size="lg" onClose={() => setLogProject(null)}>
+          <div className="flex h-full flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-muted">状态</span>
+              <pre className="max-h-32 overflow-auto rounded-(--radius-sm) bg-surface p-3 font-[family-name:var(--font-mono)] text-xs whitespace-pre-wrap text-text">
+                {logStatus.trim() || '无状态输出'}
+              </pre>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-muted">日志</span>
+              <Button
+                size="sm"
+                variant={stream === 'stdout' ? 'primary' : 'ghost'}
+                onClick={() => switchStream(logProject.id, 'stdout')}
+              >
+                stdout
+              </Button>
+              <Button
+                size="sm"
+                variant={stream === 'stderr' ? 'primary' : 'ghost'}
+                onClick={() => switchStream(logProject.id, 'stderr')}
+              >
+                stderr
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void loadLogs(logProject.id, stream)}
+              >
+                刷新
+              </Button>
+            </div>
+            <pre className="min-h-0 flex-1 overflow-auto rounded-(--radius-sm) bg-surface p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed whitespace-pre-wrap text-text">
+              {logs.trim() || '无日志输出'}
+            </pre>
+          </div>
+        </Modal>
+      )}
+
+      {settingsOpen && (
+        <Modal title="Node 设置" size="md" onClose={() => setSettingsOpen(false)}>
+          <div className="flex flex-col gap-4">
+            <Input
+              label="项目根目录 base_dir"
+              value={settings.base_dir}
+              spellCheck={false}
+              disabled={!isAdmin}
+              onChange={(e) => setSettings((s) => ({ ...s, base_dir: e.target.value }))}
+            />
+            <Input
+              label="Node 安装目录 node_dir"
+              value={settings.node_dir}
+              spellCheck={false}
+              disabled={!isAdmin}
+              onChange={(e) => setSettings((s) => ({ ...s, node_dir: e.target.value }))}
+            />
+            <Input
+              label="进程配置目录 conf_dir"
+              value={settings.conf_dir}
+              spellCheck={false}
+              disabled={!isAdmin}
+              onChange={(e) => setSettings((s) => ({ ...s, conf_dir: e.target.value }))}
+            />
+            <Input
+              label="日志目录 log_dir"
+              value={settings.log_dir}
+              spellCheck={false}
+              disabled={!isAdmin}
+              onChange={(e) => setSettings((s) => ({ ...s, log_dir: e.target.value }))}
+            />
+            {!isAdmin && <p className="text-xs text-muted">设置需要 admin 角色。</p>}
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={() => setSettingsOpen(false)}>
+                关闭
+              </Button>
+              {isAdmin && (
+                <Button onClick={() => void saveSettings()} disabled={settingsBusy}>
+                  {settingsBusy && <Spinner size={14} />}
+                  保存设置
+                </Button>
+              )}
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )
