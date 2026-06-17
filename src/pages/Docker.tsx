@@ -6,6 +6,7 @@ import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
+import { Modal as ModalShell } from '../components/Modal'
 import { Spinner } from '../components/Spinner'
 
 function errorText(e: unknown): string {
@@ -95,25 +96,16 @@ function Feedback({ fb }: { fb: FeedbackState }) {
 
 function Modal({ title, children, onClose, wide }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <Card
-        className={`flex max-h-[85vh] w-full flex-col gap-3 ${wide ? 'max-w-3xl' : 'max-w-md'}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <h3 className="truncate text-sm font-medium text-text">{title}</h3>
-          <Button size="sm" variant="ghost" onClick={onClose}>关闭</Button>
-        </div>
-        {children}
-      </Card>
-    </div>
+    <ModalShell title={title} onClose={onClose} size={wide ? 'lg' : 'sm'}>
+      {children}
+    </ModalShell>
   )
 }
 
 function OutputModal({ title, text, onClose }: { title: string; text: string; onClose: () => void }) {
   return (
     <Modal title={title} onClose={onClose} wide>
-      <pre className="max-h-[65vh] overflow-auto rounded-(--radius-card) bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
+      <pre className="h-full rounded-(--radius-card) bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
         {text.trim() || '无输出'}
       </pre>
     </Modal>
@@ -1078,7 +1070,7 @@ export default function Docker() {
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`h-8 rounded-(--radius-card) px-3 text-sm font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-              tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:text-text'
+              tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
             }`}
           >
             {t.label}

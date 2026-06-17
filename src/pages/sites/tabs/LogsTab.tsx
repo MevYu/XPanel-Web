@@ -85,7 +85,7 @@ export function LogsTab({ site, canWrite }: { site: Site; canWrite: boolean }) {
               key={t}
               onClick={() => setType(t)}
               className={`h-8 rounded-(--radius-card) px-3 text-sm font-medium transition outline-none ${
-                type === t ? 'bg-surface-2 text-text' : 'text-muted hover:text-text'
+                type === t ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
               }`}
             >
               {t === 'access' ? '访问日志' : '错误日志'}

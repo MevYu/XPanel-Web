@@ -646,7 +646,7 @@ function VersionDetail({ version, canWrite }: { version: string; canWrite: boole
             key={t.key}
             onClick={() => setTab(t.key)}
             className={`h-8 rounded-(--radius-card) px-3 text-sm font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-              tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:text-text'
+              tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
             }`}
           >
             {t.label}

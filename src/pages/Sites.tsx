@@ -219,7 +219,7 @@ export default function Sites() {
                 key={f.key}
                 onClick={() => setFilter(f.key)}
                 className={`h-9 rounded-sm px-3 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-                  filter === f.key ? 'bg-surface-2 text-text' : 'text-muted hover:text-text'
+                  filter === f.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
                 }`}
               >
                 {f.label}

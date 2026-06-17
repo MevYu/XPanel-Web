@@ -7,6 +7,7 @@ import { Button } from '../components/Button'
 import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Badge } from '../components/Badge'
+import { Modal } from '../components/Modal'
 import type {
   CronJob,
   CronJobType,
@@ -179,22 +180,7 @@ function RunsModal({ job, onClose }: { job: CronJob; onClose: () => void }) {
   }, [job.id])
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={onClose}
-    >
-      <Card
-        className="flex max-h-[80vh] w-full max-w-3xl flex-col gap-3"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between">
-          <h3 className="truncate text-sm font-medium text-text">
-            执行日志 · {job.comment || TYPE_LABEL[job.type]}
-          </h3>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            关闭
-          </Button>
-        </div>
+    <Modal title={`执行日志 · ${job.comment || TYPE_LABEL[job.type]}`} onClose={onClose} size="lg">
         {err ? (
           <p className="text-sm text-crit">{err}</p>
         ) : runs === null ? (
@@ -204,7 +190,7 @@ function RunsModal({ job, onClose }: { job: CronJob; onClose: () => void }) {
         ) : runs.length === 0 ? (
           <p className="text-sm text-muted">暂无执行记录。</p>
         ) : (
-          <div className="flex max-h-[64vh] flex-col gap-3 overflow-auto">
+          <div className="flex flex-col gap-3">
             {runs.map((r) => (
               <div
                 key={r.id}
@@ -227,8 +213,7 @@ function RunsModal({ job, onClose }: { job: CronJob; onClose: () => void }) {
             ))}
           </div>
         )}
-      </Card>
-    </div>
+    </Modal>
   )
 }
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
+import { Modal } from '../components/Modal'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Switch } from '../components/Switch'
@@ -52,17 +53,11 @@ const emptyForm: FormState = { name: '', command: '', directory: '', auto_restar
 
 function OutputModal({ title, text, onClose }: { title: string; text: string; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <Card className="flex max-h-[80vh] w-full max-w-3xl flex-col gap-3" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="truncate text-sm font-medium text-text">{title}</h3>
-          <Button size="sm" variant="ghost" onClick={onClose}>关闭</Button>
-        </div>
-        <pre className="max-h-[60vh] overflow-auto rounded-(--radius-card) bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
-          {text.trim() || '无输出'}
-        </pre>
-      </Card>
-    </div>
+    <Modal title={title} onClose={onClose} size="lg">
+      <pre className="h-full rounded-(--radius-card) bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
+        {text.trim() || '无输出'}
+      </pre>
+    </Modal>
   )
 }
 

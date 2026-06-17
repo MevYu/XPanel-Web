@@ -5,6 +5,7 @@ import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
+import { Modal } from '../components/Modal'
 import { Spinner } from '../components/Spinner'
 
 function errorText(e: unknown): string {
@@ -86,12 +87,8 @@ function InstallModal({ app, onClose, onInstalled }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <Card className="flex max-h-[85vh] w-full max-w-lg flex-col gap-4 overflow-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-text">安装 {app.name}</h3>
-          <Button size="sm" variant="ghost" onClick={onClose}>关闭</Button>
-        </div>
+    <Modal title={`安装 ${app.name}`} onClose={onClose} size="md">
+      <div className="flex flex-col gap-4">
         <p className="text-xs text-muted">{app.description}</p>
         <Input label="实例名(可选,留空自动生成)" value={name} spellCheck={false}
           placeholder={app.id} onChange={(e) => setName(e.target.value)} />
@@ -124,8 +121,8 @@ function InstallModal({ app, onClose, onInstalled }: {
           <Button onClick={() => void install()} disabled={busy || missing}>安装</Button>
           {busy && <Spinner size={16} />}
         </div>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   )
 }
 

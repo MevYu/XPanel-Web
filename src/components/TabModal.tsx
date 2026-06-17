@@ -21,7 +21,7 @@ interface TabModalProps<K extends string> {
   children: ReactNode
 }
 
-/** TabModal 左竖 tab 居中模态:~820px 宽、标题栏、左竖 tab 列、右侧独立滚动内容区。窄屏 tab 降级横排。深色沿用现有弹窗 token。 */
+/** TabModal 左竖 tab 居中模态:视口固定宽高(880×680 上限)、标题栏、左竖 tab 列、右侧独立滚动内容区。切 tab 外框尺寸不变。窄屏 tab 降级横排。深色沿用现有弹窗 token。 */
 export function TabModal<K extends string>({
   title,
   subtitle,
@@ -48,7 +48,7 @@ export function TabModal<K extends string>({
         role="dialog"
         aria-modal="true"
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[85vh] w-full max-w-[840px] flex-col overflow-hidden rounded-(--radius-card) border border-border/80 bg-bg shadow-[0_24px_60px_-20px_rgba(0,0,0,0.8)]"
+        className="flex h-[min(86vh,680px)] max-h-full w-[min(92vw,880px)] flex-col overflow-hidden rounded-(--radius-card) border border-border/80 bg-bg shadow-[0_24px_60px_-20px_rgba(0,0,0,0.8)]"
       >
         <header className="flex items-center gap-2 border-b border-border bg-surface px-5 py-3.5">
           <h2 className="font-[family-name:var(--font-display)] text-[15px] font-semibold text-text">
@@ -58,7 +58,7 @@ export function TabModal<K extends string>({
           <button
             onClick={onClose}
             aria-label="关闭"
-            className="ml-auto inline-flex h-8 w-8 items-center justify-center rounded-(--radius-sm) text-muted transition hover:bg-surface-2 hover:text-text"
+            className="ml-auto inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-(--radius-sm) text-muted transition hover:bg-surface-2 hover:text-text"
           >
             <X size={16} />
           </button>

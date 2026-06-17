@@ -99,6 +99,23 @@ body {
 
 ::selection { background: var(--color-brand-soft); color: var(--color-text); }
 
+/* Tailwind v4 preflight 不再给 button 设 pointer:可点元素统一指针手势,禁用态除外。 */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+label[for],
+summary,
+a[href] { cursor: pointer; }
+button:disabled,
+[aria-disabled="true"] { cursor: not-allowed; }
+
+/* 可复用列表行 hover:背景微提亮 + 指针,供"可点行"统一套用,避免逐页重复。
+   交互行用 .row-hover;只读展示行不要加。 */
+.row-hover {
+  cursor: pointer;
+  transition: background-color var(--dur-micro) var(--ease-out);
+}
+.row-hover:hover { background-color: color-mix(in oklab, var(--color-surface-2) 60%, transparent); }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
