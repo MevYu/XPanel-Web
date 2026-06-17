@@ -239,24 +239,10 @@ export default function Python() {
               : '管理 Python 项目:venv、依赖、进程启停与日志'}
           </p>
         </div>
+      </header>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <div className="relative w-56">
-            <Search
-              size={15}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-            />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索项目名或路径"
-              spellCheck={false}
-              className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-            />
-          </div>
-          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
-            <Settings2 size={15} />
-            设置
-          </Button>
           <Button
             size="md"
             disabled={!isAdmin}
@@ -266,8 +252,25 @@ export default function Python() {
             <Plus size={15} />
             添加项目
           </Button>
+          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+            <Settings2 size={15} />
+            设置
+          </Button>
         </div>
-      </header>
+        <div className="relative w-56">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索项目名或路径"
+            spellCheck={false}
+            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          />
+        </div>
+      </div>
 
       {loadErr && projects.length === 0 && !loading && (
         <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">

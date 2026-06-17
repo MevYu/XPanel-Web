@@ -267,6 +267,15 @@ export default function Alert() {
               : '按指标阈值触发告警,经通知渠道推送'}
           </p>
         </div>
+      </header>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Button size="md" disabled={!canWriteRule} onClick={() => setEditingRule('new')}>
+            <Plus size={15} />
+            添加规则
+          </Button>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="ghost" size="md" onClick={() => setChannelsOpen(true)}>
             <Radio size={15} />
@@ -280,12 +289,8 @@ export default function Alert() {
             <SlidersHorizontal size={15} />
             评估设置
           </Button>
-          <Button size="md" disabled={!canWriteRule} onClick={() => setEditingRule('new')}>
-            <Plus size={15} />
-            添加规则
-          </Button>
         </div>
-      </header>
+      </div>
 
       {loadErr && rules.length === 0 && !loading && (
         <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">

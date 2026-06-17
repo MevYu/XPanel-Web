@@ -575,20 +575,20 @@ function TwoFactor() {
               className="font-[family-name:var(--font-mono)]"
               onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
             />
-            <Button onClick={() => void verify()} disabled={code.trim().length !== 6 || busy}>
+            <Button size="sm" onClick={() => void verify()} disabled={code.trim().length !== 6 || busy}>
               验证并开启
             </Button>
-            <Button variant="ghost" onClick={() => setSetup(null)} disabled={busy}>
+            <Button size="sm" variant="ghost" onClick={() => setSetup(null)} disabled={busy}>
               取消
             </Button>
           </div>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => void begin()} disabled={busy}>
+          <Button size="sm" onClick={() => void begin()} disabled={busy}>
             绑定两步验证
           </Button>
-          <Button variant="danger" onClick={() => void disable()} disabled={busy}>
+          <Button size="sm" variant="danger" onClick={() => void disable()} disabled={busy}>
             关闭两步验证
           </Button>
           {busy && <Spinner size={16} />}
@@ -676,7 +676,7 @@ function ApiKeys() {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <Button onClick={() => void create()} disabled={!nameValid || busy}>
+        <Button size="sm" onClick={() => void create()} disabled={!nameValid || busy}>
           创建
         </Button>
         {busy && <Spinner size={16} />}
