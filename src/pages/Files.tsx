@@ -2274,21 +2274,21 @@ function EditorModal({
             />
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
-            {searchOpen && (
-              <Suspense fallback={null}>
-                <SearchBar
-                  view={editorRef.current?.getView() ?? null}
-                  showReplace={showReplace}
-                  onToggleReplace={() => setShowReplace((v) => !v)}
-                  onClose={() => setSearchOpen(false)}
-                  focusSignal={searchFocus}
-                />
-              </Suspense>
-            )}
             {err && (
               <p className="border-b border-border bg-crit/10 px-3 py-1.5 text-xs text-crit">{err}</p>
             )}
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="relative min-h-0 flex-1 overflow-hidden">
+              {searchOpen && (
+                <Suspense fallback={null}>
+                  <SearchBar
+                    view={editorRef.current?.getView() ?? null}
+                    showReplace={showReplace}
+                    onToggleReplace={() => setShowReplace((v) => !v)}
+                    onClose={() => setSearchOpen(false)}
+                    focusSignal={searchFocus}
+                  />
+                </Suspense>
+              )}
               <CodeEditor
                 key={file.path}
                 ref={editorRef}

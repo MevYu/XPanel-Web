@@ -25,6 +25,7 @@ import {
  * 不使用 CodeMirror 默认 search 面板,UI 完全可控。
  *
  * showReplace 由外部控制(Ctrl+H 或点"替换"展开);view 为目标编辑器视图。
+ * 面板以 absolute 浮于编辑区右上角(VS Code 风格),要求父容器为 relative。
  */
 export function SearchBar({
   view,
@@ -105,11 +106,11 @@ export function SearchBar({
   }
 
   const inputCls =
-    'h-8 w-56 min-w-0 rounded-(--radius-sm) border border-border bg-[#0C1118] px-2.5 font-[family-name:var(--font-mono)] text-[13px] text-text outline-none focus:border-brand'
+    'h-11 w-80 min-w-0 rounded-(--radius-sm) border border-border bg-[#0C1118] px-3 font-[family-name:var(--font-mono)] text-sm text-text outline-none focus:border-brand'
 
   return (
-    <div className="flex justify-end border-b border-border bg-surface-2/40 px-2 py-1.5">
-      <div className="flex w-auto max-w-full flex-col gap-1.5 rounded-(--radius-sm) border border-border bg-surface-2 px-2 py-1.5 shadow-[var(--shadow-elevated)]">
+    <div className="pointer-events-none absolute right-3 top-3 z-20 flex justify-end">
+      <div className="pointer-events-auto flex w-auto max-w-full flex-col gap-2 rounded-(--radius-sm) border border-border bg-surface-2 px-3 py-2.5 shadow-[var(--shadow-elevated)]">
       {/* 查找行 */}
       <div className="flex items-center gap-2">
         <input
@@ -120,46 +121,46 @@ export function SearchBar({
           placeholder="查找"
           className={inputCls}
         />
-        <span className="w-20 shrink-0 text-center font-[family-name:var(--font-mono)] text-xs text-muted">
+        <span className="w-24 shrink-0 text-center font-[family-name:var(--font-mono)] text-sm text-muted">
           {find ? `${current}/${total}` : '0/0'}
         </span>
         <IconBtn
           title="上一个 (Shift+Enter)"
           onClick={() => run(findPrevious)}
-          icon={<ArrowUp size={15} />}
+          icon={<ArrowUp size={17} />}
         />
         <IconBtn
           title="下一个 (Enter)"
           onClick={() => run(findNext)}
-          icon={<ArrowDown size={15} />}
+          icon={<ArrowDown size={17} />}
         />
-        <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+        <span className="mx-1 h-6 w-px bg-border" aria-hidden />
         <Toggle
           active={caseSensitive}
           onClick={() => setCaseSensitive((v) => !v)}
           title="区分大小写"
-          icon={<CaseSensitive size={16} />}
+          icon={<CaseSensitive size={18} />}
         />
         <Toggle
           active={regexp}
           onClick={() => setRegexp((v) => !v)}
           title="正则表达式"
-          icon={<Regex size={16} />}
+          icon={<Regex size={18} />}
         />
         <Toggle
           active={wholeWord}
           onClick={() => setWholeWord((v) => !v)}
           title="全词匹配"
-          icon={<WholeWord size={16} />}
+          icon={<WholeWord size={18} />}
         />
-        <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+        <span className="mx-1 h-6 w-px bg-border" aria-hidden />
         <Toggle
           active={showReplace}
           onClick={onToggleReplace}
           title="切换替换 (Ctrl+H)"
-          icon={<Replace size={16} />}
+          icon={<Replace size={18} />}
         />
-        <IconBtn title="关闭搜索栏 (Esc)" onClick={onClose} icon={<X size={16} />} />
+        <IconBtn title="关闭搜索栏 (Esc)" onClick={onClose} icon={<X size={18} />} />
       </div>
       {/* 替换行:仅展开时出现 */}
       {showReplace && (
@@ -170,9 +171,9 @@ export function SearchBar({
             placeholder="替换为"
             className={inputCls}
           />
-          <span className="w-20 shrink-0" aria-hidden />
-          <IconBtn title="替换当前" onClick={() => run(replaceNext)} icon={<Replace size={15} />} />
-          <IconBtn title="全部替换" onClick={() => run(replaceAll)} icon={<ReplaceAll size={15} />} />
+          <span className="w-24 shrink-0" aria-hidden />
+          <IconBtn title="替换当前" onClick={() => run(replaceNext)} icon={<Replace size={17} />} />
+          <IconBtn title="全部替换" onClick={() => run(replaceAll)} icon={<ReplaceAll size={17} />} />
         </div>
       )}
       </div>
@@ -195,7 +196,7 @@ function IconBtn({
       title={title}
       aria-label={title}
       onClick={onClick}
-      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-(--radius-sm) text-muted transition hover:bg-surface-2 hover:text-text"
+      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-sm) text-muted transition hover:bg-surface-2 hover:text-text"
     >
       {icon}
     </button>
@@ -223,7 +224,7 @@ function Toggle({
       aria-label={title}
       title={title}
       onClick={onClick}
-      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-(--radius-sm) border transition ${
+      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-sm) border transition ${
         active
           ? 'border-brand/50 bg-brand-soft text-brand'
           : 'border-transparent text-muted hover:bg-surface-2 hover:text-text'
