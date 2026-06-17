@@ -1,74 +1,29 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { Card } from '../components/Card'
-import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
-import { Spinner } from '../components/Spinner'
+import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Plus, Settings2, Search, Code2 } from 'lucide-react'
+import {
+  type Project,
+  type RunState,
+  DANGER,
+  errorText,
+  startKindLabel,
+  runStateFromStatus,
+} from './python/shared'
+import { CreateProjectModal } from './python/CreateProjectModal'
+import { LogsModal } from './python/LogsModal'
+import { SettingsModal } from './python/SettingsModal'
 
-function errorText(e: unknown): string {
-  const msg = e instanceof Error ? e.message.trim() : ''
-  return msg || '操作失败,请稍后重试'
+const runBadge: Record<RunState, { status: 'online' | 'neutral' | 'crit'; label: string }> = {
+  running: { status: 'online', label: '运行中' },
+  stopped: { status: 'crit', label: '已停止' },
+  unknown: { status: 'neutral', label: '未知' },
 }
 
-const DANGER = { 'X-Confirm-Danger': '1' }
-
-const selectClass =
-  'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
-
-interface Project {
-  id: number
-  name: string
-  project_dir: string
-  venv_dir: string
-  interpreter: string
-  start_kind: string
-  app_target: string
-  port: number
-  workers: number
-  created_by: number | null
-  created_at: number
-  updated_at: number
-}
-
-interface PySettings {
-  project_root: string
-  venv_root: string
-  interpreter: string
-  conf_dir: string
-  log_dir: string
-}
-
-const emptySettings: PySettings = {
-  project_root: '',
-  venv_root: '',
-  interpreter: '',
-  conf_dir: '',
-  log_dir: '',
-}
-
-type StartKind = 'gunicorn' | 'uvicorn' | 'script'
-
-interface CreateForm {
-  name: string
-  interpreter: string
-  start_kind: StartKind
-  app_target: string
-  port: string
-  workers: string
-}
-
-const emptyForm: CreateForm = {
-  name: '',
-  interpreter: '',
-  start_kind: 'gunicorn',
-  app_target: '',
-  port: '',
-  workers: '1',
-}
-
-/** Python:列出项目,创建(解释器/启动方式/端口/venv),装 requirements,启停/重启,状态与日志,设置。 */
+/** Python:aaPanel 布局——紧凑表列项目,右上添加项目/设置,行操作启停/重启/日志/删除,状态弹窗。 */
 export default function Python() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
@@ -77,70 +32,40 @@ export default function Python() {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
-  const [form, setForm] = useState<CreateForm>(emptyForm)
+  const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
-  const [openId, setOpenId] = useState<number | null>(null)
-  const [status, setStatus] = useState('')
-  const [logs, setLogs] = useState('')
+  const [states, setStates] = useState<Record<number, RunState>>({})
+  const [creating, setCreating] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [logsId, setLogsId] = useState<number | null>(null)
 
-  const [settings, setSettings] = useState<PySettings>(emptySettings)
-  const [showSettings, setShowSettings] = useState(false)
+  const refreshState = useCallback(async (id: number) => {
+    try {
+      const s = await apiFetch<string>(`/api/m/python/projects/${id}/status`)
+      setStates((prev) => ({ ...prev, [id]: runStateFromStatus(typeof s === 'string' ? s : '') }))
+    } catch {
+      setStates((prev) => ({ ...prev, [id]: 'unknown' }))
+    }
+  }, [])
 
   const load = useCallback(async () => {
     setLoadErr(null)
     try {
       const data = await apiFetch<Project[]>('/api/m/python/projects')
       setProjects(data)
+      await Promise.all(data.map((p) => refreshState(p.id)))
     } catch (e) {
       setLoadErr(errorText(e))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [refreshState])
 
   useEffect(() => {
     void load()
   }, [load])
-
-  const isScript = form.start_kind === 'script'
-  const portNum = Number(form.port)
-  const portValid = isScript || (Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535)
-  const workersNum = Number(form.workers)
-  const workersValid = Number.isInteger(workersNum) && workersNum >= 1 && workersNum <= 256
-  const canSubmit =
-    form.name.trim().length > 0 &&
-    form.app_target.trim().length > 0 &&
-    portValid &&
-    workersValid &&
-    !busy &&
-    canWrite
-
-  async function create() {
-    if (!canSubmit) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      const body: Record<string, unknown> = {
-        name: form.name.trim(),
-        interpreter: form.interpreter.trim(),
-        start_kind: form.start_kind,
-        app_target: form.app_target.trim(),
-        workers: workersNum,
-      }
-      if (!isScript) body.port = portNum
-      else if (form.port.trim()) body.port = portNum
-      await apiFetch('/api/m/python/projects', { method: 'POST', body: JSON.stringify(body) })
-      setFeedback({ kind: 'ok', text: '项目已创建' })
-      setForm(emptyForm)
-      await load()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
 
   async function action(p: Project, verb: 'start' | 'stop' | 'restart') {
     if (!canWrite) return
@@ -153,7 +78,7 @@ export default function Python() {
         headers: verb === 'stop' ? DANGER : undefined,
       })
       setFeedback({ kind: 'ok', text: `${p.name}:${verb} 已执行` })
-      if (openId === p.id) await refreshStatus(p.id)
+      await refreshState(p.id)
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
     } finally {
@@ -169,7 +94,10 @@ export default function Python() {
       const res = await apiFetch<string>(`/api/m/python/projects/${p.id}/requirements`, {
         method: 'POST',
       })
-      setFeedback({ kind: 'ok', text: typeof res === 'string' && res.trim() ? res.trim() : 'requirements 已安装' })
+      setFeedback({
+        kind: 'ok',
+        text: typeof res === 'string' && res.trim() ? res.trim() : 'requirements 已安装',
+      })
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
     } finally {
@@ -184,9 +112,9 @@ export default function Python() {
     setFeedback(null)
     try {
       await apiFetch(`/api/m/python/projects/${p.id}`, { method: 'DELETE', headers: DANGER })
-      if (openId === p.id) setOpenId(null)
+      setProjects((prev) => prev.filter((x) => x.id !== p.id))
+      if (logsId === p.id) setLogsId(null)
       setFeedback({ kind: 'ok', text: '项目已删除' })
-      await load()
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
     } finally {
@@ -194,270 +122,206 @@ export default function Python() {
     }
   }
 
-  async function refreshStatus(id: number) {
-    try {
-      const s = await apiFetch<string>(`/api/m/python/projects/${id}/status`)
-      setStatus(typeof s === 'string' ? s : '')
-    } catch (e) {
-      setStatus(errorText(e))
-    }
-  }
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return projects
+    return projects.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.project_dir.toLowerCase().includes(q) ||
+        p.app_target.toLowerCase().includes(q),
+    )
+  }, [projects, query])
 
-  const loadLogs = useCallback(async (id: number) => {
-    try {
-      const l = await apiFetch<string>(`/api/m/python/projects/${id}/logs?tail=200`)
-      setLogs(typeof l === 'string' ? l : '')
-    } catch (e) {
-      setLogs(errorText(e))
-    }
-  }, [])
+  const columns: Column<Project>[] = useMemo(
+    () => [
+      {
+        key: 'name',
+        header: '项目名',
+        cell: (p) => (
+          <button
+            type="button"
+            onClick={() => setLogsId(p.id)}
+            className="inline-flex items-center gap-2 rounded-sm font-medium text-text outline-none transition hover:text-brand focus-visible:ring-2 focus-visible:ring-brand/60"
+          >
+            <Code2 size={15} className="shrink-0 text-warn" />
+            <span className="truncate">{p.name}</span>
+          </button>
+        ),
+      },
+      {
+        key: 'path',
+        header: '路径',
+        cell: (p) => (
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+            {p.project_dir || '—'}
+          </span>
+        ),
+      },
+      {
+        key: 'port',
+        header: '端口',
+        width: '80px',
+        cell: (p) => (
+          <span className="font-[family-name:var(--font-mono)] text-xs text-muted">
+            {p.port > 0 ? p.port : '—'}
+          </span>
+        ),
+      },
+      {
+        key: 'status',
+        header: '运行状态',
+        width: '100px',
+        cell: (p) => {
+          const b = runBadge[states[p.id] ?? 'unknown']
+          return <Badge status={b.status}>{b.label}</Badge>
+        },
+      },
+      {
+        key: 'framework',
+        header: '版本 / 框架',
+        width: '170px',
+        cell: (p) => (
+          <span className="flex flex-col text-xs">
+            <span className="text-text">{p.interpreter || 'python3'}</span>
+            <span className="text-muted">{startKindLabel[p.start_kind] ?? p.start_kind}</span>
+          </span>
+        ),
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '270px',
+        align: 'right',
+        cell: (p) => (
+          <ActionLinks>
+            <ActionLink disabled={!canWrite || busy} onClick={() => void action(p, 'start')}>
+              启动
+            </ActionLink>
+            <ActionLink disabled={!canWrite || busy} onClick={() => void action(p, 'stop')}>
+              停止
+            </ActionLink>
+            <ActionLink disabled={!canWrite || busy} onClick={() => void action(p, 'restart')}>
+              重启
+            </ActionLink>
+            <ActionLink disabled={!canWrite || busy} onClick={() => void installReqs(p)}>
+              装依赖
+            </ActionLink>
+            <ActionLink onClick={() => setLogsId(p.id)}>日志</ActionLink>
+            <ActionLink
+              danger
+              disabled={!isAdmin || busy}
+              aria-label="删除项目"
+              title={isAdmin ? '删除项目' : '需要 admin 角色'}
+              onClick={() => void remove(p)}
+            >
+              删除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    [states, canWrite, isAdmin, busy],
+  )
 
-  async function open(p: Project) {
-    if (openId === p.id) {
-      setOpenId(null)
-      return
-    }
-    setOpenId(p.id)
-    setStatus('')
-    setLogs('')
-    await Promise.all([refreshStatus(p.id), loadLogs(p.id)])
-  }
-
-  async function openSettings() {
-    if (showSettings) {
-      setShowSettings(false)
-      return
-    }
-    setShowSettings(true)
-    try {
-      const s = await apiFetch<PySettings>('/api/m/python/settings')
-      setSettings(s)
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    }
-  }
-
-  async function saveSettings() {
-    if (!isAdmin) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      await apiFetch('/api/m/python/settings', { method: 'PUT', body: JSON.stringify(settings) })
-      setFeedback({ kind: 'ok', text: '设置已保存' })
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
+  const logsProject = logsId == null ? null : (projects.find((p) => p.id === logsId) ?? null)
 
   return (
     <div className="flex flex-col gap-4">
-      <Card className="flex flex-col gap-4">
-        <h2 className="text-sm font-medium text-text">创建项目</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Input
-            label="名称"
-            placeholder="项目名"
-            value={form.name}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-          />
-          <Input
-            label="解释器"
-            placeholder="留空用默认,如 python3.11"
-            value={form.interpreter}
-            spellCheck={false}
-            onChange={(e) => setForm((f) => ({ ...f, interpreter: e.target.value }))}
-          />
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-muted">启动方式</span>
-            <select
-              value={form.start_kind}
-              onChange={(e) => setForm((f) => ({ ...f, start_kind: e.target.value as StartKind }))}
-              className={selectClass}
-            >
-              <option value="gunicorn">gunicorn</option>
-              <option value="uvicorn">uvicorn</option>
-              <option value="script">script</option>
-            </select>
-          </label>
-          <Input
-            label={isScript ? '脚本路径' : '应用入口 app_target'}
-            placeholder={isScript ? '相对脚本路径' : 'module:app'}
-            value={form.app_target}
-            spellCheck={false}
-            className="font-[family-name:var(--font-mono)]"
-            onChange={(e) => setForm((f) => ({ ...f, app_target: e.target.value }))}
-          />
-          <Input
-            label={isScript ? '端口(可选)' : '端口'}
-            placeholder="1-65535"
-            inputMode="numeric"
-            value={form.port}
-            error={form.port.length > 0 && !portValid ? '端口需为 1–65535' : undefined}
-            onChange={(e) => setForm((f) => ({ ...f, port: e.target.value }))}
-          />
-          <Input
-            label="worker 数"
-            placeholder="1-256"
-            inputMode="numeric"
-            value={form.workers}
-            error={form.workers.length > 0 && !workersValid ? 'worker 需为 1–256' : undefined}
-            onChange={(e) => setForm((f) => ({ ...f, workers: e.target.value }))}
-          />
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+            Python 项目
+          </h1>
+          <p className="text-xs text-muted">
+            {projects.length > 0
+              ? `共 ${projects.length} 个项目`
+              : '管理 Python 项目:venv、依赖、进程启停与日志'}
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => void create()} disabled={!canSubmit}>
-            创建
+        <div className="flex items-center gap-2">
+          <div className="relative w-56">
+            <Search
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+            />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索项目名或路径"
+              spellCheck={false}
+              className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            />
+          </div>
+          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+            <Settings2 size={15} />
+            设置
           </Button>
-          {busy && <Spinner size={16} />}
-        </div>
-        <p className="text-xs text-muted">创建时会按解释器建立 venv。</p>
-        {!canWrite && <p className="text-xs text-muted">创建与启停需要 operator 角色。</p>}
-      </Card>
-
-      <Card className="p-0">
-        <div className="flex items-center justify-between px-5 py-3">
-          <span className="text-sm font-medium text-text">项目列表</span>
-          <Button size="sm" variant="ghost" onClick={() => void openSettings()}>
-            {showSettings ? '收起设置' : '设置'}
+          <Button
+            size="md"
+            disabled={!isAdmin}
+            title={isAdmin ? undefined : '创建需要 admin 角色'}
+            onClick={() => setCreating(true)}
+          >
+            <Plus size={15} />
+            添加项目
           </Button>
         </div>
+      </header>
 
-        {showSettings && (
-          <div className="flex flex-col gap-4 border-t border-border px-5 py-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                label="项目根目录 project_root"
-                value={settings.project_root}
-                spellCheck={false}
-                disabled={!isAdmin}
-                onChange={(e) => setSettings((s) => ({ ...s, project_root: e.target.value }))}
-              />
-              <Input
-                label="venv 根目录 venv_root"
-                value={settings.venv_root}
-                spellCheck={false}
-                disabled={!isAdmin}
-                onChange={(e) => setSettings((s) => ({ ...s, venv_root: e.target.value }))}
-              />
-              <Input
-                label="默认解释器 interpreter"
-                value={settings.interpreter}
-                spellCheck={false}
-                disabled={!isAdmin}
-                onChange={(e) => setSettings((s) => ({ ...s, interpreter: e.target.value }))}
-              />
-              <Input
-                label="进程配置目录 conf_dir"
-                value={settings.conf_dir}
-                spellCheck={false}
-                disabled={!isAdmin}
-                onChange={(e) => setSettings((s) => ({ ...s, conf_dir: e.target.value }))}
-              />
-              <Input
-                label="日志目录 log_dir"
-                value={settings.log_dir}
-                spellCheck={false}
-                disabled={!isAdmin}
-                onChange={(e) => setSettings((s) => ({ ...s, log_dir: e.target.value }))}
-              />
-            </div>
-            <div>
-              <Button size="sm" onClick={() => void saveSettings()} disabled={!isAdmin || busy}>
-                保存设置
-              </Button>
-            </div>
-            {!isAdmin && <p className="text-xs text-muted">设置需要 admin 角色。</p>}
-          </div>
-        )}
+      {loadErr && projects.length === 0 && !loading && (
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
+          </Button>
+        </p>
+      )}
 
-        {loading ? (
-          <div className="flex h-32 items-center justify-center">
-            <Spinner size={24} />
-          </div>
-        ) : loadErr && projects.length === 0 ? (
-          <p className="p-5 text-sm text-muted">{loadErr}</p>
-        ) : projects.length === 0 ? (
-          <p className="p-5 text-sm text-muted">暂无项目。</p>
-        ) : (
-          <div className="divide-y divide-border border-t border-border">
-            {projects.map((p) => (
-              <div key={p.id} className="flex flex-col gap-3 px-5 py-3.5">
-                <div className="flex items-center gap-4">
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium text-text">{p.name}</span>
-                      <Badge status="neutral">{p.start_kind}</Badge>
-                      {p.port > 0 && <Badge status="neutral">:{p.port}</Badge>}
-                    </div>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-[family-name:var(--font-mono)] text-xs text-muted">
-                      <span className="truncate">{p.project_dir}</span>
-                      <span className="truncate">{p.app_target}</span>
-                      <span>{p.interpreter}</span>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => void open(p)}>
-                      {openId === p.id ? '收起' : '详情'}
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => void installReqs(p)} disabled={!canWrite || busy}>
-                      装依赖
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => void action(p, 'start')} disabled={!canWrite || busy}>
-                      启动
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => void action(p, 'restart')} disabled={!canWrite || busy}>
-                      重启
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => void action(p, 'stop')} disabled={!canWrite || busy}>
-                      停止
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      onClick={() => void remove(p)}
-                      disabled={!isAdmin || busy}
-                      title={isAdmin ? undefined : '需要 admin 角色'}
-                    >
-                      删除
-                    </Button>
-                  </div>
-                </div>
+      {loading ? (
+        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      ) : (
+        <Table
+          columns={columns}
+          rows={visible}
+          rowKey={(p) => p.id}
+          emptyText={
+            <span className="flex flex-col items-center gap-1 py-6">
+              <span className="text-sm font-medium text-text">
+                {projects.length === 0 ? '还没有 Python 项目' : '没有匹配的项目'}
+              </span>
+              <span className="text-xs text-muted">
+                {projects.length === 0
+                  ? '点击「添加项目」创建第一个 venv 项目。'
+                  : '换个关键词试试。'}
+              </span>
+            </span>
+          }
+        />
+      )}
 
-                {openId === p.id && (
-                  <div className="flex flex-col gap-3 rounded-(--radius-card) border border-border bg-surface-2 p-4">
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-xs font-medium text-muted">状态</span>
-                      <pre className="overflow-auto rounded-(--radius-card) bg-bg p-3 font-[family-name:var(--font-mono)] text-xs text-text whitespace-pre-wrap">
-                        {status.trim() || '无状态输出'}
-                      </pre>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-muted">日志</span>
-                      <Button size="sm" variant="ghost" onClick={() => void loadLogs(p.id)}>
-                        刷新
-                      </Button>
-                    </div>
-                    <pre className="max-h-72 overflow-auto rounded-(--radius-card) bg-bg p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
-                      {logs.trim() || '无日志输出'}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      {!canWrite && (
+        <p className="text-xs text-muted">启停 / 装依赖需要 operator 角色,创建与删除需要 admin。</p>
+      )}
 
       {feedback && (
         <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
           {feedback.text}
         </p>
       )}
+
+      {creating && (
+        <CreateProjectModal
+          onClose={() => setCreating(false)}
+          onCreated={(p) => {
+            setProjects((prev) => [...prev, p])
+            setCreating(false)
+            void refreshState(p.id)
+          }}
+        />
+      )}
+      {settingsOpen && <SettingsModal isAdmin={isAdmin} onClose={() => setSettingsOpen(false)} />}
+      {logsProject && <LogsModal project={logsProject} onClose={() => setLogsId(null)} />}
     </div>
   )
 }
