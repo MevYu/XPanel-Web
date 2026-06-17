@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
@@ -6,6 +6,12 @@ import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
+import { Modal } from '../components/Modal'
+import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Plus, ShieldCheck, FolderLock, RefreshCw } from 'lucide-react'
+import { uid } from '../lib/uid'
+
+const DANGER = { 'X-Confirm-Danger': '1' }
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -13,7 +19,10 @@ function errorText(e: unknown): string {
 }
 
 function fmtTime(unix: number): string {
-  return unix ? new Date(unix * 1000).toLocaleString() : '—'
+  if (!unix) return '—'
+  const d = new Date(unix * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 type Feedback = { kind: 'ok' | 'err'; text: string } | null
@@ -34,6 +43,12 @@ interface TamperEvent {
   detected_at: number
 }
 
+const typeLabel: Record<TamperEvent['type'], string> = {
+  added: '新增',
+  modified: '修改',
+  deleted: '删除',
+}
+
 function typeBadge(t: TamperEvent['type']): 'online' | 'warn' | 'crit' | 'neutral' {
   if (t === 'added') return 'online'
   if (t === 'modified') return 'warn'
@@ -41,13 +56,35 @@ function typeBadge(t: TamperEvent['type']): 'online' | 'warn' | 'crit' | 'neutra
   return 'neutral'
 }
 
-/** Antitamper 防篡改:受保护目录与排除规则设置、重建基线、暂停/恢复、篡改事件列表。 */
+// 受保护目录行:后端基线/暂停均为全局,这里把每个 protected_dir 投影成一行,
+// id 仅作 React key 与编辑定位,不落库(随 dirs 顺序重新派发)。
+interface DirRow {
+  id: string
+  path: string
+}
+
+function linesOf(text: string): string[] {
+  return text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+}
+
+/** Antitamper 防篡改:aaPanel 风格 —— 顶部总开关/状态 + 受保护目录紧凑表 + 添加保护弹窗 + 篡改事件表。 */
 export default function Antitamper() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
 
   return (
     <div className="flex flex-col gap-4">
+      <header className="flex flex-col gap-1">
+        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+          防篡改
+        </h1>
+        <p className="text-xs text-muted">
+          对受保护目录建立 SHA-256 基线,后台周期扫描检出新增 / 删除 / 修改。
+        </p>
+      </header>
       {isAdmin ? (
         <Control />
       ) : (
@@ -65,9 +102,15 @@ function Control() {
   const [baselineFiles, setBaselineFiles] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [dirsText, setDirsText] = useState('')
-  const [excludeText, setExcludeText] = useState('')
   const [feedback, setFeedback] = useState<Feedback>(null)
+
+  const [adding, setAdding] = useState(false)
+  const [addPath, setAddPath] = useState('')
+  const [editing, setEditing] = useState<DirRow | null>(null)
+  const [editPath, setEditPath] = useState('')
+
+  const [rulesText, setRulesText] = useState('')
+  const [intervalText, setIntervalText] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -76,8 +119,8 @@ function Control() {
         apiFetch<{ files: number }>('/api/m/antitamper/baseline'),
       ])
       setCfg(s)
-      setDirsText(s.protected_dirs.join('\n'))
-      setExcludeText(s.exclude_rules.join('\n'))
+      setRulesText(s.exclude_rules.join('\n'))
+      setIntervalText(String(s.interval_sec))
       setBaselineFiles(b.files)
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
@@ -90,29 +133,82 @@ function Control() {
     void load()
   }, [load])
 
-  function linesOf(text: string): string[] {
-    return text
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0)
-  }
-
-  async function saveSettings() {
-    if (!cfg) return
+  // putDirs 用最新 dirs 列表整存设置(后端 PUT /settings 取整个 Settings)。
+  async function putDirs(dirs: string[]): Promise<boolean> {
+    if (!cfg) return false
     setBusy(true)
     setFeedback(null)
     try {
-      const next: Settings = {
-        ...cfg,
-        protected_dirs: linesOf(dirsText),
-        exclude_rules: linesOf(excludeText),
-      }
+      const next: Settings = { ...cfg, protected_dirs: dirs }
+      const saved = await apiFetch<Settings>('/api/m/antitamper/settings', {
+        method: 'PUT',
+        headers: DANGER,
+        body: JSON.stringify(next),
+      })
+      setCfg(saved)
+      return true
+    } catch (e) {
+      setFeedback({ kind: 'err', text: errorText(e) })
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function addDir() {
+    if (!cfg) return
+    const path = addPath.trim()
+    if (!path) return
+    if (cfg.protected_dirs.includes(path)) {
+      setFeedback({ kind: 'err', text: '该目录已在保护列表中' })
+      return
+    }
+    if (await putDirs([...cfg.protected_dirs, path])) {
+      setAdding(false)
+      setAddPath('')
+      setFeedback({ kind: 'ok', text: `已添加保护目录 ${path},建议随后重建基线` })
+    }
+  }
+
+  async function saveEdit() {
+    if (!cfg || !editing) return
+    const path = editPath.trim()
+    if (!path) return
+    const dirs = cfg.protected_dirs.map((d) => (d === editing.path ? path : d))
+    if (await putDirs(dirs)) {
+      setEditing(null)
+      setFeedback({ kind: 'ok', text: '目录已更新,建议随后重建基线' })
+    }
+  }
+
+  async function removeDir(row: DirRow) {
+    if (!cfg) return
+    if (!window.confirm(`确认移除保护目录「${row.path}」?该目录将不再被监控,此操作危险。`)) return
+    const dirs = cfg.protected_dirs.filter((d) => d !== row.path)
+    if (await putDirs(dirs)) {
+      setFeedback({ kind: 'ok', text: `已移除 ${row.path}` })
+    }
+  }
+
+  async function saveRules() {
+    if (!cfg) return
+    const interval = Number(intervalText)
+    if (!Number.isInteger(interval) || interval <= 0) {
+      setFeedback({ kind: 'err', text: '扫描间隔须为正整数(秒)' })
+      return
+    }
+    setBusy(true)
+    setFeedback(null)
+    try {
+      const next: Settings = { ...cfg, exclude_rules: linesOf(rulesText), interval_sec: interval }
       const saved = await apiFetch<Settings>('/api/m/antitamper/settings', {
         method: 'PUT',
         body: JSON.stringify(next),
       })
       setCfg(saved)
-      setFeedback({ kind: 'ok', text: '设置已保存' })
+      setRulesText(saved.exclude_rules.join('\n'))
+      setIntervalText(String(saved.interval_sec))
+      setFeedback({ kind: 'ok', text: '规则与间隔已保存' })
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
     } finally {
@@ -152,6 +248,67 @@ function Control() {
     }
   }
 
+  const rows: DirRow[] = useMemo(
+    () => (cfg?.protected_dirs ?? []).map((path) => ({ id: uid(), path })),
+    [cfg],
+  )
+  const ruleCount = cfg?.exclude_rules.length ?? 0
+  const protectedOn = !!cfg && !cfg.paused
+
+  const columns: Column<DirRow>[] = useMemo(
+    () => [
+      {
+        key: 'path',
+        header: '受保护目录',
+        cell: (d) => (
+          <span className="inline-flex items-center gap-2 font-medium text-text">
+            <FolderLock size={15} className="shrink-0 text-warn" />
+            <span className="truncate font-[family-name:var(--font-mono)] text-xs">{d.path}</span>
+          </span>
+        ),
+      },
+      {
+        key: 'status',
+        header: '保护状态',
+        width: '110px',
+        cell: () => (
+          <Badge status={protectedOn ? 'online' : 'warn'}>
+            {protectedOn ? '监控中' : '已暂停'}
+          </Badge>
+        ),
+      },
+      {
+        key: 'rules',
+        header: '排除规则',
+        width: '110px',
+        cell: () => <span className="text-xs text-muted">{ruleCount} 条</span>,
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '120px',
+        align: 'right',
+        cell: (d) => (
+          <ActionLinks>
+            <ActionLink
+              onClick={() => {
+                setEditing(d)
+                setEditPath(d.path)
+                setFeedback(null)
+              }}
+            >
+              编辑
+            </ActionLink>
+            <ActionLink danger aria-label="移除保护目录" onClick={() => void removeDir(d)}>
+              移除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    [protectedOn, ruleCount],
+  )
+
   if (loading) {
     return (
       <Card>
@@ -163,13 +320,18 @@ function Control() {
   }
 
   return (
-    <Card className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-col gap-4">
+      <Card className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <h2 className="text-sm font-medium text-text">防篡改控制</h2>
-          {cfg && (
-            <Badge status={cfg.paused ? 'warn' : 'online'}>{cfg.paused ? '已暂停' : '监控中'}</Badge>
-          )}
+          <ShieldCheck size={18} className={protectedOn ? 'text-online' : 'text-warn'} />
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-medium text-text">防篡改监控</h2>
+            {cfg && (
+              <Badge status={cfg.paused ? 'warn' : 'online'}>
+                {cfg.paused ? '已暂停' : '监控中'}
+              </Badge>
+            )}
+          </div>
           {baselineFiles !== null && (
             <span className="text-xs text-muted">基线 {baselineFiles} 个文件</span>
           )}
@@ -185,57 +347,144 @@ function Control() {
               暂停监控
             </Button>
           )}
-          <Button size="sm" onClick={() => void rebuild()} disabled={busy}>
+          <Button size="sm" variant="ghost" onClick={() => void rebuild()} disabled={busy}>
+            <RefreshCw size={14} />
             重建基线
           </Button>
         </div>
-      </div>
+      </Card>
 
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-muted">受保护目录(每行一个绝对路径)</span>
-        <textarea
-          value={dirsText}
-          rows={3}
-          spellCheck={false}
-          placeholder="/www/wwwroot"
-          onChange={(e) => setDirsText(e.target.value)}
-          className="rounded-(--radius-card) border border-border bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
-        />
-      </label>
-
-      <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-muted">排除规则(每行一个 glob)</span>
-        <textarea
-          value={excludeText}
-          rows={3}
-          spellCheck={false}
-          placeholder="*.log"
-          onChange={(e) => setExcludeText(e.target.value)}
-          className="rounded-(--radius-card) border border-border bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
-        />
-      </label>
-
-      <Input
-        label="扫描间隔(秒)"
-        inputMode="numeric"
-        value={cfg ? String(cfg.interval_sec) : ''}
-        onChange={(e) =>
-          setCfg((c) => (c ? { ...c, interval_sec: Number(e.target.value) || 0 } : c))
-        }
-      />
-
-      <div className="flex items-center gap-2">
-        <Button onClick={() => void saveSettings()} disabled={busy}>
-          保存设置
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Button
+          size="md"
+          disabled={busy}
+          onClick={() => {
+            setAddPath('')
+            setFeedback(null)
+            setAdding(true)
+          }}
+        >
+          <Plus size={15} />
+          添加保护
         </Button>
         <span className="text-xs text-muted">改目录或排除规则后建议重建基线。</span>
       </div>
+
       {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
+        <p
+          className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+            feedback.kind === 'ok'
+              ? 'border-online/40 bg-online/10 text-online'
+              : 'border-crit/40 bg-crit/10 text-crit'
+          }`}
+        >
           {feedback.text}
         </p>
       )}
-    </Card>
+
+      <Table
+        columns={columns}
+        rows={rows}
+        rowKey={(d) => d.id}
+        emptyText={
+          <span className="flex flex-col items-center gap-1 py-6">
+            <span className="text-sm font-medium text-text">还没有受保护目录</span>
+            <span className="text-xs text-muted">点击「添加保护」纳入第一个目录,再重建基线。</span>
+          </span>
+        }
+      />
+
+      <Card className="flex flex-col gap-4">
+        <h2 className="text-sm font-medium text-text">扫描规则</h2>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-muted">排除规则(每行一个 glob)</span>
+          <textarea
+            value={rulesText}
+            rows={3}
+            spellCheck={false}
+            placeholder="*.log"
+            onChange={(e) => setRulesText(e.target.value)}
+            className="rounded-(--radius-card) border border-border bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+          />
+        </label>
+        <Input
+          label="扫描间隔(秒)"
+          inputMode="numeric"
+          value={intervalText}
+          onChange={(e) => setIntervalText(e.target.value)}
+        />
+        <div>
+          <Button onClick={() => void saveRules()} disabled={busy}>
+            保存规则
+          </Button>
+        </div>
+      </Card>
+
+      {adding && (
+        <Modal title="添加保护目录" size="sm" onClose={() => setAdding(false)}>
+          <div className="flex flex-col gap-4">
+            <Input
+              label="目录路径"
+              placeholder="/www/wwwroot"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoFocus
+              className="font-[family-name:var(--font-mono)]"
+              value={addPath}
+              onChange={(e) => setAddPath(e.target.value)}
+            />
+            <p className="text-xs text-muted">须为绝对且干净的路径(后端校验),如 /www/wwwroot。</p>
+            {feedback?.kind === 'err' && (
+              <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+                {feedback.text}
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={() => setAdding(false)} disabled={busy}>
+                取消
+              </Button>
+              <Button onClick={() => void addDir()} disabled={!addPath.trim() || busy}>
+                {busy && <Spinner size={14} />}
+                添加
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {editing && (
+        <Modal title="编辑保护目录" size="sm" onClose={() => setEditing(null)}>
+          <div className="flex flex-col gap-4">
+            <Input
+              label="目录路径"
+              placeholder="/www/wwwroot"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoFocus
+              className="font-[family-name:var(--font-mono)]"
+              value={editPath}
+              onChange={(e) => setEditPath(e.target.value)}
+            />
+            {feedback?.kind === 'err' && (
+              <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+                {feedback.text}
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={() => setEditing(null)} disabled={busy}>
+                取消
+              </Button>
+              <Button onClick={() => void saveEdit()} disabled={!editPath.trim() || busy}>
+                {busy && <Spinner size={14} />}
+                保存
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
   )
 }
 
@@ -259,35 +508,64 @@ function Events() {
     void load()
   }, [load])
 
+  const columns: Column<TamperEvent>[] = useMemo(
+    () => [
+      {
+        key: 'type',
+        header: '类型',
+        width: '88px',
+        cell: (ev) => <Badge status={typeBadge(ev.type)}>{typeLabel[ev.type] ?? ev.type}</Badge>,
+      },
+      {
+        key: 'path',
+        header: '路径',
+        cell: (ev) => (
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-text">
+            {ev.path}
+          </span>
+        ),
+      },
+      {
+        key: 'detected',
+        header: '检出时间',
+        width: '160px',
+        align: 'right',
+        cell: (ev) => <span className="text-xs text-muted">{fmtTime(ev.detected_at)}</span>,
+      },
+    ],
+    [],
+  )
+
   return (
-    <Card className="flex flex-col gap-4 p-0">
-      <div className="flex items-center justify-between px-5 pt-5">
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-text">篡改事件</h2>
         <Button size="sm" variant="ghost" onClick={() => void load()} disabled={loading}>
           刷新
         </Button>
       </div>
       {loading ? (
-        <div className="flex h-24 items-center justify-center">
-          <Spinner size={20} />
-        </div>
+        <div className="h-32 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : loadErr && events.length === 0 ? (
-        <p className="px-5 pb-5 text-sm text-muted">{loadErr}</p>
-      ) : events.length === 0 ? (
-        <p className="px-5 pb-5 text-sm text-muted">暂无篡改事件。</p>
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
+          </Button>
+        </p>
       ) : (
-        <div className="divide-y divide-border px-5 pb-2">
-          {events.map((ev) => (
-            <div key={ev.id} className="flex items-center gap-4 py-3">
-              <Badge status={typeBadge(ev.type)}>{ev.type}</Badge>
-              <span className="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-xs text-text">
-                {ev.path}
-              </span>
-              <span className="text-xs text-muted">{fmtTime(ev.detected_at)}</span>
-            </div>
-          ))}
-        </div>
+        <Table
+          columns={columns}
+          rows={events}
+          rowKey={(ev) => ev.id}
+          emptyText={
+            <span className="flex flex-col items-center gap-1 py-6">
+              <span className="text-sm font-medium text-text">暂无篡改事件</span>
+              <span className="text-xs text-muted">受保护目录一旦发生变更,会在此列出。</span>
+            </span>
+          }
+        />
       )}
-    </Card>
+    </div>
   )
 }
