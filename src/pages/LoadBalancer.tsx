@@ -40,6 +40,20 @@ interface Settings {
   conf_dir: string
 }
 
+interface BackendHealth {
+  host: string
+  port: number
+  up: boolean
+  response_ms: number
+  error?: string
+}
+
+interface GroupHealth {
+  group_id: number
+  name: string
+  backends: BackendHealth[]
+}
+
 const ALGOS = ['round-robin', 'least_conn', 'ip_hash']
 
 const ALGO_LABEL: Record<string, string> = {
@@ -67,6 +81,7 @@ export default function LoadBalancer() {
   const [creating, setCreating] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [detailId, setDetailId] = useState<number | null>(null)
+  const [healthSummary, setHealthSummary] = useState<Record<number, { up: number; total: number }>>({})
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -82,6 +97,31 @@ export default function LoadBalancer() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // 均衡组加载后,为已启用组逐个拉节点健康,汇总成「N/M 在线」供状态列展示。
+  useEffect(() => {
+    const enabled = groups.filter((g) => g.enabled)
+    if (enabled.length === 0) return
+    let alive = true
+    void Promise.all(
+      enabled.map(async (g) => {
+        try {
+          const h = await apiFetch<GroupHealth>(`/api/m/loadbalancer/groups/${g.id}/health`)
+          return [g.id, { up: h.backends.filter((b) => b.up).length, total: h.backends.length }] as const
+        } catch {
+          return null
+        }
+      }),
+    ).then((entries) => {
+      if (!alive) return
+      const next: Record<number, { up: number; total: number }> = {}
+      for (const e of entries) if (e) next[e[0]] = e[1]
+      setHealthSummary(next)
+    })
+    return () => {
+      alive = false
+    }
+  }, [groups])
 
   async function toggle(g: Group, enable: boolean) {
     if (busy || !canWrite) return
@@ -169,10 +209,18 @@ export default function LoadBalancer() {
       {
         key: 'status',
         header: '状态',
-        width: '92px',
-        cell: (g) => (
-          <Badge status={g.enabled ? 'online' : 'neutral'}>{g.enabled ? '运行中' : '已停用'}</Badge>
-        ),
+        width: '108px',
+        cell: (g) => {
+          if (!g.enabled) return <Badge status="neutral">已停用</Badge>
+          const s = healthSummary[g.id]
+          if (!s) return <Badge status="online">运行中</Badge>
+          const allUp = s.total > 0 && s.up === s.total
+          return (
+            <Badge status={s.up === 0 && s.total > 0 ? 'crit' : allUp ? 'online' : 'warn'}>
+              {s.up}/{s.total} 在线
+            </Badge>
+          )
+        },
       },
       {
         key: 'actions',
@@ -203,7 +251,7 @@ export default function LoadBalancer() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isAdmin, canWrite, busy, detailId],
+    [isAdmin, canWrite, busy, detailId, healthSummary],
   )
 
   return (
@@ -532,8 +580,31 @@ function CreateGroupModal({
   )
 }
 
-/** DetailModal 均衡组详情:节点列表 + 生成的 nginx 配置(只读)。 */
+/** DetailModal 均衡组详情:节点列表(含节点健康)+ 生成的 nginx 配置(只读)。 */
 function DetailModal({ group, onClose }: { group: Group; onClose: () => void }) {
+  const [health, setHealth] = useState<Map<string, BackendHealth> | null>(null)
+  const [healthBusy, setHealthBusy] = useState(false)
+  const [healthErr, setHealthErr] = useState<string | null>(null)
+
+  const checkHealth = useCallback(async () => {
+    setHealthBusy(true)
+    setHealthErr(null)
+    try {
+      const res = await apiFetch<GroupHealth>(`/api/m/loadbalancer/groups/${group.id}/health`)
+      setHealth(new Map(res.backends.map((b) => [`${b.host}:${b.port}`, b])))
+    } catch (e) {
+      setHealthErr(errorText(e))
+    } finally {
+      setHealthBusy(false)
+    }
+  }, [group.id])
+
+  useEffect(() => {
+    void checkHealth()
+  }, [checkHealth])
+
+  const upCount = health == null ? null : group.backends.filter((b) => health.get(`${b.host}:${b.port}`)?.up).length
+
   return (
     <Modal title={`均衡组 · ${group.name}`} size="md" onClose={onClose}>
       <div className="flex flex-col gap-4">
@@ -548,7 +619,19 @@ function DetailModal({ group, onClose }: { group: Group; onClose: () => void }) 
         </div>
 
         <div className="flex flex-col gap-2">
-          <span className="text-sm font-medium text-muted">后端节点 ({group.backends.length})</span>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-muted">
+              后端节点 ({group.backends.length})
+              {upCount != null && (
+                <span className="ml-2 text-xs text-online">{upCount}/{group.backends.length} 在线</span>
+              )}
+            </span>
+            <Button size="sm" variant="ghost" disabled={healthBusy} onClick={() => void checkHealth()}>
+              {healthBusy && <Spinner size={14} />}
+              检测健康
+            </Button>
+          </div>
+          {healthErr && <p className="text-xs text-crit">{healthErr}</p>}
           <Table
             columns={[
               {
@@ -561,22 +644,44 @@ function DetailModal({ group, onClose }: { group: Group; onClose: () => void }) 
                 ),
               },
               {
+                key: 'health',
+                header: '健康',
+                width: '92px',
+                cell: (b: Backend) => {
+                  const h = health?.get(`${b.host}:${b.port}`)
+                  if (!h) return <span className="text-muted">{healthBusy ? '检测中…' : '—'}</span>
+                  return <Badge status={h.up ? 'online' : 'crit'}>{h.up ? '在线' : '离线'}</Badge>
+                },
+              },
+              {
+                key: 'response_ms',
+                header: '响应',
+                width: '80px',
+                cell: (b: Backend) => {
+                  const h = health?.get(`${b.host}:${b.port}`)
+                  return <span className="text-muted">{h?.up ? `${h.response_ms} ms` : '—'}</span>
+                },
+              },
+              {
                 key: 'weight',
                 header: '权重',
-                width: '80px',
+                width: '70px',
                 cell: (b: Backend) => <span className="text-muted">{b.weight}</span>,
               },
               {
-                key: 'max_fails',
-                header: 'max_fails',
-                width: '100px',
-                cell: (b: Backend) => <span className="text-muted">{b.max_fails || '—'}</span>,
-              },
-              {
-                key: 'fail_timeout',
-                header: 'fail_timeout',
-                width: '110px',
-                cell: (b: Backend) => <span className="text-muted">{b.fail_timeout || '—'}</span>,
+                key: 'error',
+                header: '错误',
+                cell: (b: Backend) => {
+                  const h = health?.get(`${b.host}:${b.port}`)
+                  return (
+                    <span
+                      className="block truncate text-xs text-crit"
+                      title={h?.error || undefined}
+                    >
+                      {h?.error || '—'}
+                    </span>
+                  )
+                },
               },
             ]}
             rows={group.backends}
