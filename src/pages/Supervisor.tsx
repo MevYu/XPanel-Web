@@ -82,15 +82,30 @@ function OutputModal({ title, text, onClose }: { title: string; text: string; on
   )
 }
 
-/** CreateModal 添加程序:固定尺寸弹窗表单(名称/目录/命令/进程数/自动重启),按后端契约提交。创建需 admin。 */
-function CreateModal({
+/** ProgramModal 程序表单:固定尺寸弹窗(名称/目录/命令/进程数/自动重启),按后端契约提交。
+ *  mode='create' POST /programs;mode='edit' PUT /programs/{id}。两者 body 契约一致,均需 admin。 */
+function ProgramModal({
+  mode,
+  program,
   onClose,
-  onCreated,
+  onSaved,
 }: {
+  mode: 'create' | 'edit'
+  program?: Program
   onClose: () => void
-  onCreated: () => void | Promise<void>
+  onSaved: () => void | Promise<void>
 }) {
-  const [form, setForm] = useState<FormState>(emptyForm)
+  const [form, setForm] = useState<FormState>(() =>
+    program
+      ? {
+          name: program.name,
+          command: program.command,
+          directory: program.directory,
+          auto_restart: program.auto_restart,
+          numprocs: String(program.numprocs),
+        }
+      : emptyForm,
+  )
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -106,11 +121,12 @@ function CreateModal({
     setBusy(true)
     setErr(null)
     try {
-      await apiFetch('/api/m/supervisor/programs', {
-        method: 'POST',
+      const path = mode === 'edit' ? `/api/m/supervisor/programs/${program!.id}` : '/api/m/supervisor/programs'
+      await apiFetch(path, {
+        method: mode === 'edit' ? 'PUT' : 'POST',
         body: JSON.stringify({ name, command, directory, auto_restart: form.auto_restart, numprocs }),
       })
-      await onCreated()
+      await onSaved()
       onClose()
     } catch (e) {
       setErr(errorText(e))
@@ -119,7 +135,7 @@ function CreateModal({
   }
 
   return (
-    <Modal title="添加程序" onClose={onClose} size="sm">
+    <Modal title={mode === 'edit' ? '编辑程序' : '添加程序'} onClose={onClose} size="sm">
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -127,7 +143,7 @@ function CreateModal({
           void submit()
         }}
       >
-        <p className="text-xs text-muted">命令以 supervisor 属主(通常 root)执行,创建需 admin 角色。</p>
+        <p className="text-xs text-muted">命令以 supervisor 属主(通常 root)执行,需 admin 角色。</p>
         <Input
           label="名称"
           value={form.name}
@@ -185,7 +201,7 @@ function CreateModal({
           </Button>
           <Button type="submit" disabled={!canSubmit}>
             {busy && <Spinner size={14} />}
-            添加程序
+            {mode === 'edit' ? '保存' : '添加程序'}
           </Button>
         </div>
       </form>
@@ -282,6 +298,7 @@ export default function Supervisor() {
   const [fb, setFb] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [modal, setModal] = useState<{ title: string; text: string } | null>(null)
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<Program | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   // refreshStates 拉取每个程序的运行态用于徽章;list 端点不带运行态,这是后端薄处,失败逐个回退 unknown。
@@ -420,7 +437,7 @@ export default function Supervisor() {
       {
         key: 'actions',
         header: '操作',
-        width: '248px',
+        width: '296px',
         align: 'right',
         cell: (p) => (
           <ActionLinks>
@@ -434,6 +451,14 @@ export default function Supervisor() {
               重启
             </ActionLink>
             <ActionLink onClick={() => void show(p, 'logs')}>日志</ActionLink>
+            <ActionLink
+              disabled={!isAdmin || busy}
+              aria-label="编辑程序"
+              title={isAdmin ? '编辑程序' : '需要 admin 角色'}
+              onClick={() => setEditing(p)}
+            >
+              编辑
+            </ActionLink>
             <ActionLink
               danger
               disabled={!isAdmin || busy}
@@ -513,7 +538,10 @@ export default function Supervisor() {
         <p className="text-xs text-muted">启停需要 operator 角色;添加与删除需要 admin。</p>
       )}
 
-      {creating && <CreateModal onClose={() => setCreating(false)} onCreated={load} />}
+      {creating && <ProgramModal mode="create" onClose={() => setCreating(false)} onSaved={load} />}
+      {editing && (
+        <ProgramModal mode="edit" program={editing} onClose={() => setEditing(null)} onSaved={load} />
+      )}
       {settingsOpen && <SettingsModal isAdmin={isAdmin} onClose={() => setSettingsOpen(false)} />}
       {modal && <OutputModal title={modal.title} text={modal.text} onClose={() => setModal(null)} />}
     </div>
