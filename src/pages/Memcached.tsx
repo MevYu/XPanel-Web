@@ -1,11 +1,29 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
-import { Stat } from '../components/Stat'
+import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
+import { Modal } from '../components/Modal'
+import { Table, type Column } from '../components/Table'
+import {
+  Play,
+  RotateCcw,
+  Square,
+  Trash2,
+  RefreshCw,
+  Settings2,
+  Gauge,
+  MemoryStick,
+  Plug,
+  Boxes,
+  Timer,
+  Recycle,
+  ArrowDownUp,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -40,6 +58,14 @@ interface Settings {
   service_unit: string
 }
 
+interface SlabRow {
+  id: string
+  chunk_size: string
+  chunks_per_page: string
+  used_chunks: string
+  free_chunks: string
+}
+
 function fmtBytes(n: number): string {
   if (n <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -54,7 +80,42 @@ function fmtUptime(sec: number): string {
   return d > 0 ? `${d}天 ${h}时` : h > 0 ? `${h}时 ${m}分` : `${m}分`
 }
 
-/** Memcached:查看 stats(命中率/连接/内存/items)与 slabs,启停/重启服务,flush 清空缓存(危险)。 */
+function fmtNum(n: number): string {
+  return n.toLocaleString()
+}
+
+interface MetricProps {
+  icon: LucideIcon
+  /** 暖色 tint class,贴合 aaPanel 状态页配色。 */
+  tint: string
+  value: string
+  label: string
+}
+
+/** Metric aaPanel 风指标小卡:暖色图标 + 大号 mono 读数 + muted 标签,密度收紧。 */
+function Metric({ icon: Icon, tint, value, label }: MetricProps) {
+  return (
+    <div className="flex items-center gap-3 rounded-(--radius-card) border border-border bg-surface-2/40 px-3.5 py-3">
+      <Icon size={20} className={`shrink-0 ${tint}`} />
+      <div className="flex min-w-0 flex-col">
+        <span className="truncate font-[family-name:var(--font-mono)] text-xl font-medium tabular-nums tracking-tight text-text">
+          {value}
+        </span>
+        <span className="truncate text-xs text-muted">{label}</span>
+      </div>
+    </div>
+  )
+}
+
+const SLAB_COLUMNS: Column<SlabRow>[] = [
+  { key: 'id', header: 'slab', width: '80px', cell: (s) => <span className="font-[family-name:var(--font-mono)]">{s.id}</span> },
+  { key: 'chunk_size', header: 'chunk_size', cell: (s) => <span className="font-[family-name:var(--font-mono)] text-muted">{s.chunk_size}</span> },
+  { key: 'chunks_per_page', header: 'chunks/page', cell: (s) => <span className="font-[family-name:var(--font-mono)] text-muted">{s.chunks_per_page}</span> },
+  { key: 'used_chunks', header: 'used', cell: (s) => <span className="font-[family-name:var(--font-mono)] text-muted">{s.used_chunks}</span> },
+  { key: 'free_chunks', header: 'free', cell: (s) => <span className="font-[family-name:var(--font-mono)] text-muted">{s.free_chunks}</span> },
+]
+
+/** Memcached 状态页(aaPanel 布局):顶部连接状态 + 暖色指标卡网格,slabs 紧凑表,服务控制与 flush 走工具栏,设置进固定尺寸弹窗。 */
 export default function Memcached() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
@@ -63,21 +124,33 @@ export default function Memcached() {
   const [slabs, setSlabs] = useState<Slabs>({})
   const [settings, setSettings] = useState<Settings | null>(null)
   const [loading, setLoading] = useState(true)
+  const [connected, setConnected] = useState(false)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [flushOpen, setFlushOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoadErr(null)
     try {
-      const [st, sl, se] = await Promise.all([
-        apiFetch<Stats>('/api/m/memcached/stats'),
-        apiFetch<Slabs>('/api/m/memcached/slabs'),
-        apiFetch<Settings>('/api/m/memcached/settings'),
-      ])
-      setStats(st)
-      setSlabs(sl ?? {})
+      // settings 单独取:连不上 memcached 时 stats/slabs 失败,但设置仍可读可改。
+      const se = await apiFetch<Settings>('/api/m/memcached/settings')
       setSettings(se)
+      try {
+        const [st, sl] = await Promise.all([
+          apiFetch<Stats>('/api/m/memcached/stats'),
+          apiFetch<Slabs>('/api/m/memcached/slabs'),
+        ])
+        setStats(st)
+        setSlabs(sl ?? {})
+        setConnected(true)
+      } catch (e) {
+        setStats(null)
+        setSlabs({})
+        setConnected(false)
+        setLoadErr(errorText(e))
+      }
     } catch (e) {
       setLoadErr(errorText(e))
     } finally {
@@ -106,12 +179,12 @@ export default function Memcached() {
 
   async function flush() {
     if (busy || !isAdmin) return
-    if (!window.confirm('确认清空所有缓存(flush_all)?此操作危险且不可恢复。')) return
     setBusy(true)
     setFeedback(null)
     try {
       await apiFetch('/api/m/memcached/flush', { method: 'POST', headers: DANGER })
       setFeedback({ kind: 'ok', text: '缓存已清空' })
+      setFlushOpen(false)
       await load()
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
@@ -120,23 +193,21 @@ export default function Memcached() {
     }
   }
 
-  async function saveSettings() {
-    if (!settings || busy || !isAdmin) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      const res = await apiFetch<Settings>('/api/m/memcached/settings', {
-        method: 'PUT',
-        body: JSON.stringify(settings),
+  const slabRows = useMemo<SlabRow[]>(() => {
+    return Object.keys(slabs)
+      .filter((id) => id !== '_global')
+      .sort((a, b) => Number(a) - Number(b))
+      .map((id) => {
+        const s = slabs[id]
+        return {
+          id,
+          chunk_size: s.chunk_size ?? '—',
+          chunks_per_page: s.chunks_per_page ?? '—',
+          used_chunks: s.used_chunks ?? '—',
+          free_chunks: s.free_chunks ?? '—',
+        }
       })
-      setSettings(res)
-      setFeedback({ kind: 'ok', text: '设置已保存' })
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
+  }, [slabs])
 
   if (loading) {
     return (
@@ -146,132 +217,216 @@ export default function Memcached() {
     )
   }
 
-  const slabIds = Object.keys(slabs).sort((a, b) => Number(a) - Number(b))
-
   return (
     <div className="flex flex-col gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2.5">
+            <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+              Memcached
+            </h1>
+            <Badge status={connected ? 'online' : 'crit'}>{connected ? '已连接' : '未连接'}</Badge>
+          </div>
+          <p className="text-xs text-muted">
+            {stats
+              ? `版本 ${stats.version || '—'} · PID ${stats.pid}${settings?.addr ? ` · ${settings.addr}` : ''}`
+              : `无法连接到 ${settings?.addr || 'memcached'},检查服务与连接设置`}
+          </p>
+        </div>
+      </header>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="md" disabled={busy || !isAdmin} onClick={() => void action('start')}>
+            <Play size={15} />
+            启动
+          </Button>
+          <Button variant="ghost" size="md" disabled={busy || !isAdmin} onClick={() => void action('restart')}>
+            <RotateCcw size={15} />
+            重启
+          </Button>
+          <Button variant="ghost" size="md" disabled={busy || !isAdmin} onClick={() => void action('stop')}>
+            <Square size={15} />
+            停止
+          </Button>
+          <Button variant="danger" size="md" disabled={busy || !isAdmin} onClick={() => setFlushOpen(true)}>
+            <Trash2 size={15} />
+            清空缓存
+          </Button>
+          {busy && <Spinner size={16} />}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+            <Settings2 size={15} />
+            连接设置
+          </Button>
+          <Button variant="ghost" size="md" disabled={busy} onClick={() => void load()}>
+            <RefreshCw size={15} />
+            刷新
+          </Button>
+        </div>
+      </div>
+
+      {!isAdmin && (
+        <p className="text-xs text-muted">服务控制、清空缓存与连接设置需要 admin 角色。</p>
+      )}
+
       {feedback && (
         <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
           {feedback.text}
         </p>
       )}
 
-      <Card className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-text">服务控制</h2>
-          <Button size="sm" variant="ghost" onClick={() => void load()} disabled={busy}>
-            刷新
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={() => void action('start')} disabled={busy || !isAdmin}>
-            启动
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => void action('restart')} disabled={busy || !isAdmin}>
-            重启
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => void action('stop')} disabled={busy || !isAdmin}>
-            停止
-          </Button>
-          <Button size="sm" variant="danger" onClick={() => void flush()} disabled={busy || !isAdmin}>
-            清空缓存
-          </Button>
-          {busy && <Spinner size={16} />}
-        </div>
-        {!isAdmin && <p className="text-xs text-muted">服务控制与设置需要 admin 角色。</p>}
-      </Card>
+      {stats ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <Metric icon={Gauge} tint="text-amber-400" value={`${(stats.hit_rate * 100).toFixed(1)}%`} label="命中率" />
+            <Metric icon={MemoryStick} tint="text-orange-400" value={`${(stats.mem_usage_rate * 100).toFixed(1)}%`} label="内存使用率" />
+            <Metric icon={Plug} tint="text-amber-400" value={fmtNum(stats.curr_connections)} label="当前连接" />
+            <Metric icon={Boxes} tint="text-orange-400" value={fmtNum(stats.curr_items)} label="缓存 items" />
+            <Metric icon={MemoryStick} tint="text-orange-400" value={fmtBytes(stats.bytes)} label="已用内存" />
+            <Metric icon={MemoryStick} tint="text-amber-400" value={fmtBytes(stats.limit_maxbytes)} label="内存上限" />
+            <Metric icon={Recycle} tint="text-rose-400" value={fmtNum(stats.evictions)} label="驱逐 evictions" />
+            <Metric icon={Timer} tint="text-amber-400" value={fmtUptime(stats.uptime)} label="运行时长" />
+          </div>
 
-      {loadErr && !stats ? (
-        <Card>
-          <p className="text-sm text-muted">{loadErr}</p>
-        </Card>
-      ) : (
-        stats && (
-          <Card className="flex flex-col gap-4">
-            <h2 className="text-sm font-medium text-text">运行状态</h2>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Stat value={`${(stats.hit_rate * 100).toFixed(1)}%`} label="命中率" />
-              <Stat value={`${(stats.mem_usage_rate * 100).toFixed(1)}%`} label="内存使用率" />
-              <Stat value={stats.curr_connections} label="当前连接" />
-              <Stat value={stats.curr_items} label="items" />
-              <Stat value={fmtBytes(stats.bytes)} label="已用内存" />
-              <Stat value={fmtBytes(stats.limit_maxbytes)} label="内存上限" />
-              <Stat value={stats.evictions} label="evictions" />
-              <Stat value={fmtUptime(stats.uptime)} label="运行时长" />
+          <Card className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <ArrowDownUp size={15} className="text-muted" />
+              <h2 className="text-sm font-medium text-text">命中明细</h2>
             </div>
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted">
-              <span>版本 {stats.version || '—'}</span>
-              <span>PID {stats.pid}</span>
-              <span>get_hits {stats.get_hits}</span>
-              <span>get_misses {stats.get_misses}</span>
-              <span>cmd_get {stats.cmd_get}</span>
-              <span>cmd_set {stats.cmd_set}</span>
+            <div className="flex flex-wrap gap-x-6 gap-y-1.5 font-[family-name:var(--font-mono)] text-xs text-muted">
+              <span>get_hits {fmtNum(stats.get_hits)}</span>
+              <span>get_misses {fmtNum(stats.get_misses)}</span>
+              <span>cmd_get {fmtNum(stats.cmd_get)}</span>
+              <span>cmd_set {fmtNum(stats.cmd_set)}</span>
+              <span>total_connections {fmtNum(stats.total_connections)}</span>
+              <span>total_items {fmtNum(stats.total_items)}</span>
             </div>
           </Card>
-        )
-      )}
 
-      {slabIds.length > 0 && (
-        <Card className="flex flex-col gap-3">
-          <h2 className="text-sm font-medium text-text">Slabs</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="text-muted">
-                <tr className="border-b border-border">
-                  <th className="py-2 pr-4 font-medium">slab</th>
-                  <th className="py-2 pr-4 font-medium">chunk_size</th>
-                  <th className="py-2 pr-4 font-medium">chunks_per_page</th>
-                  <th className="py-2 pr-4 font-medium">used_chunks</th>
-                  <th className="py-2 pr-4 font-medium">free_chunks</th>
-                </tr>
-              </thead>
-              <tbody className="font-[family-name:var(--font-mono)] text-text">
-                {slabIds.map((id) => {
-                  const s = slabs[id]
-                  return (
-                    <tr key={id} className="border-b border-border/60">
-                      <td className="py-1.5 pr-4">{id}</td>
-                      <td className="py-1.5 pr-4">{s.chunk_size ?? '—'}</td>
-                      <td className="py-1.5 pr-4">{s.chunks_per_page ?? '—'}</td>
-                      <td className="py-1.5 pr-4">{s.used_chunks ?? '—'}</td>
-                      <td className="py-1.5 pr-4">{s.free_chunks ?? '—'}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-
-      {settings && (
-        <Card className="flex flex-col gap-4">
-          <h2 className="text-sm font-medium text-text">服务设置</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              label="memcached 地址 (addr)"
-              placeholder="127.0.0.1:11211"
-              className="font-[family-name:var(--font-mono)]"
-              spellCheck={false}
-              value={settings.addr}
-              onChange={(e) => setSettings((s) => (s ? { ...s, addr: e.target.value } : s))}
-            />
-            <Input
-              label="systemd 单元 (service_unit)"
-              placeholder="memcached.service"
-              className="font-[family-name:var(--font-mono)]"
-              spellCheck={false}
-              value={settings.service_unit}
-              onChange={(e) => setSettings((s) => (s ? { ...s, service_unit: e.target.value } : s))}
-            />
-          </div>
-          <div>
-            <Button onClick={() => void saveSettings()} disabled={busy || !isAdmin}>
-              保存设置
+          {slabRows.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <h2 className="text-sm font-medium text-text">Slabs</h2>
+              <Table columns={SLAB_COLUMNS} rows={slabRows} rowKey={(s) => s.id} emptyText="暂无 slab" />
+            </div>
+          )}
+        </>
+      ) : (
+        <Card className="flex flex-col items-center gap-2 py-10 text-center">
+          <Plug size={28} className="text-muted" />
+          <p className="text-sm font-medium text-text">未连接到 memcached</p>
+          <p className="max-w-md text-xs text-muted">
+            {loadErr || '请确认 memcached 服务正在运行,或在「连接设置」中修正地址,然后点击「刷新」重试。'}
+          </p>
+          <div className="mt-1 flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setSettingsOpen(true)}>
+              连接设置
+            </Button>
+            <Button size="sm" disabled={busy} onClick={() => void load()}>
+              重试
             </Button>
           </div>
         </Card>
       )}
+
+      {flushOpen && (
+        <Modal title="清空所有缓存" size="sm" onClose={() => (busy ? undefined : setFlushOpen(false))}>
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-text">
+              将对 memcached 执行 <span className="font-[family-name:var(--font-mono)] text-crit">flush_all</span>,
+              清空全部缓存数据。此操作<span className="text-crit">危险且不可恢复</span>。
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="md" disabled={busy} onClick={() => setFlushOpen(false)}>
+                取消
+              </Button>
+              <Button variant="danger" size="md" disabled={busy || !isAdmin} onClick={() => void flush()}>
+                确认清空
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {settingsOpen && settings && (
+        <SettingsModal
+          isAdmin={isAdmin}
+          initial={settings}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(s) => {
+            setSettings(s)
+            setSettingsOpen(false)
+            void load()
+          }}
+        />
+      )}
     </div>
+  )
+}
+
+function SettingsModal({
+  isAdmin,
+  initial,
+  onClose,
+  onSaved,
+}: {
+  isAdmin: boolean
+  initial: Settings
+  onClose: () => void
+  onSaved: (s: Settings) => void
+}) {
+  const [form, setForm] = useState<Settings>(initial)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function save() {
+    if (busy || !isAdmin) return
+    setBusy(true)
+    setErr(null)
+    try {
+      const res = await apiFetch<Settings>('/api/m/memcached/settings', {
+        method: 'PUT',
+        body: JSON.stringify(form),
+      })
+      onSaved(res)
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="连接设置" size="sm" onClose={() => (busy ? undefined : onClose())}>
+      <div className="flex flex-col gap-4">
+        <Input
+          label="memcached 地址 (addr)"
+          placeholder="127.0.0.1:11211"
+          className="font-[family-name:var(--font-mono)]"
+          spellCheck={false}
+          value={form.addr}
+          onChange={(e) => setForm({ ...form, addr: e.target.value })}
+        />
+        <Input
+          label="systemd 单元 (service_unit)"
+          placeholder="memcached.service"
+          className="font-[family-name:var(--font-mono)]"
+          spellCheck={false}
+          value={form.service_unit}
+          onChange={(e) => setForm({ ...form, service_unit: e.target.value })}
+        />
+        {!isAdmin && <p className="text-xs text-muted">修改设置需要 admin 角色。</p>}
+        {err && <p className="text-sm text-crit">{err}</p>}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="md" disabled={busy} onClick={onClose}>
+            取消
+          </Button>
+          <Button size="md" disabled={busy || !isAdmin} onClick={() => void save()}>
+            保存设置
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
