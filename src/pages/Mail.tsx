@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { Card } from '../components/Card'
-import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
+import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
+import { Modal } from '../components/Modal'
+import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Plus, Globe, Mailbox as MailboxIcon, Forward, Settings2 } from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -40,6 +42,15 @@ interface Settings {
   virtual_alias_file: string
 }
 
+type Section = 'domains' | 'mailboxes' | 'aliases' | 'settings'
+
+const SECTIONS: { key: Section; label: string; Icon: typeof Globe }[] = [
+  { key: 'domains', label: '邮件域名', Icon: Globe },
+  { key: 'mailboxes', label: '邮箱账户', Icon: MailboxIcon },
+  { key: 'aliases', label: '别名/转发', Icon: Forward },
+  { key: 'settings', label: '服务设置', Icon: Settings2 },
+]
+
 /** 邮局:管理邮件域、邮箱(地址+口令+配额)、别名/转发与服务设置,全部需要 admin 角色。 */
 export default function Mail() {
   const { role } = useAuth()
@@ -54,11 +65,11 @@ export default function Mail() {
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const [newDomain, setNewDomain] = useState('')
-  const [box, setBox] = useState({ address: '', password: '', quota_mb: '0' })
-  const [alias, setAlias] = useState({ source: '', destination: '' })
-  const [pwAddr, setPwAddr] = useState<string | null>(null)
-  const [pwValue, setPwValue] = useState('')
+  const [section, setSection] = useState<Section>('domains')
+  const [domainModal, setDomainModal] = useState(false)
+  const [boxModal, setBoxModal] = useState(false)
+  const [aliasModal, setAliasModal] = useState(false)
+  const [pwBox, setPwBox] = useState<Mailbox | null>(null)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -84,29 +95,23 @@ export default function Mail() {
     void load()
   }, [load])
 
-  async function run(fn: () => Promise<void>, ok: string) {
-    if (busy || !isAdmin) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      await fn()
-      setFeedback({ kind: 'ok', text: ok })
-      await load()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const addDomain = () =>
-    run(async () => {
-      await apiFetch('/api/m/mail/domains', {
-        method: 'POST',
-        body: JSON.stringify({ domain: newDomain.trim() }),
-      })
-      setNewDomain('')
-    }, '邮件域已添加')
+  const run = useCallback(
+    async (fn: () => Promise<void>, ok: string) => {
+      if (busy || !isAdmin) return
+      setBusy(true)
+      setFeedback(null)
+      try {
+        await fn()
+        setFeedback({ kind: 'ok', text: ok })
+        await load()
+      } catch (e) {
+        setFeedback({ kind: 'err', text: errorText(e) })
+      } finally {
+        setBusy(false)
+      }
+    },
+    [busy, isAdmin, load],
+  )
 
   const deleteDomain = (d: Domain) => {
     if (!window.confirm(`确认删除邮件域 ${d.domain}?此操作危险且不可恢复。`)) return
@@ -118,19 +123,6 @@ export default function Mail() {
     }, `邮件域 ${d.domain} 已删除`)
   }
 
-  const createMailbox = () =>
-    run(async () => {
-      await apiFetch('/api/m/mail/mailboxes', {
-        method: 'POST',
-        body: JSON.stringify({
-          address: box.address.trim(),
-          password: box.password,
-          quota_mb: Number(box.quota_mb) || 0,
-        }),
-      })
-      setBox({ address: '', password: '', quota_mb: '0' })
-    }, '邮箱已创建')
-
   const deleteMailbox = (b: Mailbox) => {
     if (!window.confirm(`确认删除邮箱 ${b.address}?此操作危险且不可恢复。`)) return
     void run(async () => {
@@ -138,30 +130,8 @@ export default function Mail() {
         method: 'DELETE',
         headers: DANGER,
       })
-      if (pwAddr === b.address) setPwAddr(null)
     }, `邮箱 ${b.address} 已删除`)
   }
-
-  const changePassword = () => {
-    if (!pwAddr) return
-    void run(async () => {
-      await apiFetch(`/api/m/mail/mailboxes/${encodeURIComponent(pwAddr)}/password`, {
-        method: 'POST',
-        body: JSON.stringify({ password: pwValue }),
-      })
-      setPwAddr(null)
-      setPwValue('')
-    }, '邮箱密码已更新')
-  }
-
-  const addAlias = () =>
-    run(async () => {
-      await apiFetch('/api/m/mail/aliases', {
-        method: 'POST',
-        body: JSON.stringify({ source: alias.source.trim(), destination: alias.destination.trim() }),
-      })
-      setAlias({ source: '', destination: '' })
-    }, '别名已添加')
 
   const deleteAlias = (a: Alias) => {
     if (!window.confirm(`确认删除别名 ${a.source} → ${a.destination}?此操作危险。`)) return
@@ -174,20 +144,124 @@ export default function Mail() {
     }, '别名已删除')
   }
 
-  async function saveSettings() {
-    if (!settings) return
-    void run(async () => {
-      const res = await apiFetch<{ settings: Settings }>('/api/m/mail/settings', {
-        method: 'PUT',
-        body: JSON.stringify(settings),
-      })
-      setSettings(res.settings)
-    }, '设置已保存')
-  }
+  const domainColumns: Column<Domain>[] = [
+    {
+      key: 'domain',
+      header: '域名',
+      cell: (d) => (
+        <span className="inline-flex items-center gap-2 font-medium text-text">
+          <Globe size={15} className="shrink-0 text-brand/70" />
+          <span className="truncate">{d.domain}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: '状态',
+      width: '96px',
+      cell: (d) => (
+        <Badge status={d.enabled ? 'online' : 'neutral'}>{d.enabled ? '启用' : '停用'}</Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '操作',
+      width: '88px',
+      align: 'right',
+      cell: (d) => (
+        <ActionLinks>
+          <ActionLink
+            danger
+            disabled={!isAdmin || busy}
+            aria-label="删除邮件域"
+            onClick={() => deleteDomain(d)}
+          >
+            删除
+          </ActionLink>
+        </ActionLinks>
+      ),
+    },
+  ]
 
-  function setS<K extends keyof Settings>(key: K, value: Settings[K]) {
-    setSettings((s) => (s ? { ...s, [key]: value } : s))
-  }
+  const mailboxColumns: Column<Mailbox>[] = [
+    {
+      key: 'address',
+      header: '邮箱地址',
+      cell: (b) => (
+        <span className="inline-flex items-center gap-2 font-medium text-text">
+          <MailboxIcon size={15} className="shrink-0 text-brand/70" />
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs">{b.address}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'quota',
+      header: '配额',
+      width: '110px',
+      cell: (b) => <Badge status="neutral">{b.quota_mb > 0 ? `${b.quota_mb} MB` : '不限'}</Badge>,
+    },
+    {
+      key: 'actions',
+      header: '操作',
+      width: '140px',
+      align: 'right',
+      cell: (b) => (
+        <ActionLinks>
+          <ActionLink disabled={busy} onClick={() => setPwBox(b)}>
+            改密
+          </ActionLink>
+          <ActionLink
+            danger
+            disabled={!isAdmin || busy}
+            aria-label="删除邮箱"
+            onClick={() => deleteMailbox(b)}
+          >
+            删除
+          </ActionLink>
+        </ActionLinks>
+      ),
+    },
+  ]
+
+  const aliasColumns: Column<Alias>[] = [
+    {
+      key: 'source',
+      header: '源地址',
+      cell: (a) => (
+        <span className="inline-flex items-center gap-2 font-medium text-text">
+          <Forward size={15} className="shrink-0 text-brand/70" />
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs">{a.source}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'destination',
+      header: '目标地址',
+      cell: (a) => (
+        <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+          {a.destination}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '操作',
+      width: '88px',
+      align: 'right',
+      cell: (a) => (
+        <ActionLinks>
+          <ActionLink
+            danger
+            disabled={!isAdmin || busy}
+            aria-label="删除别名"
+            onClick={() => deleteAlias(a)}
+          >
+            删除
+          </ActionLink>
+        </ActionLinks>
+      ),
+    },
+  ]
 
   if (loading) {
     return (
@@ -203,242 +277,464 @@ export default function Mail() {
 
   return (
     <div className="flex flex-col gap-4">
-      {loadErr && <p className="text-sm text-crit">{loadErr}</p>}
+      <header className="flex flex-col gap-1">
+        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+          邮局
+        </h1>
+        <p className="text-xs text-muted">
+          管理 postfix / dovecot 邮件域、邮箱账户、别名转发与服务设置。
+        </p>
+      </header>
+
+      <div className="flex gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">
+        {SECTIONS.map((s) => {
+          const active = section === s.key
+          return (
+            <button
+              key={s.key}
+              onClick={() => setSection(s.key)}
+              className={`inline-flex h-9 items-center gap-1.5 rounded-sm px-3 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
+                active ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
+              }`}
+            >
+              <s.Icon size={14} className={active ? 'text-brand' : ''} />
+              {s.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {loadErr && (
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
+          </Button>
+        </p>
+      )}
       {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
+        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`} role="status">
           {feedback.text}
         </p>
       )}
 
-      <Card className="flex flex-col gap-4">
-        <h2 className="text-sm font-medium text-text">邮件域</h2>
-        <div className="flex flex-wrap items-end gap-2">
-          <Input
-            label="域名"
-            placeholder="例如 example.com"
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            className="flex-1"
-            value={newDomain}
-            onChange={(e) => setNewDomain(e.target.value)}
-          />
-          <Button onClick={() => void addDomain()} disabled={busy || newDomain.trim().length === 0}>
-            添加
-          </Button>
-        </div>
-        {domains.length === 0 ? (
-          <p className="text-sm text-muted">暂无邮件域。</p>
-        ) : (
-          <div className="divide-y divide-border rounded-(--radius-card) border border-border">
-            {domains.map((d) => (
-              <div key={d.domain} className="flex items-center gap-3 px-4 py-2.5">
-                <span className="flex-1 truncate text-sm text-text">{d.domain}</span>
-                <Badge status={d.enabled ? 'online' : 'neutral'}>
-                  {d.enabled ? '启用' : '停用'}
-                </Badge>
-                <Button size="sm" variant="danger" onClick={() => deleteDomain(d)} disabled={busy}>
-                  删除
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      <Card className="flex flex-col gap-4">
-        <h2 className="text-sm font-medium text-text">创建邮箱</h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Input
-            label="邮箱地址"
-            placeholder="user@example.com"
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            value={box.address}
-            onChange={(e) => setBox((b) => ({ ...b, address: e.target.value }))}
-          />
-          <Input
-            label="密码"
-            type="password"
-            autoComplete="new-password"
-            value={box.password}
-            onChange={(e) => setBox((b) => ({ ...b, password: e.target.value }))}
-          />
-          <Input
-            label="配额 (MB,0 为不限)"
-            type="number"
-            min={0}
-            value={box.quota_mb}
-            onChange={(e) => setBox((b) => ({ ...b, quota_mb: e.target.value }))}
-          />
-        </div>
-        <div>
-          <Button
-            onClick={() => void createMailbox()}
-            disabled={busy || box.address.trim().length === 0 || box.password.length === 0}
-          >
-            创建
-          </Button>
-        </div>
-        {mailboxes.length === 0 ? (
-          <p className="text-sm text-muted">暂无邮箱。</p>
-        ) : (
-          <div className="divide-y divide-border rounded-(--radius-card) border border-border">
-            {mailboxes.map((b) => (
-              <div key={b.address} className="flex flex-col gap-2 px-4 py-2.5">
-                <div className="flex items-center gap-3">
-                  <span className="flex-1 truncate text-sm text-text">{b.address}</span>
-                  <Badge status="neutral">{b.quota_mb > 0 ? `${b.quota_mb} MB` : '不限'}</Badge>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      setPwAddr(pwAddr === b.address ? null : b.address)
-                      setPwValue('')
-                    }}
-                    disabled={busy}
-                  >
-                    改密
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => deleteMailbox(b)}
-                    disabled={busy}
-                  >
-                    删除
-                  </Button>
-                </div>
-                {pwAddr === b.address && (
-                  <div className="flex flex-wrap items-end gap-2 rounded-(--radius-card) bg-surface-2 p-3">
-                    <Input
-                      label="新密码"
-                      type="password"
-                      autoComplete="new-password"
-                      className="flex-1"
-                      value={pwValue}
-                      onChange={(e) => setPwValue(e.target.value)}
-                    />
-                    <Button
-                      onClick={() => changePassword()}
-                      disabled={pwValue.length === 0 || busy}
-                    >
-                      保存密码
-                    </Button>
-                    <Button variant="ghost" onClick={() => setPwAddr(null)} disabled={busy}>
-                      取消
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      <Card className="flex flex-col gap-4">
-        <h2 className="text-sm font-medium text-text">别名/转发</h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Input
-            label="源地址"
-            placeholder="alias@example.com"
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            value={alias.source}
-            onChange={(e) => setAlias((a) => ({ ...a, source: e.target.value }))}
-          />
-          <Input
-            label="目标地址"
-            placeholder="dest@example.com"
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            value={alias.destination}
-            onChange={(e) => setAlias((a) => ({ ...a, destination: e.target.value }))}
-          />
-        </div>
-        <div>
-          <Button
-            onClick={() => void addAlias()}
-            disabled={busy || alias.source.trim().length === 0 || alias.destination.trim().length === 0}
-          >
-            添加
-          </Button>
-        </div>
-        {aliases.length === 0 ? (
-          <p className="text-sm text-muted">暂无别名。</p>
-        ) : (
-          <div className="divide-y divide-border rounded-(--radius-card) border border-border">
-            {aliases.map((a) => (
-              <div key={`${a.source}->${a.destination}`} className="flex items-center gap-3 px-4 py-2.5">
-                <span className="flex-1 truncate text-sm text-text">
-                  {a.source} <span className="text-muted">→</span> {a.destination}
-                </span>
-                <Button size="sm" variant="danger" onClick={() => deleteAlias(a)} disabled={busy}>
-                  删除
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {settings && (
-        <Card className="flex flex-col gap-4">
-          <h2 className="text-sm font-medium text-text">服务设置</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              label="postfix 配置目录"
-              className="font-[family-name:var(--font-mono)]"
-              spellCheck={false}
-              value={settings.postfix_config_dir}
-              onChange={(e) => setS('postfix_config_dir', e.target.value)}
-            />
-            <Input
-              label="dovecot 配置目录"
-              className="font-[family-name:var(--font-mono)]"
-              spellCheck={false}
-              value={settings.dovecot_config_dir}
-              onChange={(e) => setS('dovecot_config_dir', e.target.value)}
-            />
-            <Input
-              label="邮件存储目录"
-              className="font-[family-name:var(--font-mono)]"
-              spellCheck={false}
-              value={settings.mail_store_dir}
-              onChange={(e) => setS('mail_store_dir', e.target.value)}
-            />
-            <Input
-              label="虚拟邮箱 map 文件"
-              className="font-[family-name:var(--font-mono)]"
-              spellCheck={false}
-              value={settings.virtual_mailbox_file}
-              onChange={(e) => setS('virtual_mailbox_file', e.target.value)}
-            />
-            <Input
-              label="虚拟域 map 文件"
-              className="font-[family-name:var(--font-mono)]"
-              spellCheck={false}
-              value={settings.virtual_domain_file}
-              onChange={(e) => setS('virtual_domain_file', e.target.value)}
-            />
-            <Input
-              label="虚拟别名 map 文件"
-              className="font-[family-name:var(--font-mono)]"
-              spellCheck={false}
-              value={settings.virtual_alias_file}
-              onChange={(e) => setS('virtual_alias_file', e.target.value)}
-            />
-          </div>
-          <div>
-            <Button onClick={() => void saveSettings()} disabled={busy}>
-              保存设置
+      {section === 'domains' && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted">
+              {domains.length > 0
+                ? `共 ${domains.length} 个邮件域`
+                : '邮箱账户与别名必须挂在已存在的邮件域下'}
+            </span>
+            <Button size="md" disabled={busy} onClick={() => setDomainModal(true)}>
+              <Plus size={15} />
+              添加域名
             </Button>
           </div>
-        </Card>
+          <Table
+            columns={domainColumns}
+            rows={domains}
+            rowKey={(d) => d.domain}
+            emptyText={
+              <span className="flex flex-col items-center gap-1 py-6">
+                <span className="text-sm font-medium text-text">还没有邮件域</span>
+                <span className="text-xs text-muted">
+                  点击「添加域名」录入第一个域,之后才能创建邮箱与别名。
+                </span>
+              </span>
+            }
+          />
+        </div>
       )}
+
+      {section === 'mailboxes' && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted">
+              {mailboxes.length > 0
+                ? `共 ${mailboxes.length} 个邮箱`
+                : '邮箱地址的域名部分必须是已存在的邮件域'}
+            </span>
+            <Button
+              size="md"
+              disabled={busy || domains.length === 0}
+              title={domains.length === 0 ? '请先添加邮件域' : undefined}
+              onClick={() => setBoxModal(true)}
+            >
+              <Plus size={15} />
+              添加邮箱
+            </Button>
+          </div>
+          <Table
+            columns={mailboxColumns}
+            rows={mailboxes}
+            rowKey={(b) => b.address}
+            emptyText={
+              <span className="flex flex-col items-center gap-1 py-6">
+                <span className="text-sm font-medium text-text">还没有邮箱账户</span>
+                <span className="text-xs text-muted">
+                  {domains.length === 0
+                    ? '请先到「邮件域名」添加一个域,再回来创建邮箱。'
+                    : '点击「添加邮箱」创建带口令与配额的邮箱账户。'}
+                </span>
+              </span>
+            }
+          />
+        </div>
+      )}
+
+      {section === 'aliases' && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted">
+              {aliases.length > 0 ? `共 ${aliases.length} 条别名` : '别名把一个地址的来信转发到另一个地址'}
+            </span>
+            <Button
+              size="md"
+              disabled={busy || domains.length === 0}
+              title={domains.length === 0 ? '请先添加邮件域' : undefined}
+              onClick={() => setAliasModal(true)}
+            >
+              <Plus size={15} />
+              添加别名
+            </Button>
+          </div>
+          <Table
+            columns={aliasColumns}
+            rows={aliases}
+            rowKey={(a) => `${a.source}->${a.destination}`}
+            emptyText={
+              <span className="flex flex-col items-center gap-1 py-6">
+                <span className="text-sm font-medium text-text">还没有别名</span>
+                <span className="text-xs text-muted">
+                  {domains.length === 0
+                    ? '请先到「邮件域名」添加一个域,再回来配置转发。'
+                    : '点击「添加别名」把来信转发到另一个邮箱。'}
+                </span>
+              </span>
+            }
+          />
+        </div>
+      )}
+
+      {section === 'settings' && settings && (
+        <SettingsForm
+          settings={settings}
+          busy={busy}
+          onSave={(next) =>
+            run(async () => {
+              const res = await apiFetch<{ settings: Settings }>('/api/m/mail/settings', {
+                method: 'PUT',
+                body: JSON.stringify(next),
+              })
+              setSettings(res.settings)
+            }, '设置已保存')
+          }
+        />
+      )}
+
+      {domainModal && (
+        <AddDomainModal
+          busy={busy}
+          onClose={() => setDomainModal(false)}
+          onSubmit={(domain) =>
+            run(async () => {
+              await apiFetch('/api/m/mail/domains', {
+                method: 'POST',
+                body: JSON.stringify({ domain }),
+              })
+              setDomainModal(false)
+            }, '邮件域已添加')
+          }
+        />
+      )}
+      {boxModal && (
+        <AddMailboxModal
+          busy={busy}
+          onClose={() => setBoxModal(false)}
+          onSubmit={(payload) =>
+            run(async () => {
+              await apiFetch('/api/m/mail/mailboxes', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+              })
+              setBoxModal(false)
+            }, '邮箱已创建')
+          }
+        />
+      )}
+      {aliasModal && (
+        <AddAliasModal
+          busy={busy}
+          onClose={() => setAliasModal(false)}
+          onSubmit={(payload) =>
+            run(async () => {
+              await apiFetch('/api/m/mail/aliases', {
+                method: 'POST',
+                body: JSON.stringify(payload),
+              })
+              setAliasModal(false)
+            }, '别名已添加')
+          }
+        />
+      )}
+      {pwBox && (
+        <ChangePasswordModal
+          box={pwBox}
+          busy={busy}
+          onClose={() => setPwBox(null)}
+          onSubmit={(password) =>
+            run(async () => {
+              await apiFetch(`/api/m/mail/mailboxes/${encodeURIComponent(pwBox.address)}/password`, {
+                method: 'POST',
+                body: JSON.stringify({ password }),
+              })
+              setPwBox(null)
+            }, '邮箱密码已更新')
+          }
+        />
+      )}
+    </div>
+  )
+}
+
+function ModalFooter({
+  onClose,
+  busy,
+  disabled,
+  submitLabel,
+  onSubmit,
+}: {
+  onClose: () => void
+  busy: boolean
+  disabled: boolean
+  submitLabel: string
+  onSubmit: () => void
+}) {
+  return (
+    <div className="flex items-center justify-end gap-2 pt-2">
+      <Button variant="ghost" onClick={onClose} disabled={busy}>
+        取消
+      </Button>
+      <Button onClick={onSubmit} disabled={disabled}>
+        {busy && <Spinner size={14} />}
+        {submitLabel}
+      </Button>
+    </div>
+  )
+}
+
+function AddDomainModal({
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  busy: boolean
+  onClose: () => void
+  onSubmit: (domain: string) => void
+}) {
+  const [domain, setDomain] = useState('')
+  const value = domain.trim()
+  return (
+    <Modal title="添加邮件域" size="sm" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <Input
+          label="域名"
+          placeholder="例如 example.com"
+          value={domain}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          autoFocus
+          onChange={(e) => setDomain(e.target.value)}
+        />
+        <ModalFooter
+          onClose={onClose}
+          busy={busy}
+          disabled={busy || value.length === 0}
+          submitLabel="添加域名"
+          onSubmit={() => onSubmit(value)}
+        />
+      </div>
+    </Modal>
+  )
+}
+
+function AddMailboxModal({
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  busy: boolean
+  onClose: () => void
+  onSubmit: (payload: { address: string; password: string; quota_mb: number }) => void
+}) {
+  const [address, setAddress] = useState('')
+  const [password, setPassword] = useState('')
+  const [quota, setQuota] = useState('0')
+  const canSubmit = !busy && address.trim().length > 0 && password.length > 0
+  return (
+    <Modal title="添加邮箱" size="sm" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <Input
+          label="邮箱地址"
+          placeholder="user@example.com"
+          value={address}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          autoFocus
+          onChange={(e) => setAddress(e.target.value)}
+        />
+        <Input
+          label="密码"
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <Input
+          label="配额 (MB,0 为不限)"
+          type="number"
+          min={0}
+          value={quota}
+          onChange={(e) => setQuota(e.target.value)}
+        />
+        <ModalFooter
+          onClose={onClose}
+          busy={busy}
+          disabled={!canSubmit}
+          submitLabel="创建邮箱"
+          onSubmit={() =>
+            onSubmit({ address: address.trim(), password, quota_mb: Number(quota) || 0 })
+          }
+        />
+      </div>
+    </Modal>
+  )
+}
+
+function AddAliasModal({
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  busy: boolean
+  onClose: () => void
+  onSubmit: (payload: { source: string; destination: string }) => void
+}) {
+  const [source, setSource] = useState('')
+  const [destination, setDestination] = useState('')
+  const canSubmit = !busy && source.trim().length > 0 && destination.trim().length > 0
+  return (
+    <Modal title="添加别名" size="sm" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <Input
+          label="源地址"
+          placeholder="alias@example.com"
+          value={source}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          autoFocus
+          onChange={(e) => setSource(e.target.value)}
+        />
+        <Input
+          label="目标地址"
+          placeholder="dest@example.com"
+          value={destination}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          onChange={(e) => setDestination(e.target.value)}
+        />
+        <ModalFooter
+          onClose={onClose}
+          busy={busy}
+          disabled={!canSubmit}
+          submitLabel="添加别名"
+          onSubmit={() => onSubmit({ source: source.trim(), destination: destination.trim() })}
+        />
+      </div>
+    </Modal>
+  )
+}
+
+function ChangePasswordModal({
+  box,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  box: Mailbox
+  busy: boolean
+  onClose: () => void
+  onSubmit: (password: string) => void
+}) {
+  const [password, setPassword] = useState('')
+  return (
+    <Modal title={`修改密码 · ${box.address}`} size="sm" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <Input
+          label="新密码"
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          autoFocus
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <ModalFooter
+          onClose={onClose}
+          busy={busy}
+          disabled={busy || password.length === 0}
+          submitLabel="保存密码"
+          onSubmit={() => onSubmit(password)}
+        />
+      </div>
+    </Modal>
+  )
+}
+
+const SETTINGS_FIELDS: { key: keyof Settings; label: string }[] = [
+  { key: 'postfix_config_dir', label: 'postfix 配置目录' },
+  { key: 'dovecot_config_dir', label: 'dovecot 配置目录' },
+  { key: 'mail_store_dir', label: '邮件存储目录' },
+  { key: 'virtual_mailbox_file', label: '虚拟邮箱 map 文件' },
+  { key: 'virtual_domain_file', label: '虚拟域 map 文件' },
+  { key: 'virtual_alias_file', label: '虚拟别名 map 文件' },
+]
+
+function SettingsForm({
+  settings,
+  busy,
+  onSave,
+}: {
+  settings: Settings
+  busy: boolean
+  onSave: (next: Settings) => void
+}) {
+  const [draft, setDraft] = useState(settings)
+  useEffect(() => setDraft(settings), [settings])
+  return (
+    <div className="flex flex-col gap-4 rounded-(--radius-card) border border-border bg-surface p-5">
+      <div className="grid gap-4 sm:grid-cols-2">
+        {SETTINGS_FIELDS.map((f) => (
+          <Input
+            key={f.key}
+            label={f.label}
+            className="font-[family-name:var(--font-mono)]"
+            spellCheck={false}
+            value={draft[f.key]}
+            onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
+          />
+        ))}
+      </div>
+      <div>
+        <Button onClick={() => onSave(draft)} disabled={busy}>
+          {busy && <Spinner size={14} />}
+          保存设置
+        </Button>
+      </div>
     </div>
   )
 }
