@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/Button'
-import { Plus, Settings2, Search, Globe2 } from 'lucide-react'
-import { type Site, DANGER, errorText } from './sites/shared'
-import { SiteCard } from './sites/SiteCard'
+import { Badge } from '../components/Badge'
+import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Plus, Settings2, Search, Globe, Code2, Boxes } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+import { type Site, DANGER, errorText, kindLabel, formatTime } from './sites/shared'
 import { SiteDrawer } from './sites/SiteDrawer'
 import { CreateSiteModal } from './sites/CreateSiteModal'
 import { SettingsModal } from './sites/SettingsModal'
@@ -18,7 +20,9 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'proxy', label: '反向代理' },
 ]
 
-/** Sites 网站管理:站点列表 + 新建弹窗 + tab 化详情抽屉(概览/域名/配置文件)+ 建站设置。 */
+const kindIcon: Record<string, LucideIcon> = { static: Globe, php: Code2, proxy: Boxes }
+
+/** Sites 网站管理:紧凑数据表 + 工具栏(左上新建,右上搜索/筛选)+ 左竖 tab 设置弹窗。 */
 export default function Sites() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
@@ -33,6 +37,7 @@ export default function Sites() {
   const [creating, setCreating] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [openId, setOpenId] = useState<number | null>(null)
+  const [openTab, setOpenTab] = useState<'overview' | 'backups'>('overview')
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -59,18 +64,9 @@ export default function Sites() {
     })
   }, [])
 
-  async function toggle(site: Site, enable: boolean) {
-    if (!canWrite) return
-    if (!enable && !window.confirm(`确认停用站点「${site.name}」?这将下线该站点。`)) return
-    try {
-      const updated = await apiFetch<Site>(
-        `/api/m/sites/sites/${site.id}/${enable ? 'enable' : 'disable'}`,
-        { method: 'POST', headers: enable ? undefined : DANGER },
-      )
-      upsert(updated)
-    } catch (e) {
-      setLoadErr(errorText(e))
-    }
+  function open(site: Site, tab: 'overview' | 'backups' = 'overview') {
+    setOpenTab(tab)
+    setOpenId(site.id)
   }
 
   async function remove(site: Site) {
@@ -96,8 +92,91 @@ export default function Sites() {
 
   const openSite = openId == null ? null : (sites.find((s) => s.id === openId) ?? null)
 
+  const columns: Column<Site>[] = useMemo(
+    () => [
+      {
+        key: 'name',
+        header: '站点名',
+        cell: (s) => {
+          const Icon = kindIcon[s.kind] ?? Globe
+          return (
+            <button
+              type="button"
+              onClick={() => open(s)}
+              className="inline-flex items-center gap-2 rounded-sm font-medium text-text outline-none transition hover:text-brand focus-visible:ring-2 focus-visible:ring-brand/60"
+            >
+              <Icon size={15} className="shrink-0 text-muted" />
+              <span className="truncate">{s.name}</span>
+            </button>
+          )
+        },
+      },
+      {
+        key: 'status',
+        header: '状态',
+        width: '92px',
+        cell: (s) => (
+          <Badge status={s.enabled ? 'online' : 'neutral'}>{s.enabled ? '运行中' : '已停用'}</Badge>
+        ),
+      },
+      {
+        key: 'kind',
+        header: '类型',
+        width: '90px',
+        cell: (s) => <span className="text-muted">{kindLabel[s.kind] ?? s.kind}</span>,
+      },
+      {
+        key: 'domains',
+        header: '域名(端口)',
+        cell: (s) => (
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+            {s.domains.join(', ')}
+            <span className="text-text/60"> :{s.listen}</span>
+          </span>
+        ),
+      },
+      {
+        key: 'root',
+        header: '根目录',
+        cell: (s) => (
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+            {s.root_dir || '—'}
+          </span>
+        ),
+      },
+      {
+        key: 'created',
+        header: '创建时间',
+        width: '150px',
+        cell: (s) => <span className="text-xs text-muted">{formatTime(s.created_at)}</span>,
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '150px',
+        align: 'right',
+        cell: (s) => (
+          <ActionLinks>
+            <ActionLink onClick={() => open(s)}>设置</ActionLink>
+            <ActionLink onClick={() => open(s, 'backups')}>备份</ActionLink>
+            <ActionLink
+              danger
+              disabled={!isAdmin}
+              aria-label="删除站点"
+              title={isAdmin ? '删除站点' : '需要 admin 角色'}
+              onClick={() => void remove(s)}
+            >
+              删除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    [isAdmin],
+  )
+
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col gap-1">
           <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
@@ -107,97 +186,78 @@ export default function Sites() {
             {sites.length > 0 ? `共 ${sites.length} 个站点` : '管理 nginx vhost,支持静态 / PHP / 反向代理'}
           </p>
         </div>
+      </header>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
-            <Settings2 size={15} />
-            设置
-          </Button>
           <Button size="md" disabled={!canWrite} onClick={() => setCreating(true)}>
             <Plus size={15} />
             新建站点
           </Button>
+          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+            <Settings2 size={15} />
+            设置
+          </Button>
         </div>
-      </header>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-56 flex-1">
-          <Search
-            size={15}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-          />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索站点名或域名"
-            spellCheck={false}
-            className="h-10 w-full rounded-(--radius-card) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-          />
-        </div>
-        <div className="flex gap-1 rounded-(--radius-card) border border-border bg-surface p-1">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={`h-8 rounded-(--radius-card) px-3 text-sm font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-                filter === f.key ? 'bg-surface-2 text-text' : 'text-muted hover:text-text'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-56">
+            <Search
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+            />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索站点名或域名"
+              spellCheck={false}
+              className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            />
+          </div>
+          <div className="flex gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={`h-9 rounded-sm px-3 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
+                  filter === f.key ? 'bg-surface-2 text-text' : 'text-muted hover:text-text'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
+      {loadErr && sites.length === 0 && !loading && (
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
+          </Button>
+        </p>
+      )}
+
       {loading ? (
-        <div className="flex flex-col gap-3">
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              className="h-[76px] animate-pulse rounded-(--radius-card) border border-border bg-surface"
-            />
-          ))}
-        </div>
-      ) : loadErr && sites.length === 0 ? (
-        <EmptyState
-          title="加载失败"
-          desc={loadErr}
-          action={
-            <Button size="sm" variant="ghost" onClick={() => void load()}>
-              重试
-            </Button>
-          }
-        />
-      ) : visible.length === 0 ? (
-        <EmptyState
-          title={sites.length === 0 ? '还没有站点' : '没有匹配的站点'}
-          desc={
-            sites.length === 0
-              ? '新建一个站点开始托管你的域名。'
-              : '换个关键词或筛选条件试试。'
-          }
-          action={
-            sites.length === 0 && canWrite ? (
-              <Button size="sm" onClick={() => setCreating(true)}>
-                <Plus size={14} />
-                新建站点
-              </Button>
-            ) : undefined
-          }
-        />
+        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <div className="flex flex-col gap-3">
-          {visible.map((site) => (
-            <SiteCard
-              key={site.id}
-              site={site}
-              canWrite={canWrite}
-              isAdmin={isAdmin}
-              onOpen={() => setOpenId(site.id)}
-              onToggle={(enable) => void toggle(site, enable)}
-              onDelete={() => void remove(site)}
-            />
-          ))}
-        </div>
+        <Table
+          columns={columns}
+          rows={visible}
+          rowKey={(s) => s.id}
+          emptyText={
+            <span className="flex flex-col items-center gap-1 py-6">
+              <span className="text-sm font-medium text-text">
+                {sites.length === 0 ? '还没有站点' : '没有匹配的站点'}
+              </span>
+              <span className="text-xs text-muted">
+                {sites.length === 0
+                  ? '点击「新建站点」开始托管你的域名。'
+                  : '换个关键词或筛选条件试试。'}
+              </span>
+            </span>
+          }
+        />
       )}
 
       {!canWrite && (
@@ -209,6 +269,7 @@ export default function Sites() {
           site={openSite}
           canWrite={canWrite}
           isAdmin={isAdmin}
+          initialTab={openTab}
           onClose={() => setOpenId(null)}
           onChanged={upsert}
         />
@@ -219,34 +280,11 @@ export default function Sites() {
           onCreated={(site) => {
             upsert(site)
             setCreating(false)
-            setOpenId(site.id)
+            open(site)
           }}
         />
       )}
       {settingsOpen && <SettingsModal isAdmin={isAdmin} onClose={() => setSettingsOpen(false)} />}
-    </div>
-  )
-}
-
-function EmptyState({
-  title,
-  desc,
-  action,
-}: {
-  title: string
-  desc: string
-  action?: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-col items-center gap-3 rounded-(--radius-card) border border-dashed border-border bg-surface/50 px-6 py-16 text-center">
-      <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-muted">
-        <Globe2 size={22} />
-      </span>
-      <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium text-text">{title}</p>
-        <p className="max-w-xs text-xs text-muted">{desc}</p>
-      </div>
-      {action}
     </div>
   )
 }
