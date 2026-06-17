@@ -25,6 +25,9 @@ import {
   FolderInput,
   X,
   Plus,
+  Minus,
+  Save,
+  WrapText,
 } from 'lucide-react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
@@ -37,7 +40,11 @@ import { formatBytes } from '../lib/format'
 import { uid } from '../lib/uid'
 import type { DirEntry, DirSize, Share, TrashItem } from '../api/types'
 import { FileIcon, isArchive } from './files/FileIcon'
-import { CodeEditor } from '../components/CodeEditor'
+import {
+  CodeEditor,
+  type CodeEditorViewHandle,
+  type CursorStats,
+} from '../components/CodeEditor'
 import { languageFromFilename, languageLabel } from '../components/codeEditorLang'
 
 const DANGER = { 'X-Confirm-Danger': '1' }
@@ -705,7 +712,7 @@ export default function Files() {
                   </th>
                 )}
                 <th className="px-4 py-2.5 text-left font-medium">名称</th>
-                <th className="hidden w-40 px-4 py-2.5 text-left font-medium md:table-cell">
+                <th className="hidden w-52 px-4 py-2.5 text-left font-medium md:table-cell">
                   权限 · 属主
                 </th>
                 <th className="hidden w-28 px-4 py-2.5 text-right font-medium sm:table-cell">
@@ -746,6 +753,11 @@ export default function Files() {
                     key={entry.name}
                     className="group border-b border-border/60 hover:bg-surface-2"
                     onContextMenu={(e) => ctxMenu(e, entry)}
+                    onDoubleClick={() => {
+                      // 目录双击进入(name 按钮已处理单击进入,这里兜底);文件双击进编辑器。
+                      if (entry.is_dir) setCwd(joinPath(cwd, entry.name))
+                      else if (canWrite) void openEditor(entry)
+                    }}
                   >
                     {canWrite && (
                       <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
@@ -770,7 +782,7 @@ export default function Files() {
                         </span>
                       </button>
                     </td>
-                    <td className="hidden px-4 py-2.5 font-[family-name:var(--font-mono)] text-xs text-muted md:table-cell">
+                    <td className="hidden whitespace-nowrap px-4 py-2.5 font-[family-name:var(--font-mono)] text-xs text-muted md:table-cell">
                       {modeOctal(entry.mode)}
                       {'  '}
                       <span className="text-faint">
@@ -1996,35 +2008,110 @@ function EditorModal({
   onClose: () => void
 }) {
   const lang = languageFromFilename(path)
+  const editorRef = useRef<CodeEditorViewHandle>(null)
+  const [wrap, setWrap] = useState(true)
+  const [fontSize, setFontSize] = useState(13)
+  const [cursor, setCursor] = useState<CursorStats>({
+    line: 1,
+    col: 1,
+    chars: text.length,
+  })
+
+  const onCursor = useCallback((s: CursorStats) => setCursor(s), [])
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-bg/95 p-4 sm:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Pencil size={16} className="shrink-0 text-brand" />
-          <h2 className="truncate text-sm font-medium text-text" title={path}>
-            {path}
-          </h2>
-          <span className="shrink-0 rounded border border-border bg-surface-2 px-1.5 py-0.5 text-xs text-muted">
-            {languageLabel(lang)}
-          </span>
-          {dirty && (
-            <span className="shrink-0 rounded bg-warn/15 px-1.5 py-0.5 text-xs text-warn">
-              未保存
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">
+      <div className="flex h-[92vh] w-[94vw] max-w-[1400px] flex-col overflow-hidden rounded-(--radius-card) border border-border bg-surface shadow-[var(--shadow-elevated)]">
+        {/* 顶部工具栏 */}
+        <div className="flex items-center gap-3 border-b border-border bg-surface-2/50 px-3 py-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <FileCog size={15} className="shrink-0 text-brand" />
+            <span
+              className="truncate font-[family-name:var(--font-mono)] text-xs text-muted"
+              title={path}
+            >
+              {path}
             </span>
+            <span className="shrink-0 rounded border border-border bg-surface px-1.5 py-0.5 text-[11px] text-muted">
+              {languageLabel(lang)}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button size="sm" onClick={onSave} disabled={saving || !dirty} title="保存 (Ctrl/Cmd+S)">
+              {dirty && !saving && (
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
+              )}
+              <Save size={14} />
+              {saving ? '保存中…' : '保存'}
+            </Button>
+            <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+            <IconButton
+              aria-label="查找 / 替换"
+              title="查找 / 替换 (Ctrl+F)"
+              icon={<Search size={15} />}
+              onClick={() => editorRef.current?.openSearch()}
+            />
+            <IconButton
+              aria-label="自动换行"
+              title={wrap ? '关闭自动换行' : '开启自动换行'}
+              icon={<WrapText size={15} />}
+              onClick={() => setWrap((v) => !v)}
+              className={wrap ? 'bg-brand-soft text-brand' : ''}
+            />
+            <IconButton
+              aria-label="减小字号"
+              title="减小字号"
+              icon={<Minus size={15} />}
+              onClick={() => setFontSize((v) => Math.max(10, v - 1))}
+            />
+            <span className="w-7 text-center font-[family-name:var(--font-mono)] text-xs text-muted">
+              {fontSize}
+            </span>
+            <IconButton
+              aria-label="增大字号"
+              title="增大字号"
+              icon={<Plus size={15} />}
+              onClick={() => setFontSize((v) => Math.min(28, v + 1))}
+            />
+            <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
+            <IconButton
+              aria-label="关闭"
+              title="关闭"
+              icon={<X size={16} />}
+              onClick={onClose}
+              disabled={saving}
+              className="hover:text-crit"
+            />
+          </div>
+        </div>
+        {/* 编辑区 */}
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <CodeEditor
+            ref={editorRef}
+            value={text}
+            onChange={onChange}
+            filename={path}
+            onSave={onSave}
+            height="100%"
+            lineWrap={wrap}
+            fontSize={fontSize}
+            onCursor={onCursor}
+          />
+        </div>
+        {/* 底部状态栏 */}
+        <div className="flex items-center gap-4 border-t border-border bg-surface-2/50 px-3 py-1.5 font-[family-name:var(--font-mono)] text-[11px] text-muted">
+          <span>
+            行 {cursor.line}:{cursor.col}
+          </span>
+          <span>{languageLabel(lang)}</span>
+          <span>{cursor.chars} 字符</span>
+          <span className="ml-auto">UTF-8</span>
+          {dirty ? (
+            <span className="text-warn">未保存</span>
+          ) : (
+            <span className="text-online">已保存</span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <span className="hidden text-xs text-muted sm:inline">Ctrl/Cmd+S 保存</span>
-          <Button onClick={onSave} disabled={saving || !dirty}>
-            {saving ? '保存中…' : '保存'}
-          </Button>
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
-            关闭
-          </Button>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
-        <CodeEditor value={text} onChange={onChange} filename={path} onSave={onSave} height="100%" />
       </div>
     </div>
   )

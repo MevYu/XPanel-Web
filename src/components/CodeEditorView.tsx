@@ -1,8 +1,12 @@
-import { useMemo } from 'react'
-import CodeMirror, { type Extension } from '@uiw/react-codemirror'
+import { forwardRef, useImperativeHandle, useMemo, useRef } from 'react'
+import CodeMirror, {
+  type Extension,
+  type ReactCodeMirrorRef,
+} from '@uiw/react-codemirror'
 import { EditorView, keymap } from '@codemirror/view'
 import { Prec } from '@codemirror/state'
 import { StreamLanguage } from '@codemirror/language'
+import { search, openSearchPanel } from '@codemirror/search'
 import { javascript, json, typescript } from '@codemirror/legacy-modes/mode/javascript'
 import { css } from '@codemirror/legacy-modes/mode/css'
 import { xml } from '@codemirror/legacy-modes/mode/xml'
@@ -54,6 +58,14 @@ function languageExtension(lang: EditorLanguage): Extension {
   }
 }
 
+/** 光标统计:1 基行/列、总字符数。 */
+export type CursorStats = { line: number; col: number; chars: number }
+
+export type CodeEditorViewHandle = {
+  /** 打开 CodeMirror 内置查找/替换面板。 */
+  openSearch: () => void
+}
+
 export type CodeEditorViewProps = {
   value: string
   onChange?: (value: string) => void
@@ -61,18 +73,54 @@ export type CodeEditorViewProps = {
   readOnly?: boolean
   onSave?: () => void
   height?: string
+  lineWrap?: boolean
+  fontSize?: number
+  onCursor?: (stats: CursorStats) => void
 }
 
-export default function CodeEditorView({
-  value,
-  onChange,
-  language,
-  readOnly = false,
-  onSave,
-  height = '60vh',
-}: CodeEditorViewProps) {
+function CodeEditorViewInner(
+  {
+    value,
+    onChange,
+    language,
+    readOnly = false,
+    onSave,
+    height = '60vh',
+    lineWrap = true,
+    fontSize,
+    onCursor,
+  }: CodeEditorViewProps,
+  ref: React.Ref<CodeEditorViewHandle>,
+) {
+  const cmRef = useRef<ReactCodeMirrorRef>(null)
+
+  useImperativeHandle(ref, () => ({
+    openSearch: () => {
+      const view = cmRef.current?.view
+      if (view) openSearchPanel(view)
+    },
+  }))
+
   const extensions = useMemo(() => {
-    const exts: Extension[] = [languageExtension(language), EditorView.lineWrapping]
+    const exts: Extension[] = [languageExtension(language), search({ top: true })]
+    if (lineWrap) exts.push(EditorView.lineWrapping)
+    if (fontSize) {
+      exts.push(EditorView.theme({ '&': { fontSize: `${fontSize}px` } }))
+    }
+    if (onCursor) {
+      exts.push(
+        EditorView.updateListener.of((u) => {
+          if (!u.docChanged && !u.selectionSet) return
+          const head = u.state.selection.main.head
+          const line = u.state.doc.lineAt(head)
+          onCursor({
+            line: line.number,
+            col: head - line.from + 1,
+            chars: u.state.doc.length,
+          })
+        }),
+      )
+    }
     if (onSave) {
       // 高优先级 keymap,确保 Ctrl/Cmd+S 在浏览器默认保存对话框之前触发。
       exts.push(
@@ -91,10 +139,11 @@ export default function CodeEditorView({
       )
     }
     return exts
-  }, [language, onSave])
+  }, [language, onSave, lineWrap, fontSize, onCursor])
 
   return (
     <CodeMirror
+      ref={cmRef}
       value={value}
       height={height}
       theme={xpanelDark}
@@ -106,9 +155,12 @@ export default function CodeEditorView({
         highlightActiveLine: true,
         bracketMatching: true,
         highlightActiveLineGutter: true,
-        searchKeymap: true,
-        foldGutter: false,
+        // 内置 search keymap 关闭:改用 @codemirror/search 的面板(顶部),避免双绑。
+        searchKeymap: false,
+        foldGutter: true,
       }}
     />
   )
 }
+
+export default forwardRef(CodeEditorViewInner)
