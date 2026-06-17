@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
+import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Plus, Clock } from 'lucide-react'
 import type {
   CronJob,
   CronJobType,
@@ -217,7 +218,7 @@ function RunsModal({ job, onClose }: { job: CronJob; onClose: () => void }) {
   )
 }
 
-/** Cron 定时任务:任务类型 + 友好调度选择器 + 执行日志,启停/立即执行/编辑/删除。 */
+/** Cron 定时任务:任务列表用紧凑表格,新建/编辑表单收进固定尺寸弹窗,执行日志另起弹窗。 */
 export default function Cron() {
   const { role } = useAuth()
   const readonly = role === 'readonly'
@@ -226,9 +227,7 @@ export default function Cron() {
   const [jobs, setJobs] = useState<CronJob[]>([])
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
-  const [form, setForm] = useState<FormState>(emptyForm)
-  const [busy, setBusy] = useState(false)
-  const [formErr, setFormErr] = useState<string | null>(null)
+  const [editing, setEditing] = useState<FormState | null>(null)
   const [runningId, setRunningId] = useState<number | null>(null)
   const [runsJob, setRunsJob] = useState<CronJob | null>(null)
 
@@ -246,56 +245,6 @@ export default function Cron() {
   useEffect(() => {
     void load()
   }, [load])
-
-  const canSubmit =
-    !busy && !readonly && scheduleReady(form.schedule) && payloadReady(form.type, form.payload)
-
-  function setSchedule(patch: Partial<CronSchedule>) {
-    setForm((f) => ({ ...f, schedule: { ...f.schedule, ...patch } }))
-  }
-
-  // 切 kind 时重置为该 kind 的默认字段,避免残留无关字段。
-  function changeKind(kind: CronScheduleKind) {
-    const defaults: Record<CronScheduleKind, CronSchedule> = {
-      every_n_minutes: { kind, minute: 5 },
-      hourly_at: { kind, minute: 0 },
-      daily_at: { kind, hour: 0, minute: 0 },
-      weekly_at: { kind, weekday: 1, hour: 0, minute: 0 },
-      monthly_at: { kind, day: 1, hour: 0, minute: 0 },
-      raw: { kind, expr: '' },
-    }
-    setForm((f) => ({ ...f, schedule: defaults[kind] }))
-  }
-
-  function setPayload(patch: Partial<CronPayload>) {
-    setForm((f) => ({ ...f, payload: { ...f.payload, ...patch } }))
-  }
-
-  async function submit() {
-    if (!canSubmit) return
-    setBusy(true)
-    setFormErr(null)
-    try {
-      const body = JSON.stringify({
-        schedule: form.schedule,
-        type: form.type,
-        payload: form.payload,
-        comment: form.comment,
-        enabled: form.enabled,
-      })
-      if (form.id === null) {
-        await apiFetch('/api/m/cron/jobs', { method: 'POST', body })
-      } else {
-        await apiFetch(`/api/m/cron/jobs/${form.id}`, { method: 'PUT', body })
-      }
-      setForm(emptyForm)
-      await load()
-    } catch (e) {
-      setFormErr(errorText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
 
   async function toggle(job: CronJob, next: boolean) {
     if (readonly) return
@@ -330,20 +279,224 @@ export default function Cron() {
         method: 'DELETE',
         headers: { 'X-Confirm-Danger': '1' },
       })
-      if (form.id === job.id) setForm(emptyForm)
       await load()
     } catch (e) {
       setLoadErr(errorText(e))
     }
   }
 
+  const columns: Column<CronJob>[] = useMemo(
+    () => [
+      {
+        key: 'name',
+        header: '任务名',
+        cell: (job) => (
+          <div className="flex min-w-0 items-center gap-2">
+            <Clock size={15} className="shrink-0 text-warn" />
+            <span className="truncate font-medium text-text">
+              {job.comment || TYPE_LABEL[job.type]}
+            </span>
+          </div>
+        ),
+      },
+      {
+        key: 'type',
+        header: '类型',
+        width: '96px',
+        cell: (job) => <span className="text-muted">{TYPE_LABEL[job.type]}</span>,
+      },
+      {
+        key: 'schedule',
+        header: '执行周期',
+        width: '160px',
+        cell: (job) => (
+          <span className="font-[family-name:var(--font-mono)] text-xs text-muted">
+            {describeSchedule(job.expr)}
+          </span>
+        ),
+      },
+      {
+        key: 'last',
+        header: '上次执行',
+        width: '210px',
+        cell: (job) => (
+          <span className="text-xs text-muted">
+            {fmtTime(job.last_run_at)}
+            {job.last_result ? <span className="text-text/60"> · {job.last_result}</span> : null}
+          </span>
+        ),
+      },
+      {
+        key: 'status',
+        header: '状态',
+        width: '64px',
+        cell: (job) => (
+          <Switch
+            checked={job.enabled}
+            onChange={(next) => void toggle(job, next)}
+            disabled={readonly}
+            aria-label={`${job.enabled ? '停用' : '启用'} 任务 ${job.id}`}
+          />
+        ),
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '180px',
+        align: 'right',
+        cell: (job) => (
+          <ActionLinks>
+            <ActionLink disabled={readonly || runningId === job.id} onClick={() => void runNow(job)}>
+              {runningId === job.id ? '执行中' : '执行'}
+            </ActionLink>
+            <ActionLink onClick={() => setRunsJob(job)}>日志</ActionLink>
+            <ActionLink disabled={readonly} onClick={() => setEditing(jobToForm(job))}>
+              编辑
+            </ActionLink>
+            <ActionLink
+              danger
+              disabled={!isAdmin}
+              aria-label="删除任务"
+              title={isAdmin ? '删除任务' : '需要 admin 角色'}
+              onClick={() => void remove(job)}
+            >
+              删除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    [isAdmin, readonly, runningId],
+  )
+
   return (
     <div className="flex flex-col gap-4">
-      <Card className="flex flex-col gap-4">
-        <h2 className="text-sm font-medium text-text">
-          {form.id === null ? '新建任务' : `编辑任务 #${form.id}`}
-        </h2>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+            定时任务
+          </h1>
+          <p className="text-xs text-muted">
+            {jobs.length > 0
+              ? `共 ${jobs.length} 个任务`
+              : '按计划执行命令 / 脚本 / 日志切割等,支持友好调度'}
+          </p>
+        </div>
+        <Button size="md" disabled={readonly} onClick={() => setEditing(emptyForm)}>
+          <Plus size={15} />
+          添加任务
+        </Button>
+      </header>
 
+      {loadErr && jobs.length === 0 && !loading && (
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
+          </Button>
+        </p>
+      )}
+
+      {loading ? (
+        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      ) : (
+        <Table
+          columns={columns}
+          rows={jobs}
+          rowKey={(job) => job.id}
+          emptyText={
+            <span className="flex flex-col items-center gap-1 py-6">
+              <span className="text-sm font-medium text-text">还没有定时任务</span>
+              <span className="text-xs text-muted">点击「添加任务」创建你的第一个计划任务。</span>
+            </span>
+          }
+        />
+      )}
+
+      {readonly && (
+        <p className="text-xs text-muted">当前角色为只读,写操作需要 operator 角色,删除需要 admin。</p>
+      )}
+
+      {editing && (
+        <CronFormModal
+          initial={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null)
+            void load()
+          }}
+        />
+      )}
+      {runsJob && <RunsModal job={runsJob} onClose={() => setRunsJob(null)} />}
+    </div>
+  )
+}
+
+/** CronFormModal 新建/编辑任务弹窗:任务类型 + 友好调度选择器 + 按类型展开的 payload 表单。 */
+function CronFormModal({
+  initial,
+  onClose,
+  onSaved,
+}: {
+  initial: FormState
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [form, setForm] = useState<FormState>(initial)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const canSubmit = !busy && scheduleReady(form.schedule) && payloadReady(form.type, form.payload)
+
+  function setSchedule(patch: Partial<CronSchedule>) {
+    setForm((f) => ({ ...f, schedule: { ...f.schedule, ...patch } }))
+  }
+
+  // 切 kind 时重置为该 kind 的默认字段,避免残留无关字段。
+  function changeKind(kind: CronScheduleKind) {
+    const defaults: Record<CronScheduleKind, CronSchedule> = {
+      every_n_minutes: { kind, minute: 5 },
+      hourly_at: { kind, minute: 0 },
+      daily_at: { kind, hour: 0, minute: 0 },
+      weekly_at: { kind, weekday: 1, hour: 0, minute: 0 },
+      monthly_at: { kind, day: 1, hour: 0, minute: 0 },
+      raw: { kind, expr: '' },
+    }
+    setForm((f) => ({ ...f, schedule: defaults[kind] }))
+  }
+
+  function setPayload(patch: Partial<CronPayload>) {
+    setForm((f) => ({ ...f, payload: { ...f.payload, ...patch } }))
+  }
+
+  async function submit() {
+    if (!canSubmit) return
+    setBusy(true)
+    setErr(null)
+    try {
+      const body = JSON.stringify({
+        schedule: form.schedule,
+        type: form.type,
+        payload: form.payload,
+        comment: form.comment,
+        enabled: form.enabled,
+      })
+      if (form.id === null) {
+        await apiFetch('/api/m/cron/jobs', { method: 'POST', body })
+      } else {
+        await apiFetch(`/api/m/cron/jobs/${form.id}`, { method: 'PUT', body })
+      }
+      onSaved()
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={form.id === null ? '添加任务' : `编辑任务 #${form.id}`} onClose={onClose} size="md">
+      <div className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted">任务类型</span>
@@ -398,96 +551,23 @@ export default function Cron() {
           <span className="text-sm text-text">启用</span>
         </label>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {err && (
+          <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+            {err}
+          </p>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
           <Button onClick={() => void submit()} disabled={!canSubmit}>
+            {busy && <Spinner size={14} />}
             {form.id === null ? '新建' : '保存'}
           </Button>
-          {form.id !== null && (
-            <Button variant="ghost" onClick={() => setForm(emptyForm)} disabled={busy}>
-              取消
-            </Button>
-          )}
-          {busy && <Spinner size={16} />}
         </div>
-        {readonly && (
-          <p className="text-xs text-muted">当前角色为只读,写操作需要 operator 角色。</p>
-        )}
-        {formErr && <p className="text-sm text-crit">{formErr}</p>}
-      </Card>
-
-      <Card className="p-0">
-        {loading ? (
-          <div className="flex h-32 items-center justify-center">
-            <Spinner size={24} />
-          </div>
-        ) : loadErr && jobs.length === 0 ? (
-          <p className="p-5 text-sm text-muted">{loadErr}</p>
-        ) : jobs.length === 0 ? (
-          <p className="p-5 text-sm text-muted">暂无定时任务。</p>
-        ) : (
-          <div className="divide-y divide-border">
-            {jobs.map((job) => (
-              <div key={job.id} className="flex flex-wrap items-center gap-4 px-5 py-3.5">
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-text">
-                      {job.comment || TYPE_LABEL[job.type]}
-                    </span>
-                    <Badge status="neutral">{TYPE_LABEL[job.type]}</Badge>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                    <span className="font-[family-name:var(--font-mono)]">
-                      {describeSchedule(job.expr)}
-                    </span>
-                    <span>
-                      上次执行 {fmtTime(job.last_run_at)}
-                      {job.last_result ? ` · ${job.last_result}` : ''}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Switch
-                    checked={job.enabled}
-                    onChange={(next) => void toggle(job, next)}
-                    disabled={readonly}
-                    aria-label={`${job.enabled ? '停用' : '启用'} 任务 ${job.id}`}
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setForm(jobToForm(job))}
-                    disabled={readonly}
-                  >
-                    编辑
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void runNow(job)}
-                    disabled={readonly || runningId === job.id}
-                  >
-                    {runningId === job.id ? '执行中' : '立即执行'}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setRunsJob(job)}>
-                    执行日志
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => void remove(job)}
-                    disabled={!isAdmin}
-                  >
-                    删除
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {runsJob && <RunsModal job={runsJob} onClose={() => setRunsJob(null)} />}
-    </div>
+      </div>
+    </Modal>
   )
 }
 
