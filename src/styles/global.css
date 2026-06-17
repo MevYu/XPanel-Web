@@ -1,13 +1,14 @@
 @import "tailwindcss";
 
 @theme {
-  /* 分层 surface:bg→surface→surface-2→elevated 微妙明度梯度,造出真实深色层次而非死黑。 */
-  --color-bg: #0A0E13;
-  --color-surface: #10151D;
-  --color-surface-2: #18202B;
-  --color-elevated: #1F2935;
-  --color-border: #232C39;
-  --color-border-strong: #2E3845;
+  /* 分层 surface:bg→surface→surface-2→elevated 微妙明度梯度,造出真实深色层次而非死黑。
+     掺极轻暖中性(略偏暖灰),并整体微提亮一档,让卡片更清晰地"浮"在底上、贴近 aaPanel 友好观感。 */
+  --color-bg: #0B0F15;
+  --color-surface: #141A23;
+  --color-surface-2: #1D2531;
+  --color-elevated: #26303D;
+  --color-border: #2C3643;
+  --color-border-strong: #3A4655;
 
   /* 文字层级:text→muted→faint,对比舒适。 */
   --color-text: #E8EEF5;
@@ -28,6 +29,10 @@
   --color-warn-soft: rgba(232, 179, 57, 0.13);
   --color-crit: #E5484D;
   --color-crit-soft: rgba(229, 72, 77, 0.13);
+
+  /* 暖金:文件夹及暖色强调,深色上醒目而不刺眼(对标 aaPanel 黄文件夹)。 */
+  --color-gold: #F2C261;
+  --color-gold-soft: rgba(242, 194, 97, 0.14);
 
   /* 圆角梯度。 */
   --radius-sm: 8px;

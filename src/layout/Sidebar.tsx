@@ -5,7 +5,7 @@ import { useAuth } from '../auth/AuthContext'
 import { useModules } from '../hooks/useModules'
 import { IconButton } from '../components/IconButton'
 import { Logo } from '../components/Logo'
-import { iconFor } from './icons'
+import { iconFor, colorFor } from './icons'
 import type { NavItem } from '../api/types'
 
 interface Group {
@@ -105,19 +105,21 @@ export function Sidebar() {
 
 function NavRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const Icon = iconFor(item.icon)
+  const iconColor = colorFor(item.icon)
   return (
     <NavLink
       to={item.path}
       title={collapsed ? item.label : undefined}
       className={({ isActive }) =>
-        `relative flex items-center gap-2.5 rounded-(--radius-sm) px-2 py-2 text-sm transition-[background-color,color] duration-(--dur-micro) ease-(--ease-out) outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${
+        // 图标常驻语义彩色;活动项加品牌底 + 左侧高亮条强化,非活动项静息半透明、hover 提亮。
+        `relative flex items-center gap-2.5 rounded-(--radius-sm) px-2 py-2 text-sm transition-[background-color,color,opacity] duration-(--dur-micro) ease-(--ease-out) outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${
           isActive
-            ? 'bg-brand-soft font-medium text-text before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-0.5 before:rounded-full before:bg-brand before:shadow-[0_0_8px_rgba(110,139,255,0.6)] [&_svg]:text-brand'
-            : 'text-muted hover:bg-surface-2/70 hover:text-text'
+            ? 'bg-brand-soft font-medium text-text [&_svg]:opacity-100 before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-0.5 before:rounded-full before:bg-brand before:shadow-[0_0_8px_rgba(110,139,255,0.6)]'
+            : 'text-muted [&_svg]:opacity-80 hover:bg-surface-2/70 hover:text-text hover:[&_svg]:opacity-100'
         } ${collapsed ? 'justify-center' : ''}`
       }
     >
-      <Icon size={18} className="shrink-0" />
+      <Icon size={18} className={`shrink-0 ${iconColor}`} />
       {!collapsed && <span className="truncate">{item.label}</span>}
     </NavLink>
   )

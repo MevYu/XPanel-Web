@@ -84,3 +84,55 @@ const ICONS: Record<string, LucideIcon> = {
 export function iconFor(name: string): LucideIcon {
   return ICONS[name] ?? Boxes
 }
+
+// 侧栏图标按语义上色:深色上柔和雅致、可读,对标 aaPanel 的彩色友好导航。
+// 同类归同色:概览/系统=蓝、文件/存储=暖金、网络/站点=青、数据库=紫、
+// 安全=红、计划/任务=琥珀、容器/应用=靛、运行时/语言=各自代表色。
+const ICON_COLORS: Record<string, string> = {
+  gauge: 'text-sky-400',
+  dashboard: 'text-sky-400',
+  'layout-dashboard': 'text-sky-400',
+  server: 'text-sky-400',
+  'server-cog': 'text-sky-400',
+  cpu: 'text-sky-400',
+  activity: 'text-sky-400',
+  'bar-chart-2': 'text-sky-400',
+  'hard-drive': 'text-amber-400',
+  folder: 'text-gold',
+  'folder-symlink': 'text-gold',
+  archive: 'text-amber-400',
+  network: 'text-teal-400',
+  globe: 'text-teal-400',
+  truck: 'text-teal-400',
+  database: 'text-violet-400',
+  mysql: 'text-violet-400',
+  postgres: 'text-violet-400',
+  redis: 'text-rose-400',
+  shield: 'text-rose-400',
+  'shield-alert': 'text-rose-400',
+  'shield-check': 'text-emerald-400',
+  'shield-lock': 'text-rose-400',
+  bug: 'text-rose-400',
+  'file-lock': 'text-rose-400',
+  clock: 'text-amber-300',
+  'bell-ring': 'text-amber-300',
+  boxes: 'text-indigo-400',
+  box: 'text-indigo-400',
+  'layout-grid': 'text-indigo-400',
+  hexagon: 'text-indigo-400',
+  'file-code': 'text-sky-400',
+  code: 'text-sky-400',
+  'git-branch': 'text-orange-400',
+  'git-fork': 'text-orange-400',
+  gitea: 'text-orange-400',
+  mail: 'text-cyan-400',
+  zap: 'text-amber-300',
+  coffee: 'text-orange-300',
+  terminal: 'text-emerald-400',
+  users: 'text-teal-400',
+}
+
+/** colorFor 给侧栏图标取一个雅致的语义色 class,未命中返回柔和中性。 */
+export function colorFor(name: string): string {
+  return ICON_COLORS[name] ?? 'text-slate-400'
+}
