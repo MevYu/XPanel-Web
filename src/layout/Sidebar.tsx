@@ -73,6 +73,12 @@ export function Sidebar() {
             item={{ label: '模块管理', icon: 'boxes', path: '/modules' }}
             collapsed={collapsed}
           />
+          {role === 'admin' && (
+            <NavRow
+              item={{ label: '设置', icon: 'settings', path: '/settings' }}
+              collapsed={collapsed}
+            />
+          )}
         </div>
       </div>
 

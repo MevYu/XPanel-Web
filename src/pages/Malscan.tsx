@@ -359,6 +359,26 @@ function HitsTable({
     }
   }
 
+  async function del(h: Hit) {
+    if (!window.confirm(`确认删除命中文件 ${h.path}?文件将被永久删除,无法恢复,此操作危险。`)) return
+    setBusy(true)
+    setFeedback(null)
+    try {
+      await apiFetch('/api/m/malscan/delete', {
+        method: 'POST',
+        headers: DANGER,
+        body: JSON.stringify({ path: h.path }),
+      })
+      setFeedback({ kind: 'ok', text: '已删除' })
+      await load()
+      onChanged()
+    } catch (e) {
+      setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const columns: Column<Hit>[] = useMemo(
     () => [
       {
@@ -397,7 +417,7 @@ function HitsTable({
       {
         key: 'actions',
         header: '操作',
-        width: '170px',
+        width: '220px',
         align: 'right',
         cell: (h) => (
           <ActionLinks>
@@ -422,6 +442,14 @@ function HitsTable({
               onClick={() => void ignore(h)}
             >
               忽略
+            </ActionLink>
+            <ActionLink
+              danger
+              disabled={!isAdmin || busy}
+              title={isAdmin ? '永久删除文件,无法恢复' : '需要 admin 角色'}
+              onClick={() => void del(h)}
+            >
+              删除
             </ActionLink>
           </ActionLinks>
         ),

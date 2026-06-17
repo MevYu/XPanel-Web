@@ -35,6 +35,7 @@ import LoadBalancer from './pages/LoadBalancer'
 import Memcached from './pages/Memcached'
 import MysqlRepl from './pages/MysqlRepl'
 import Fleet from './pages/Fleet'
+import Settings from './pages/Settings'
 
 // SiteMonitor 内含 recharts(经 SiteMonitorCharts 懒加载),路由级 lazy 把整页移出主包。
 const SiteMonitor = lazy(() => import('./pages/SiteMonitor'))
@@ -87,6 +88,7 @@ export default function App() {
           <Route path="/memcached" element={<Memcached />} />
           <Route path="/mysqlrepl" element={<MysqlRepl />} />
           <Route path="/fleet" element={<Fleet />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
       </Route>
