@@ -56,6 +56,15 @@ interface CCConfig {
   zone_size_mb: number
 }
 
+interface WafSettings {
+  waf_enabled: boolean
+  config_dir: string
+  http_conf_name: string
+  server_conf_name: string
+  nginx_conf: string
+  log_path: string
+}
+
 interface WafConfig {
   http: string
   server: string
@@ -84,21 +93,25 @@ export default function Waf() {
   const [tab, setTab] = useState<Tab>('guard')
 
   const [cc, setCc] = useState<CCConfig | null>(null)
+  const [settings, setSettings] = useState<WafSettings | null>(null)
   const [stats, setStats] = useState<WafStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [applyOpen, setApplyOpen] = useState(false)
+  const [disableOpen, setDisableOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoadErr(null)
     try {
-      const [c, s] = await Promise.all([
+      const [c, g, s] = await Promise.all([
         apiFetch<CCConfig>('/api/m/waf/cc'),
+        apiFetch<WafSettings>('/api/m/waf/settings'),
         apiFetch<WafStats>('/api/m/waf/stats'),
       ])
       setCc(c)
+      setSettings(g)
       setStats(s)
     } catch (e) {
       setLoadErr(errorText(e))
@@ -133,6 +146,32 @@ export default function Waf() {
     }
   }
 
+  // 全局 WAF 总开关:PUT 回完整 settings,仅翻转 waf_enabled。关闭=整体卸防护,带 X-Confirm-Danger。
+  async function toggleGlobal(next: boolean) {
+    if (!settings || !isAdmin || busy) return
+    const optimistic = { ...settings, waf_enabled: next }
+    setSettings(optimistic)
+    setBusy(true)
+    setFeedback(null)
+    try {
+      const saved = await apiFetch<WafSettings>('/api/m/waf/settings', {
+        method: 'PUT',
+        body: JSON.stringify(optimistic),
+        headers: next ? undefined : DANGER,
+      })
+      setSettings(saved)
+      setFeedback({
+        kind: 'ok',
+        text: next ? '全局防护已开启(应用后生效)' : '已关闭全局防护(应用后生效)',
+      })
+    } catch (e) {
+      setSettings(settings)
+      setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function apply() {
     if (!isAdmin || busy) return
     setBusy(true)
@@ -158,6 +197,7 @@ export default function Waf() {
   }
 
   const guarded = cc?.enabled ?? false
+  const wafOn = settings?.waf_enabled ?? false
 
   return (
     <div className="flex flex-col gap-4">
@@ -167,7 +207,7 @@ export default function Waf() {
             <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
               网站防火墙
             </h1>
-            <Badge status={guarded ? 'online' : 'neutral'}>{guarded ? '防护中' : '已关闭'}</Badge>
+            <Badge status={wafOn ? 'online' : 'neutral'}>{wafOn ? '防护中' : '已关闭'}</Badge>
           </div>
           <p className="text-xs text-muted">
             {stats
@@ -176,6 +216,29 @@ export default function Waf() {
           </p>
         </div>
       </header>
+
+      <Card className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Switch
+            checked={wafOn}
+            onChange={(next) => {
+              if (next) void toggleGlobal(true)
+              else setDisableOpen(true)
+            }}
+            disabled={!isAdmin || busy || !settings}
+            aria-label="全局 WAF 总开关"
+          />
+          <div className="flex flex-col">
+            <span className="text-sm font-medium text-text">全局 WAF 总开关</span>
+            <span className="text-xs text-muted">
+              {wafOn
+                ? 'IP / URL / UA / CC 规则按各自启停下发,应用后生效'
+                : '已关闭全局防护:即便有启用的规则也不拦任何请求'}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">{busy && <Spinner size={16} />}</div>
+      </Card>
 
       <Card className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -244,6 +307,37 @@ export default function Waf() {
       {tab === 'guard' && <GuardSettings isAdmin={isAdmin} cc={cc} onCc={setCc} />}
       {tab === 'rules' && <Rules isAdmin={isAdmin} />}
       {tab === 'log' && <StatsPanel stats={stats} />}
+
+      {disableOpen && (
+        <Modal
+          title="关闭全局防护"
+          size="sm"
+          onClose={() => (busy ? undefined : setDisableOpen(false))}
+        >
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-text">
+              关闭后将<span className="text-crit"> 整体卸下防护</span>:即便存在启用的 IP /
+              URL / UA / CC 规则,生成的配置也<span className="text-crit">不会拦截任何请求</span>。
+            </p>
+            <p className="text-xs text-muted">此操作需在「生成并应用」后才在 nginx 生效。</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="md" disabled={busy} onClick={() => setDisableOpen(false)}>
+                取消
+              </Button>
+              <Button
+                size="md"
+                disabled={busy || !isAdmin}
+                onClick={async () => {
+                  await toggleGlobal(false)
+                  setDisableOpen(false)
+                }}
+              >
+                确认关闭
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {applyOpen && (
         <Modal title="生成并应用配置" size="sm" onClose={() => (busy ? undefined : setApplyOpen(false))}>
@@ -470,6 +564,43 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
     }
   }
 
+  // 单条规则启停:乐观更新本地状态,失败回滚。
+  async function toggleIP(r: IPRule, next: boolean) {
+    if (!isAdmin || busy) return
+    setBusy(true)
+    setFeedback(null)
+    setIp((prev) => prev.map((x) => (x.id === r.id ? { ...x, enabled: next } : x)))
+    try {
+      await apiFetch(`/api/m/waf/ip/${r.id}/toggle`, {
+        method: 'POST',
+        body: JSON.stringify({ enabled: next }),
+      })
+    } catch (e) {
+      setIp((prev) => prev.map((x) => (x.id === r.id ? { ...x, enabled: r.enabled } : x)))
+      setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function toggleMatch(r: MatchRule, next: boolean) {
+    if (!isAdmin || busy) return
+    setBusy(true)
+    setFeedback(null)
+    setMatch((prev) => prev.map((x) => (x.id === r.id ? { ...x, enabled: next } : x)))
+    try {
+      await apiFetch(`/api/m/waf/match/${r.id}/toggle`, {
+        method: 'POST',
+        body: JSON.stringify({ enabled: next }),
+      })
+    } catch (e) {
+      setMatch((prev) => prev.map((x) => (x.id === r.id ? { ...x, enabled: r.enabled } : x)))
+      setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const ipColumns = useMemo<Column<IPRule>[]>(
     () => [
       { key: 'type', header: '类型', width: '72px', cell: () => <Badge status="neutral">IP</Badge> },
@@ -488,7 +619,14 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
         key: 'status',
         header: '状态',
         width: '80px',
-        cell: (r) => <Badge status={r.enabled ? 'online' : 'warn'}>{r.enabled ? '启用' : '停用'}</Badge>,
+        cell: (r) => (
+          <Switch
+            checked={r.enabled}
+            onChange={(next) => void toggleIP(r, next)}
+            disabled={!isAdmin || busy}
+            aria-label={r.enabled ? '停用此 IP 规则' : '启用此 IP 规则'}
+          />
+        ),
       },
       {
         key: 'comment',
@@ -542,7 +680,14 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
         key: 'status',
         header: '状态',
         width: '80px',
-        cell: (r) => <Badge status={r.enabled ? 'online' : 'warn'}>{r.enabled ? '启用' : '停用'}</Badge>,
+        cell: (r) => (
+          <Switch
+            checked={r.enabled}
+            onChange={(next) => void toggleMatch(r, next)}
+            disabled={!isAdmin || busy}
+            aria-label={r.enabled ? '停用此匹配规则' : '启用此匹配规则'}
+          />
+        ),
       },
       {
         key: 'comment',
