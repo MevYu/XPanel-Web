@@ -26,12 +26,14 @@ export type CodeEditorProps = {
   lineWrap?: boolean
   fontSize?: number
   onCursor?: (stats: CursorStats) => void
+  /** bare:去掉外圈圆角与边框,代码区与外层容器齐边(嵌在已有窗口内时用)。 */
+  bare?: boolean
 }
 
 /** CodeEditor:基于 CodeMirror 6 的可复用代码编辑器(懒加载)。 */
 export const CodeEditor = forwardRef<CodeEditorViewHandle, CodeEditorProps>(
   function CodeEditor(
-    { value, onChange, language, filename, readOnly, onSave, height, lineWrap, fontSize, onCursor },
+    { value, onChange, language, filename, readOnly, onSave, height, lineWrap, fontSize, onCursor, bare },
     ref,
   ) {
     const lang = useMemo<EditorLanguage>(
@@ -39,18 +41,22 @@ export const CodeEditor = forwardRef<CodeEditorViewHandle, CodeEditorProps>(
       [language, filename],
     )
 
+    const wrapperCls = bare
+      ? 'h-full overflow-hidden [&_.cm-theme]:h-full'
+      : 'overflow-hidden rounded-(--radius-card) border border-border'
+    const fallbackCls = bare
+      ? 'flex h-full items-center justify-center bg-surface'
+      : 'flex items-center justify-center rounded-(--radius-card) border border-border bg-surface'
+
     return (
       <Suspense
         fallback={
-          <div
-            className="flex items-center justify-center rounded-(--radius-card) border border-border bg-surface"
-            style={{ height: height ?? '60vh' }}
-          >
+          <div className={fallbackCls} style={{ height: height ?? '60vh' }}>
             <Spinner size={20} />
           </div>
         }
       >
-        <div className="overflow-hidden rounded-(--radius-card) border border-border">
+        <div className={wrapperCls}>
           <CodeEditorView
             ref={ref}
             value={value}

@@ -2241,6 +2241,7 @@ function EditorModal({
               <CodeEditor
                 key={file.path}
                 ref={editorRef}
+                bare
                 value={file.text}
                 onChange={(t) => setFile((f) => ({ ...f, text: t }))}
                 filename={file.path}

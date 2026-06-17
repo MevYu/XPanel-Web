@@ -93,6 +93,7 @@ function CodeEditorViewInner(
   ref: React.Ref<CodeEditorViewHandle>,
 ) {
   const cmRef = useRef<ReactCodeMirrorRef>(null)
+  const fillHeight = height === '100%'
 
   useImperativeHandle(ref, () => ({
     getView: () => cmRef.current?.view ?? null,
@@ -100,6 +101,14 @@ function CodeEditorViewInner(
 
   const extensions = useMemo(() => {
     const exts: Extension[] = [languageExtension(language), search({ top: true })]
+    if (fillHeight) {
+      exts.push(
+        EditorView.theme({
+          '&': { height: '100%' },
+          '.cm-scroller': { overflow: 'auto' },
+        }),
+      )
+    }
     if (lineWrap) exts.push(EditorView.lineWrapping)
     if (fontSize) {
       exts.push(EditorView.theme({ '&': { fontSize: `${fontSize}px` } }))
@@ -136,7 +145,7 @@ function CodeEditorViewInner(
       )
     }
     return exts
-  }, [language, onSave, lineWrap, fontSize, onCursor])
+  }, [language, onSave, lineWrap, fontSize, onCursor, fillHeight])
 
   return (
     <CodeMirror

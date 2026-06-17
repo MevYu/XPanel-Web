@@ -105,10 +105,11 @@ export function SearchBar({
   }
 
   const inputCls =
-    'h-9 min-w-0 flex-1 rounded-(--radius-sm) border border-border bg-[#0C1118] px-3 font-[family-name:var(--font-mono)] text-[13px] text-text outline-none focus:border-brand'
+    'h-8 w-56 min-w-0 rounded-(--radius-sm) border border-border bg-[#0C1118] px-2.5 font-[family-name:var(--font-mono)] text-[13px] text-text outline-none focus:border-brand'
 
   return (
-    <div className="flex flex-col gap-2 border-b border-border bg-surface-2/60 px-3 py-2.5">
+    <div className="flex justify-end border-b border-border bg-surface-2/40 px-2 py-1.5">
+      <div className="flex w-auto max-w-full flex-col gap-1.5 rounded-(--radius-sm) border border-border bg-surface-2 px-2 py-1.5 shadow-[var(--shadow-elevated)]">
       {/* 查找行 */}
       <div className="flex items-center gap-2">
         <input
@@ -174,6 +175,7 @@ export function SearchBar({
           <IconBtn title="全部替换" onClick={() => run(replaceAll)} icon={<ReplaceAll size={15} />} />
         </div>
       )}
+      </div>
     </div>
   )
 }
