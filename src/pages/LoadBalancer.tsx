@@ -1,11 +1,14 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { Card } from '../components/Card'
-import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
+import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
+import { Modal } from '../components/Modal'
+import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Plus, Settings2, Search, GitFork, Trash2 } from 'lucide-react'
+import { uid } from '../lib/uid'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -39,69 +42,36 @@ interface Settings {
 
 const ALGOS = ['round-robin', 'least_conn', 'ip_hash']
 
+const ALGO_LABEL: Record<string, string> = {
+  'round-robin': '轮询',
+  least_conn: '最少连接',
+  ip_hash: 'IP 哈希',
+}
+
 const fieldClass =
-  'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
+  'h-10 rounded-(--radius-sm) border border-border bg-surface-2 px-3 text-sm text-text outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-40'
 
-interface CreateForm {
-  name: string
-  algo: string
-  listen: string
-  server_name: string
-  backends: string // 每行 host:port:weight
-}
-
-const emptyForm: CreateForm = {
-  name: '',
-  algo: 'round-robin',
-  listen: '80',
-  server_name: '',
-  backends: '',
-}
-
-// parseBackends 把多行 host:port[:weight] 文本解析为后端数组,非法行抛错。
-function parseBackends(text: string): Backend[] {
-  const out: Backend[] = []
-  for (const raw of text.split('\n')) {
-    const line = raw.trim()
-    if (!line) continue
-    const parts = line.split(':')
-    if (parts.length < 2) throw new Error(`后端格式错误: ${line}(应为 host:port:weight)`)
-    const host = parts[0].trim()
-    const port = Number(parts[1])
-    const weight = parts[2] !== undefined && parts[2] !== '' ? Number(parts[2]) : 1
-    if (!host || !Number.isInteger(port) || port <= 0) throw new Error(`后端格式错误: ${line}`)
-    if (!Number.isInteger(weight) || weight <= 0) throw new Error(`权重错误: ${line}`)
-    out.push({ host, port, weight, max_fails: 0, fail_timeout: '' })
-  }
-  if (out.length === 0) throw new Error('至少需要一个后端节点')
-  return out
-}
-
-/** 负载均衡:管理 nginx upstream 均衡组(列表、创建、启停、删除、查看生成配置)与设置。 */
+/** 负载均衡:aaPanel 风格——工具栏(添加/设置)+ 紧凑均衡组表 + 固定尺寸创建/详情/设置弹窗。 */
 export default function LoadBalancer() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
   const canWrite = role === 'admin' || role === 'operator'
 
   const [groups, setGroups] = useState<Group[]>([])
-  const [settings, setSettings] = useState<Settings | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [query, setQuery] = useState('')
 
-  const [form, setForm] = useState<CreateForm>(emptyForm)
-  const [configOf, setConfigOf] = useState<number | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [detailId, setDetailId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setLoadErr(null)
     try {
-      const [g, s] = await Promise.all([
-        apiFetch<Group[]>('/api/m/loadbalancer/groups'),
-        apiFetch<Settings>('/api/m/loadbalancer/settings'),
-      ])
-      setGroups(g)
-      setSettings(s)
+      setGroups(await apiFetch<Group[]>('/api/m/loadbalancer/groups'))
     } catch (e) {
       setLoadErr(errorText(e))
     } finally {
@@ -113,41 +83,9 @@ export default function LoadBalancer() {
     void load()
   }, [load])
 
-  async function create() {
-    if (busy || !canWrite) return
-    let backends: Backend[]
-    try {
-      backends = parseBackends(form.backends)
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-      return
-    }
-    setBusy(true)
-    setFeedback(null)
-    try {
-      await apiFetch('/api/m/loadbalancer/groups', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: form.name.trim(),
-          algo: form.algo,
-          listen: Number(form.listen) || 80,
-          server_name: form.server_name.trim(),
-          backends,
-        }),
-      })
-      setFeedback({ kind: 'ok', text: `均衡组 ${form.name.trim()} 已创建` })
-      setForm(emptyForm)
-      await load()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function toggle(g: Group, enable: boolean) {
-    if (busy) return
-    if (!enable && !window.confirm(`确认停用均衡组 ${g.name}?该组将下线。`)) return
+    if (busy || !canWrite) return
+    if (!enable && !window.confirm(`确认停用均衡组「${g.name}」?该组将下线。`)) return
     setBusy(true)
     setFeedback(null)
     try {
@@ -165,12 +103,12 @@ export default function LoadBalancer() {
 
   async function remove(g: Group) {
     if (busy || !isAdmin) return
-    if (!window.confirm(`确认删除均衡组 ${g.name}?此操作危险且不可恢复。`)) return
+    if (!window.confirm(`确认删除均衡组「${g.name}」?此操作危险且不可恢复。`)) return
     setBusy(true)
     setFeedback(null)
     try {
       await apiFetch(`/api/m/loadbalancer/groups/${g.id}`, { method: 'DELETE', headers: DANGER })
-      if (configOf === g.id) setConfigOf(null)
+      if (detailId === g.id) setDetailId(null)
       setFeedback({ kind: 'ok', text: `均衡组 ${g.name} 已删除` })
       await load()
     } catch (e) {
@@ -180,186 +118,559 @@ export default function LoadBalancer() {
     }
   }
 
-  async function saveSettings() {
-    if (!settings || busy || !isAdmin) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      const res = await apiFetch<Settings>('/api/m/loadbalancer/settings', {
-        method: 'PUT',
-        body: JSON.stringify(settings),
-      })
-      setSettings(res)
-      setFeedback({ kind: 'ok', text: '设置已保存' })
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <Spinner size={24} />
-      </div>
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return groups
+    return groups.filter(
+      (g) => g.name.toLowerCase().includes(q) || g.server_name.toLowerCase().includes(q),
     )
-  }
+  }, [groups, query])
+
+  const detail = detailId == null ? null : (groups.find((g) => g.id === detailId) ?? null)
+
+  const columns: Column<Group>[] = useMemo(
+    () => [
+      {
+        key: 'name',
+        header: '名称',
+        cell: (g) => (
+          <button
+            type="button"
+            onClick={() => setDetailId(g.id)}
+            className="inline-flex items-center gap-2 rounded-sm font-medium text-text outline-none transition hover:text-brand focus-visible:ring-2 focus-visible:ring-brand/60"
+          >
+            <GitFork size={15} className="shrink-0 text-warn" />
+            <span className="truncate">{g.name}</span>
+          </button>
+        ),
+      },
+      {
+        key: 'server_name',
+        header: '域名(端口)',
+        cell: (g) => (
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+            {g.server_name || '—'}
+            <span className="text-text/60"> :{g.listen}</span>
+          </span>
+        ),
+      },
+      {
+        key: 'algo',
+        header: '调度策略',
+        width: '110px',
+        cell: (g) => <span className="text-muted">{ALGO_LABEL[g.algo] ?? g.algo}</span>,
+      },
+      {
+        key: 'nodes',
+        header: '节点数',
+        width: '80px',
+        cell: (g) => <span className="text-muted">{g.backends.length}</span>,
+      },
+      {
+        key: 'status',
+        header: '状态',
+        width: '92px',
+        cell: (g) => (
+          <Badge status={g.enabled ? 'online' : 'neutral'}>{g.enabled ? '运行中' : '已停用'}</Badge>
+        ),
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '170px',
+        align: 'right',
+        cell: (g) => (
+          <ActionLinks>
+            <ActionLink onClick={() => setDetailId(g.id)}>详情</ActionLink>
+            <ActionLink
+              disabled={!canWrite}
+              title={canWrite ? undefined : '需要 operator 角色'}
+              onClick={() => void toggle(g, !g.enabled)}
+            >
+              {g.enabled ? '停用' : '启用'}
+            </ActionLink>
+            <ActionLink
+              danger
+              disabled={!isAdmin}
+              aria-label="删除均衡组"
+              title={isAdmin ? '删除均衡组' : '需要 admin 角色'}
+              onClick={() => void remove(g)}
+            >
+              删除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isAdmin, canWrite, busy, detailId],
+  )
 
   return (
     <div className="flex flex-col gap-4">
-      {loadErr && <p className="text-sm text-crit">{loadErr}</p>}
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+            负载均衡
+          </h1>
+          <p className="text-xs text-muted">
+            {groups.length > 0
+              ? `共 ${groups.length} 个均衡组`
+              : '管理 nginx upstream 均衡组,生成配置经 nginx -t 校验后生效'}
+          </p>
+        </div>
+      </header>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Button size="md" disabled={!canWrite} onClick={() => setCreating(true)}>
+            <Plus size={15} />
+            添加负载
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+            <Settings2 size={15} />
+            设置
+          </Button>
+        </div>
+        <div className="relative w-56">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索名称或域名"
+            spellCheck={false}
+            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          />
+        </div>
+      </div>
+
+      {loadErr && groups.length === 0 && !loading && (
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
+          </Button>
+        </p>
+      )}
+
       {feedback && (
         <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
           {feedback.text}
         </p>
       )}
 
-      <Card className="flex flex-col gap-4">
-        <h2 className="text-sm font-medium text-text">创建均衡组</h2>
+      {loading ? (
+        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      ) : (
+        <Table
+          columns={columns}
+          rows={visible}
+          rowKey={(g) => g.id}
+          emptyText={
+            <span className="flex flex-col items-center gap-1 py-6">
+              <span className="text-sm font-medium text-text">
+                {groups.length === 0 ? '还没有均衡组' : '没有匹配的均衡组'}
+              </span>
+              <span className="text-xs text-muted">
+                {groups.length === 0
+                  ? '点击「添加负载」把多台后端聚合成一个 upstream。'
+                  : '换个关键词试试。'}
+              </span>
+            </span>
+          }
+        />
+      )}
+
+      {!canWrite && (
+        <p className="text-xs text-muted">创建与启停需要 operator 角色,删除与设置需要 admin。</p>
+      )}
+
+      {creating && (
+        <CreateGroupModal
+          onClose={() => setCreating(false)}
+          onCreated={(name) => {
+            setCreating(false)
+            setFeedback({ kind: 'ok', text: `均衡组 ${name} 已创建` })
+            void load()
+          }}
+        />
+      )}
+      {detail && <DetailModal group={detail} onClose={() => setDetailId(null)} />}
+      {settingsOpen && <SettingsModal isAdmin={isAdmin} onClose={() => setSettingsOpen(false)} />}
+    </div>
+  )
+}
+
+interface NodeRow {
+  key: string
+  host: string
+  port: string
+  weight: string
+}
+
+interface CreateForm {
+  name: string
+  algo: string
+  listen: string
+  server_name: string
+  nodes: NodeRow[]
+}
+
+function emptyNode(): NodeRow {
+  return { key: uid(), host: '', port: '', weight: '1' }
+}
+
+/** CreateGroupModal 固定尺寸创建弹窗:名称/调度策略/监听/域名 + 逐行后端节点。 */
+function CreateGroupModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void
+  onCreated: (name: string) => void
+}) {
+  const [form, setForm] = useState<CreateForm>({
+    name: '',
+    algo: 'round-robin',
+    listen: '80',
+    server_name: '',
+    nodes: [emptyNode()],
+  })
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  function set<K extends keyof CreateForm>(key: K, value: CreateForm[K]) {
+    setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  function setNode(key: string, patch: Partial<NodeRow>) {
+    setForm((f) => ({
+      ...f,
+      nodes: f.nodes.map((n) => (n.key === key ? { ...n, ...patch } : n)),
+    }))
+  }
+
+  function addNode() {
+    setForm((f) => ({ ...f, nodes: [...f.nodes, emptyNode()] }))
+  }
+
+  function removeNode(key: string) {
+    setForm((f) =>
+      f.nodes.length <= 1 ? f : { ...f, nodes: f.nodes.filter((n) => n.key !== key) },
+    )
+  }
+
+  // parseBackends 把节点行解析为后端数组,非法即抛错(host:port:weight)。
+  function parseBackends(): Backend[] {
+    const out: Backend[] = []
+    for (const n of form.nodes) {
+      const host = n.host.trim()
+      if (!host) continue
+      const port = Number(n.port)
+      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+        throw new Error(`节点端口错误: ${host}`)
+      }
+      const weight = n.weight.trim() === '' ? 1 : Number(n.weight)
+      if (!Number.isInteger(weight) || weight < 1 || weight > 100) {
+        throw new Error(`节点权重需为 1–100: ${host}`)
+      }
+      out.push({ host, port, weight, max_fails: 0, fail_timeout: '' })
+    }
+    if (out.length === 0) throw new Error('至少需要一个后端节点')
+    return out
+  }
+
+  const canSubmit = form.name.trim().length > 0 && !busy
+
+  async function submit() {
+    if (!canSubmit) return
+    let backends: Backend[]
+    try {
+      backends = parseBackends()
+    } catch (e) {
+      setErr(errorText(e))
+      return
+    }
+    setBusy(true)
+    setErr(null)
+    try {
+      await apiFetch('/api/m/loadbalancer/groups', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name.trim(),
+          algo: form.algo,
+          listen: Number(form.listen) || 80,
+          server_name: form.server_name.trim(),
+          backends,
+        }),
+      })
+      onCreated(form.name.trim())
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="添加负载" size="md" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <p className="text-xs text-muted">配置生成后经 nginx -t 校验,失败则不创建。</p>
+
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
             label="名称"
             placeholder="例如 web-cluster"
+            value={form.name}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            value={form.name}
-            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            autoFocus
+            onChange={(e) => set('name', e.target.value)}
           />
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-muted">算法</span>
+            <span className="text-sm font-medium text-muted">调度策略</span>
             <select
               className={fieldClass}
               value={form.algo}
-              onChange={(e) => setForm((f) => ({ ...f, algo: e.target.value }))}
+              onChange={(e) => set('algo', e.target.value)}
             >
               {ALGOS.map((a) => (
                 <option key={a} value={a}>
-                  {a}
+                  {ALGO_LABEL[a] ?? a}
                 </option>
               ))}
             </select>
           </label>
           <Input
             label="监听端口"
-            type="number"
-            min={1}
+            inputMode="numeric"
             value={form.listen}
-            onChange={(e) => setForm((f) => ({ ...f, listen: e.target.value }))}
+            onChange={(e) => set('listen', e.target.value)}
           />
           <Input
-            label="server_name"
+            label="域名 (server_name)"
             placeholder="例如 lb.example.com"
+            value={form.server_name}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            value={form.server_name}
-            onChange={(e) => setForm((f) => ({ ...f, server_name: e.target.value }))}
+            onChange={(e) => set('server_name', e.target.value)}
           />
         </div>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-sm font-medium text-muted">后端节点(每行 host:port:weight)</span>
-          <textarea
-            className={`min-h-28 rounded-(--radius-card) border border-border bg-surface-2 px-3 py-2 font-[family-name:var(--font-mono)] text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg`}
-            placeholder={'10.0.0.1:8080:3\n10.0.0.2:8080:1'}
-            spellCheck={false}
-            value={form.backends}
-            onChange={(e) => setForm((f) => ({ ...f, backends: e.target.value }))}
-          />
-        </label>
-        <div>
-          <Button
-            onClick={() => void create()}
-            disabled={busy || !canWrite || form.name.trim().length === 0}
-          >
-            创建
-          </Button>
-        </div>
-        {!canWrite && <p className="text-xs text-muted">创建均衡组需要 operator 或 admin 角色。</p>}
-      </Card>
 
-      <Card className="p-0">
-        <div className="flex items-center justify-between px-5 py-3">
-          <span className="text-sm font-medium text-text">均衡组列表</span>
-          <Button size="sm" variant="ghost" onClick={() => void load()} disabled={busy}>
-            刷新
-          </Button>
-        </div>
-        {groups.length === 0 ? (
-          <p className="px-5 pb-4 text-sm text-muted">暂无均衡组。</p>
-        ) : (
-          <div className="divide-y divide-border border-t border-border">
-            {groups.map((g) => (
-              <div key={g.id} className="flex flex-col gap-2 px-5 py-3.5">
-                <div className="flex items-center gap-3">
-                  <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium text-text">{g.name}</span>
-                      <Badge status="neutral">{g.algo}</Badge>
-                      <Badge status={g.enabled ? 'online' : 'neutral'}>
-                        {g.enabled ? '运行中' : '已停用'}
-                      </Badge>
-                    </div>
-                    <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
-                      :{g.listen} {g.server_name} · {g.backends.length} 个后端
-                    </span>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setConfigOf(configOf === g.id ? null : g.id)}
-                    >
-                      {configOf === g.id ? '隐藏配置' : '查看配置'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void toggle(g, !g.enabled)}
-                      disabled={busy || !canWrite}
-                    >
-                      {g.enabled ? '停用' : '启用'}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      onClick={() => void remove(g)}
-                      disabled={busy || !isAdmin}
-                    >
-                      删除
-                    </Button>
-                  </div>
-                </div>
-                {configOf === g.id && (
-                  <pre className="overflow-x-auto rounded-(--radius-card) bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs text-muted">
-                    {g.config}
-                  </pre>
-                )}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-muted">后端节点</span>
+            <Button size="sm" variant="ghost" onClick={addNode}>
+              <Plus size={14} />
+              添加节点
+            </Button>
+          </div>
+          <div className="grid grid-cols-[1fr_88px_88px_36px] items-center gap-2 px-1 text-[11px] text-muted">
+            <span>地址 (host)</span>
+            <span>端口</span>
+            <span>权重</span>
+            <span />
+          </div>
+          <div className="flex flex-col gap-2">
+            {form.nodes.map((n) => (
+              <div key={n.key} className="grid grid-cols-[1fr_88px_88px_36px] items-center gap-2">
+                <input
+                  className={fieldClass}
+                  placeholder="10.0.0.1"
+                  spellCheck={false}
+                  value={n.host}
+                  onChange={(e) => setNode(n.key, { host: e.target.value })}
+                />
+                <input
+                  className={fieldClass}
+                  placeholder="8080"
+                  inputMode="numeric"
+                  value={n.port}
+                  onChange={(e) => setNode(n.key, { port: e.target.value })}
+                />
+                <input
+                  className={fieldClass}
+                  inputMode="numeric"
+                  value={n.weight}
+                  onChange={(e) => setNode(n.key, { weight: e.target.value })}
+                />
+                <button
+                  type="button"
+                  aria-label="移除节点"
+                  disabled={form.nodes.length <= 1}
+                  onClick={() => removeNode(n.key)}
+                  className="inline-flex h-10 w-9 items-center justify-center rounded-(--radius-sm) text-muted transition hover:bg-surface-2 hover:text-crit disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  <Trash2 size={15} />
+                </button>
               </div>
             ))}
           </div>
-        )}
-      </Card>
+        </div>
 
-      {settings && (
-        <Card className="flex flex-col gap-4">
-          <h2 className="text-sm font-medium text-text">服务设置</h2>
+        {err && (
+          <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+            {err}
+          </p>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            取消
+          </Button>
+          <Button onClick={() => void submit()} disabled={!canSubmit}>
+            {busy && <Spinner size={14} />}
+            创建
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/** DetailModal 均衡组详情:节点列表 + 生成的 nginx 配置(只读)。 */
+function DetailModal({ group, onClose }: { group: Group; onClose: () => void }) {
+  return (
+    <Modal title={`均衡组 · ${group.name}`} size="md" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
+          <Badge status={group.enabled ? 'online' : 'neutral'}>
+            {group.enabled ? '运行中' : '已停用'}
+          </Badge>
+          <span>{ALGO_LABEL[group.algo] ?? group.algo}</span>
+          <span className="font-[family-name:var(--font-mono)]">
+            {group.server_name || '—'} :{group.listen}
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-muted">后端节点 ({group.backends.length})</span>
+          <Table
+            columns={[
+              {
+                key: 'host',
+                header: '地址',
+                cell: (b: Backend) => (
+                  <span className="font-[family-name:var(--font-mono)] text-xs text-text">
+                    {b.host}:{b.port}
+                  </span>
+                ),
+              },
+              {
+                key: 'weight',
+                header: '权重',
+                width: '80px',
+                cell: (b: Backend) => <span className="text-muted">{b.weight}</span>,
+              },
+              {
+                key: 'max_fails',
+                header: 'max_fails',
+                width: '100px',
+                cell: (b: Backend) => <span className="text-muted">{b.max_fails || '—'}</span>,
+              },
+              {
+                key: 'fail_timeout',
+                header: 'fail_timeout',
+                width: '110px',
+                cell: (b: Backend) => <span className="text-muted">{b.fail_timeout || '—'}</span>,
+              },
+            ]}
+            rows={group.backends}
+            rowKey={(b) => `${b.host}:${b.port}`}
+            emptyText="无后端节点"
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-muted">生成的 nginx 配置</span>
+          <pre className="max-h-56 overflow-auto rounded-(--radius-card) border border-border bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs text-muted">
+            {group.config}
+          </pre>
+        </div>
+
+        <div className="flex items-center justify-end">
+          <Button variant="ghost" onClick={onClose}>
+            关闭
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/** SettingsModal 服务设置:nginx upstream 配置目录,仅 admin 可改。 */
+function SettingsModal({ isAdmin, onClose }: { isAdmin: boolean; onClose: () => void }) {
+  const [settings, setSettings] = useState<Settings | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [ok, setOk] = useState(false)
+
+  useEffect(() => {
+    apiFetch<Settings>('/api/m/loadbalancer/settings')
+      .then(setSettings)
+      .catch((e) => setErr(errorText(e)))
+  }, [])
+
+  async function save() {
+    if (!settings || !isAdmin) return
+    setBusy(true)
+    setErr(null)
+    try {
+      const saved = await apiFetch<Settings>('/api/m/loadbalancer/settings', {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+      })
+      setSettings(saved)
+      setOk(true)
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="负载均衡设置" size="sm" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        {!settings ? (
+          <div className="flex h-32 items-center justify-center">
+            <Spinner size={20} />
+          </div>
+        ) : (
           <Input
             label="nginx 配置目录 (conf_dir)"
             className="font-[family-name:var(--font-mono)]"
-            spellCheck={false}
             value={settings.conf_dir}
-            onChange={(e) => setSettings((s) => (s ? { ...s, conf_dir: e.target.value } : s))}
+            disabled={!isAdmin}
+            spellCheck={false}
+            onChange={(e) => {
+              const v = e.target.value
+              setSettings((s) => (s ? { ...s, conf_dir: v } : s))
+              setOk(false)
+            }}
           />
-          <div>
-            <Button onClick={() => void saveSettings()} disabled={busy || !isAdmin}>
-              保存设置
+        )}
+
+        {err && <p className="text-sm text-crit">{err}</p>}
+        {ok && <p className="text-sm text-online">设置已保存。</p>}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            关闭
+          </Button>
+          {isAdmin && (
+            <Button onClick={() => void save()} disabled={!settings || busy}>
+              {busy && <Spinner size={14} />}
+              保存
             </Button>
-          </div>
-          {!isAdmin && <p className="text-xs text-muted">修改设置需要 admin 角色。</p>}
-        </Card>
-      )}
-    </div>
+          )}
+        </div>
+        {!isAdmin && <p className="text-xs text-muted">修改设置需要 admin 角色。</p>}
+      </div>
+    </Modal>
   )
 }
