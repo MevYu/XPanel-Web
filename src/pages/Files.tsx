@@ -728,7 +728,8 @@ export default function Files() {
               {cwd && (
                 <tr
                   className="cursor-pointer border-b border-border/60 hover:bg-surface-2"
-                  onClick={() => setCwd(parentPath(cwd))}
+                  onDoubleClick={() => setCwd(parentPath(cwd))}
+                  title="双击返回上级"
                 >
                   {canWrite && <td className="sticky top-[37px] z-10 bg-surface px-4 py-2.5" />}
                   <td
@@ -751,10 +752,11 @@ export default function Files() {
                 visible.map((entry) => (
                   <tr
                     key={entry.name}
-                    className="group border-b border-border/60 hover:bg-surface-2"
+                    className="group cursor-pointer border-b border-border/60 hover:bg-surface-2"
                     onContextMenu={(e) => ctxMenu(e, entry)}
+                    onClick={() => setSelected(new Set([entry.name]))}
                     onDoubleClick={() => {
-                      // 目录双击进入(name 按钮已处理单击进入,这里兜底);文件双击进编辑器。
+                      // 单击选中该行,双击才进入/打开:目录进入,文件进编辑器。
                       if (entry.is_dir) setCwd(joinPath(cwd, entry.name))
                       else if (canWrite) void openEditor(entry)
                     }}
@@ -769,18 +771,9 @@ export default function Files() {
                       </td>
                     )}
                     <td className="px-4 py-2.5">
-                      <button
-                        type="button"
+                      <div
                         className="flex min-w-0 items-center gap-2.5 text-left"
-                        onClick={() => entry.is_dir && setCwd(joinPath(cwd, entry.name))}
-                        onDoubleClick={(e) => {
-                          // 文件名按钮自身处理双击打开,避免按钮吞掉冒泡到 tr 的 dblclick。
-                          if (!entry.is_dir && canWrite) {
-                            e.stopPropagation()
-                            void openEditor(entry)
-                          }
-                        }}
-                        title={entry.is_dir ? '进入目录' : '双击编辑'}
+                        title={entry.is_dir ? '双击进入目录' : '双击编辑'}
                       >
                         <FileIcon name={entry.name} isDir={entry.is_dir} />
                         <span
@@ -788,7 +781,7 @@ export default function Files() {
                         >
                           {entry.name}
                         </span>
-                      </button>
+                      </div>
                     </td>
                     <td className="hidden whitespace-nowrap px-4 py-2.5 font-[family-name:var(--font-mono)] text-xs text-muted md:table-cell">
                       {modeOctal(entry.mode)}
