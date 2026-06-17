@@ -13,6 +13,7 @@ const STATIC_TITLES: Record<string, string> = {
   '/dashboard': '系统总览',
   '/modules': '模块管理',
   '/service': '服务管理',
+  '/settings': '设置',
 }
 
 // 由当前路由反查页面标题:优先匹配模块 nav,再退回已知静态路由,最后给通用名。

@@ -9,6 +9,7 @@ import { Modal } from '../components/Modal'
 import { Input } from '../components/Input'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { ScanSearch, Play, SlidersHorizontal, ShieldAlert, Eye, RefreshCw } from 'lucide-react'
+import { formatTime } from '../lib/formatTime'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -16,8 +17,7 @@ function errorText(e: unknown): string {
 }
 
 function fmtTime(unix: number | null): string {
-  if (!unix) return '—'
-  return new Date(unix * 1000).toLocaleString()
+  return formatTime(unix ?? 0)
 }
 
 const DANGER = { 'X-Confirm-Danger': '1' }

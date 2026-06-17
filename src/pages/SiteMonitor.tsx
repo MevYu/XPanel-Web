@@ -12,6 +12,7 @@ import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Activity, Globe, Plus, RefreshCw, BarChart3 } from 'lucide-react'
 import { uid } from '../lib/uid'
+import { formatTime } from '../lib/formatTime'
 import type { StatusSlice, TrendPoint } from './SiteMonitorCharts'
 
 const SiteMonitorCharts = lazy(() => import('./SiteMonitorCharts'))
@@ -72,7 +73,7 @@ function fmtChecked(ts: number): string {
   if (diff < 60) return '刚刚'
   if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`
   if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`
-  return new Date(ts * 1000).toLocaleString()
+  return formatTime(ts)
 }
 
 const EMPTY_FORM: TargetForm = {

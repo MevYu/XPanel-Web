@@ -17,6 +17,7 @@ import type {
   CronSchedule,
   CronScheduleKind,
 } from '../api/types'
+import { formatTime } from '../lib/formatTime'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -24,8 +25,7 @@ function errorText(e: unknown): string {
 }
 
 function fmtTime(unix: number | null): string {
-  if (!unix) return '—'
-  return new Date(unix * 1000).toLocaleString()
+  return formatTime(unix ?? 0)
 }
 
 function fmtDuration(ms: number): string {

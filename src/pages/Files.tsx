@@ -39,7 +39,9 @@ import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
 import { Spinner } from '../components/Spinner'
 import { formatBytes } from '../lib/format'
+import { formatTime } from '../lib/formatTime'
 import { uid } from '../lib/uid'
+import { PageHeader } from '../components/PageHeader'
 import type { DirEntry, DirSize, Share, TrashItem } from '../api/types'
 import { FileIcon, isArchive } from './files/FileIcon'
 import {
@@ -63,7 +65,7 @@ function errorText(e: unknown): string {
 }
 
 function fmtTime(unix: number): string {
-  return new Date(unix * 1000).toLocaleString()
+  return formatTime(unix)
 }
 
 // joinPath 拼接当前目录与名字,规范化 slash(根目录为空串)。
@@ -478,6 +480,7 @@ export default function Files() {
 
   return (
     <div className="flex h-full flex-col gap-3 min-h-0" onClick={() => setNewMenu(false)}>
+      <PageHeader title="文件管理" subtitle={cwd ? `/${cwd}` : '根目录'} />
       {/* 目录标签栏 */}
       <DirTabs
         tabs={tabs}

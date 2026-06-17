@@ -100,7 +100,7 @@ interface SlaveRow {
   value: ReactNode
 }
 
-/** MySQL主从:状态总览卡 + 从库线程紧凑表 + 固定尺寸 Modal 表单(连接设置/建复制用户/搭建从库)。 */
+/** MySQL 主从:状态总览卡 + 从库线程紧凑表 + 固定尺寸 Modal 表单(连接设置/建复制用户/搭建从库)。 */
 export default function MysqlRepl() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'

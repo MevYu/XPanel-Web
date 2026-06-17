@@ -163,7 +163,7 @@ export default function Dashboard() {
         <div className="grid gap-4 lg:grid-cols-3">
           <Card className="lg:col-span-2">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-sm font-medium text-text">cpu 利用率趋势</h3>
+              <h3 className="text-sm font-medium text-text">CPU 利用率趋势</h3>
               <span className="text-xs lowercase tracking-wide text-muted">
                 最近 {WINDOW} 个采样
               </span>
@@ -234,7 +234,7 @@ function OverviewBar({ detail, online }: { detail: DetailMetrics | null; online:
             : '—'
         }
       />
-      <OverviewItem label="cpu 核数" value={detail ? `${detail.cpu_per_core.length}` : '—'} />
+      <OverviewItem label="CPU 核数" value={detail ? `${detail.cpu_per_core.length}` : '—'} />
       <OverviewItem
         label="负载 1 / 5 / 15"
         value={
@@ -251,7 +251,7 @@ function OverviewBar({ detail, online }: { detail: DetailMetrics | null; online:
 function OverviewItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs lowercase tracking-wide text-muted">{label}</span>
+      <span className="text-xs tracking-wide text-muted">{label}</span>
       <span className="font-[family-name:var(--font-mono)] text-sm tabular-nums text-text">
         {value}
       </span>
@@ -293,10 +293,10 @@ function RateSummaryCard({
       ) : loading ? (
         <SectionLoading />
       ) : (
-        <div className="flex flex-1 flex-col justify-around gap-5">
+        <div className="flex flex-col justify-start gap-5">
           <RateRow label="网络" down={rx} up={tx} downLabel="↓" upLabel="↑" />
           <div className="h-px bg-border" aria-hidden />
-          <RateRow label="磁盘 io" down={read} up={write} downLabel="读" upLabel="写" />
+          <RateRow label="磁盘 IO" down={read} up={write} downLabel="读" upLabel="写" />
         </div>
       )}
     </Card>
@@ -319,7 +319,7 @@ function RateRow({
 }) {
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs lowercase tracking-wide text-muted">{label}</span>
+      <span className="text-xs tracking-wide text-muted">{label}</span>
       <div className="flex items-baseline justify-between font-[family-name:var(--font-mono)] tabular-nums">
         <span className="text-online">
           <span className="text-xs text-muted">{downLabel}</span> {formatRate(down)}
@@ -352,7 +352,7 @@ function DetailSections({
     <section className="flex flex-col gap-3">
       <SectionHeading>详细监控</SectionHeading>
 
-      <SectionCard title="cpu 每核占用">
+      <SectionCard title="CPU 每核占用">
         {detailError ? (
           <SectionError />
         ) : detail ? (
@@ -383,7 +383,7 @@ function DetailSections({
           )}
         </SectionCard>
 
-        <SectionCard title="磁盘 io">
+        <SectionCard title="磁盘 IO">
           {detailError ? (
             <SectionError />
           ) : detail ? (
@@ -517,7 +517,7 @@ function NetworkRates({
 // DiskRates 每设备读/写速率。
 function DiskRates({ rates }: { rates: DiskRate[] }) {
   if (rates.length === 0) {
-    return <p className="text-sm text-muted">暂无磁盘 io 数据。</p>
+    return <p className="text-sm text-muted">暂无磁盘 IO 数据。</p>
   }
   return (
     <div className="flex flex-col gap-3">
@@ -544,10 +544,10 @@ function ProcessTable({ procs }: { procs: ProcessInfo[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border text-left text-xs lowercase tracking-wide text-muted">
+          <tr className="border-b border-border text-left text-xs tracking-wide text-muted">
             <th className="pb-2 pr-4 font-medium">pid</th>
             <th className="pb-2 pr-4 font-medium">名称</th>
-            <th className="pb-2 pr-4 text-right font-medium">cpu %</th>
+            <th className="pb-2 pr-4 text-right font-medium">CPU %</th>
             <th className="pb-2 pr-4 text-right font-medium">内存 %</th>
             <th className="pb-2 text-right font-medium">rss</th>
           </tr>

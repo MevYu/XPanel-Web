@@ -55,7 +55,7 @@ function LoadDetail({ detail, cores }: { detail: DetailMetrics; cores: number })
       <GaugeDetailRow label="5 分钟" value={load5.toFixed(2)} />
       <GaugeDetailRow label="15 分钟" value={load15.toFixed(2)} />
       <div className="my-1 h-px bg-border" aria-hidden />
-      <GaugeDetailRow label="cpu 核数" value={`${cores}`} />
+      <GaugeDetailRow label="CPU 核数" value={`${cores}`} />
     </div>
   )
 }

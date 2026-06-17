@@ -1,5 +1,8 @@
 // 网站模块共享:类型、文案、样式 token 串。后端契约以 internal/modules/sites 为准。
 import { tokenStore } from '../../api/client'
+import { formatTime } from '../../lib/formatTime'
+
+export { formatTime }
 
 export const DANGER = { 'X-Confirm-Danger': '1' }
 
@@ -121,13 +124,6 @@ export const kindAccent: Record<string, string> = {
   static: 'var(--color-brand)',
   proxy: 'var(--color-warn)',
   php: 'var(--color-online)',
-}
-
-export function formatTime(unixSec: number): string {
-  if (!unixSec) return '—'
-  const d = new Date(unixSec * 1000)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /** splitList 把空格 / 逗号 / 换行分隔的字符串切成去空白、去空项的数组。 */

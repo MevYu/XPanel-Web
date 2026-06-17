@@ -53,7 +53,7 @@ export default function Login() {
       <Card className="relative z-10 w-full max-w-sm border-surface-2/70 bg-surface/80 p-7 shadow-[0_24px_60px_-30px_rgba(0,0,0,0.85),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-sm">
         <div className="mb-7 flex flex-col items-center gap-3 text-center">
           <Logo size={52} />
-          <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight text-text">
+          <h1 className="mt-1 font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight text-text">
             XPanel
           </h1>
           <p className="text-sm text-muted">登录以进入控制台</p>
@@ -103,6 +103,7 @@ export default function Login() {
             {submitting ? '登录中…' : needTotp ? '验证' : '登录'}
           </Button>
         </form>
+        <p className="mt-5 text-center text-xs text-faint">XPanel · 开源运维面板</p>
       </Card>
     </main>
   )

@@ -9,6 +9,7 @@ import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Plus, BellRing, History, SlidersHorizontal, SendHorizontal, Radio } from 'lucide-react'
+import { formatTime } from '../lib/formatTime'
 
 // alert 删除端点后端不强制 X-Confirm-Danger,这里仍随危险删除惯例带上,保持各页一致。
 const DANGER = { 'X-Confirm-Danger': '1' }
@@ -19,8 +20,7 @@ function errorText(e: unknown): string {
 }
 
 function fmtTime(unix: number | null): string {
-  if (!unix) return '—'
-  return new Date(unix * 1000).toLocaleString()
+  return formatTime(unix ?? 0)
 }
 
 const METRICS = [

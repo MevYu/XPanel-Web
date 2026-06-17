@@ -9,6 +9,7 @@ import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Plus, ShieldCheck, KeyRound } from 'lucide-react'
+import { formatTime } from '../lib/formatTime'
 
 const DANGER = { 'X-Confirm-Danger': '1' }
 
@@ -18,8 +19,7 @@ function errorText(e: unknown): string {
 }
 
 function fmtTime(unix: number | null): string {
-  if (!unix) return '—'
-  return new Date(unix * 1000).toLocaleString()
+  return formatTime(unix ?? 0)
 }
 
 type Role = 'admin' | 'operator' | 'readonly'

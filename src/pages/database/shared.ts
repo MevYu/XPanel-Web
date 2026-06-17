@@ -1,5 +1,6 @@
 // 数据库模块共享:类型、文案、工具。后端契约以 internal/modules/database 为准。
 import { tokenStore } from '../../api/client'
+import { formatTimeISO } from '../../lib/formatTime'
 
 export const DANGER = { 'X-Confirm-Danger': '1' }
 
@@ -73,8 +74,7 @@ export function formatSize(bytes: number): string {
 }
 
 export function formatDate(iso: string): string {
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+  return formatTimeISO(iso)
 }
 
 // redis info 是 text/plain:apiFetch 强制 JSON.parse 会抛错,故走裸 fetch。

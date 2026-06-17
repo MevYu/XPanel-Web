@@ -43,7 +43,13 @@ export function TelemetryRail() {
       <span className="hidden items-center gap-2 sm:flex">
         <span className="text-xs lowercase tracking-wide text-faint">mem</span>
         {mem.length >= 2 ? (
-          <Sparkline data={mem} width={96} height={24} />
+          <>
+            <Sparkline data={mem} width={96} height={24} />
+            <span className="font-[family-name:var(--font-mono)] tabular-nums text-text">
+              {memPct === null ? '--' : memPct.toFixed(0)}
+              <span className="text-muted">%</span>
+            </span>
+          </>
         ) : (
           <span className="font-[family-name:var(--font-mono)] tabular-nums text-text">
             {memPct === null ? '--' : memPct.toFixed(0)}
