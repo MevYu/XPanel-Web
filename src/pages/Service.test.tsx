@@ -12,9 +12,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+// 后端 active 为 systemd ActiveState(active/failed/...),enabled 为字符串(enabled/disabled/...)。
 const SERVICES = [
-  { name: 'nginx.service', description: 'Web server', active: 'running', sub: 'running', enabled: true },
-  { name: 'mysql.service', description: 'Database', active: 'failed', sub: 'failed', enabled: false },
+  { name: 'nginx.service', description: 'Web server', active: 'active', sub: 'running', enabled: 'enabled' },
+  { name: 'mysql.service', description: 'Database', active: 'failed', sub: 'failed', enabled: 'disabled' },
 ]
 
 describe('Service', () => {
