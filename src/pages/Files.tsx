@@ -2,17 +2,27 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   RefreshCw,
   FolderPlus,
+  FilePlus,
   Upload,
   Share2,
   House,
   ChevronRight,
+  ChevronDown,
   Download,
-  Pencil,
+  Cloud,
   Copy,
+  Scissors,
+  ClipboardPaste,
   FileCog,
+  UserCog,
   Archive,
   ArchiveRestore,
   Trash2,
+  Search,
+  Trash,
+  Info,
+  Pencil,
+  FolderInput,
 } from 'lucide-react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
@@ -22,7 +32,7 @@ import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
 import { Spinner } from '../components/Spinner'
 import { formatBytes } from '../lib/format'
-import type { DirEntry, Share } from '../api/types'
+import type { DirEntry, DirSize, Share, TrashItem } from '../api/types'
 import { FileIcon, isArchive } from './files/FileIcon'
 import { CodeEditor } from '../components/CodeEditor'
 import { languageFromFilename, languageLabel } from '../components/codeEditorLang'
@@ -48,6 +58,11 @@ function parentPath(dir: string): string {
   return i < 0 ? '' : dir.slice(0, i)
 }
 
+function baseName(path: string): string {
+  const i = path.lastIndexOf('/')
+  return i < 0 ? path : path.slice(i + 1)
+}
+
 // 把 mode 字符串(Go 的 "-rw-r--r--" 或 "drwxr-xr-x")转成八进制,失败回退原串。
 function modeOctal(mode: string): string {
   const perm = mode.slice(-9)
@@ -70,17 +85,48 @@ function authHeaders(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t.access}` } : {}
 }
 
+type Clipboard = { mode: 'copy' | 'cut'; dir: string; names: string[] } | null
+
+type Dialog =
+  | { kind: 'newdir' }
+  | { kind: 'newfile' }
+  | { kind: 'rename'; entry: DirEntry }
+  | { kind: 'chmod'; entries: DirEntry[] }
+  | { kind: 'chown'; entries: DirEntry[] }
+  | { kind: 'remote' }
+  | { kind: 'compress'; names: string[] }
+  | { kind: 'extract'; entry: DirEntry }
+  | { kind: 'search' }
+  | { kind: 'props'; entry: DirEntry }
+  | null
+
+interface Menu {
+  x: number
+  y: number
+  entry: DirEntry
+}
+
 export default function Files() {
   const { role } = useAuth()
   const canWrite = role === 'admin' || role === 'operator'
+  const isAdmin = role === 'admin'
 
   const [cwd, setCwd] = useState('')
+  const [pathInput, setPathInput] = useState('')
+  const [editingPath, setEditingPath] = useState(false)
   const [entries, setEntries] = useState<DirEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [showHidden, setShowHidden] = useState(true)
+  const [clipboard, setClipboard] = useState<Clipboard>(null)
+  const [dirSizes, setDirSizes] = useState<Record<string, DirSize>>({})
   const fileInput = useRef<HTMLInputElement | null>(null)
+
+  const [dialog, setDialog] = useState<Dialog>(null)
+  const [menu, setMenu] = useState<Menu | null>(null)
+  const [newMenu, setNewMenu] = useState(false)
 
   const [editing, setEditing] = useState<{
     path: string
@@ -90,6 +136,7 @@ export default function Files() {
   const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState<{ path: string; isDir: boolean } | null>(null)
   const [showShares, setShowShares] = useState(false)
+  const [showTrash, setShowTrash] = useState(false)
 
   const load = useCallback(async (path: string) => {
     setLoading(true)
@@ -111,6 +158,9 @@ export default function Files() {
 
   useEffect(() => {
     setSelected(new Set())
+    setDirSizes({})
+    setPathInput(cwd)
+    setEditingPath(false)
     void load(cwd)
   }, [cwd, load])
 
@@ -121,6 +171,7 @@ export default function Files() {
 
   async function refresh() {
     setSelected(new Set())
+    setDirSizes({})
     await load(cwd)
   }
 
@@ -132,6 +183,9 @@ export default function Files() {
       return next
     })
   }
+
+  const visible = entries.filter((e) => showHidden || !e.name.startsWith('.'))
+  const selectedEntries = entries.filter((e) => selected.has(e.name))
 
   async function download(entry: DirEntry) {
     try {
@@ -207,182 +261,320 @@ export default function Files() {
     }
   }
 
-  async function mkdir() {
-    const name = window.prompt('新建文件夹名称')
-    if (!name) return
-    try {
-      await apiFetch(`/api/m/files/mkdir?path=${encodeURIComponent(joinPath(cwd, name))}`, {
-        method: 'POST',
-      })
-      flash('已创建文件夹')
-      await refresh()
-    } catch (e) {
-      setErr(errorText(e))
-    }
-  }
-
-  async function rename(entry: DirEntry) {
-    const next = window.prompt('重命名为', entry.name)
-    if (!next || next === entry.name) return
-    try {
-      await apiFetch('/api/m/files/rename', {
-        method: 'POST',
-        body: JSON.stringify({ from: joinPath(cwd, entry.name), to: joinPath(cwd, next) }),
-      })
-      flash('已重命名')
-      await refresh()
-    } catch (e) {
-      setErr(errorText(e))
-    }
-  }
-
-  async function copy(entry: DirEntry) {
-    const to = window.prompt('复制到(相对当前目录的新名称)', `${entry.name}-副本`)
-    if (!to || to === entry.name) return
-    try {
-      await apiFetch('/api/m/files/copy', {
-        method: 'POST',
-        body: JSON.stringify({ from: joinPath(cwd, entry.name), to: joinPath(cwd, to) }),
-      })
-      flash('已复制')
-      await refresh()
-    } catch (e) {
-      setErr(errorText(e))
-    }
-  }
-
   async function remove(entry: DirEntry) {
-    if (!window.confirm(`确认删除「${entry.name}」?${entry.is_dir ? '目录将递归删除,不可恢复。' : '不可恢复。'}`))
+    if (
+      !window.confirm(
+        `确认删除「${entry.name}」?将移入回收站,可在回收站还原。`,
+      )
+    )
       return
     try {
-      await apiFetch(`/api/m/files/delete?path=${encodeURIComponent(joinPath(cwd, entry.name))}`, {
-        method: 'POST',
-        headers: DANGER,
-      })
-      flash('已删除')
+      await apiFetch(
+        `/api/m/files/delete?path=${encodeURIComponent(joinPath(cwd, entry.name))}`,
+        { method: 'POST', headers: DANGER },
+      )
+      flash('已移入回收站')
       await refresh()
     } catch (e) {
       setErr(errorText(e))
     }
   }
 
-  async function chmod(entry: DirEntry) {
-    const mode = window.prompt(`设置「${entry.name}」的权限(八进制,如 0644)`, modeOctal(entry.mode))
-    if (!mode) return
+  async function removeSelected() {
+    const names = [...selected]
+    if (names.length === 0) return
+    if (!window.confirm(`确认删除选中的 ${names.length} 项?将移入回收站。`)) return
     try {
-      await apiFetch('/api/m/files/chmod', {
-        method: 'POST',
-        body: JSON.stringify({ path: joinPath(cwd, entry.name), mode }),
-      })
-      flash('权限已修改')
+      for (const name of names) {
+        await apiFetch(
+          `/api/m/files/delete?path=${encodeURIComponent(joinPath(cwd, name))}`,
+          { method: 'POST', headers: DANGER },
+        )
+      }
+      flash(`已移入回收站 ${names.length} 项`)
       await refresh()
     } catch (e) {
       setErr(errorText(e))
     }
   }
 
-  async function extract(entry: DirEntry) {
-    const dest = window.prompt('解压到(相对当前目录的子目录)', entry.name.replace(/\.[^.]+$/, ''))
-    if (!dest) return
-    try {
-      await apiFetch('/api/m/files/extract', {
-        method: 'POST',
-        body: JSON.stringify({ path: joinPath(cwd, entry.name), dest: joinPath(cwd, dest) }),
-      })
-      flash('已解压')
-      await refresh()
-    } catch (e) {
-      setErr(errorText(e))
-    }
-  }
-
-  async function compressSelected() {
+  function startCopy() {
     if (selected.size === 0) return
-    const def = selected.size === 1 ? `${[...selected][0]}.zip` : 'archive.zip'
-    const dest = window.prompt('压缩为(zip 文件名)', def)
-    if (!dest) return
+    setClipboard({ mode: 'copy', dir: cwd, names: [...selected] })
+    flash(`已复制 ${selected.size} 项,进入目标目录后点击粘贴`)
+  }
+
+  function startCut() {
+    if (selected.size === 0) return
+    setClipboard({ mode: 'cut', dir: cwd, names: [...selected] })
+    flash(`已剪切 ${selected.size} 项,进入目标目录后点击粘贴`)
+  }
+
+  async function paste() {
+    if (!clipboard) return
+    const { mode, dir, names } = clipboard
     try {
-      await apiFetch('/api/m/files/compress', {
-        method: 'POST',
-        body: JSON.stringify({
-          paths: [...selected].map((n) => joinPath(cwd, n)),
-          dest: joinPath(cwd, dest),
-        }),
-      })
-      flash(`已压缩 ${selected.size} 项`)
+      for (const name of names) {
+        const from = joinPath(dir, name)
+        const to = joinPath(cwd, name)
+        if (mode === 'copy') {
+          await apiFetch('/api/m/files/copy', {
+            method: 'POST',
+            body: JSON.stringify({ from, to }),
+          })
+        } else {
+          await apiFetch('/api/m/files/move', {
+            method: 'POST',
+            body: JSON.stringify({ src: from, dest: to }),
+          })
+        }
+      }
+      flash(mode === 'copy' ? `已复制 ${names.length} 项` : `已移动 ${names.length} 项`)
+      if (mode === 'cut') setClipboard(null)
       await refresh()
+    } catch (e) {
+      setErr(errorText(e))
+    }
+  }
+
+  async function calcDirSize(name: string) {
+    try {
+      const r = await apiFetch<DirSize>(
+        `/api/m/files/dirsize?path=${encodeURIComponent(joinPath(cwd, name))}`,
+      )
+      setDirSizes((prev) => ({ ...prev, [name]: r }))
     } catch (e) {
       setErr(errorText(e))
     }
   }
 
   const crumbs = cwd ? cwd.split('/') : []
-  const allSelected = entries.length > 0 && selected.size === entries.length
-  const colCount = canWrite ? 6 : 5
+
+  function ctxMenu(e: React.MouseEvent, entry: DirEntry) {
+    e.preventDefault()
+    if (!selected.has(entry.name)) setSelected(new Set([entry.name]))
+    setMenu({ x: e.clientX, y: e.clientY, entry })
+  }
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card className="flex flex-wrap items-center justify-between gap-3">
-        <nav className="flex min-w-0 flex-wrap items-center gap-0.5 text-sm">
-          <button
-            className="flex items-center gap-1 rounded px-1.5 py-1 text-brand hover:bg-surface-2"
-            onClick={() => setCwd('')}
+    <div className="flex flex-col gap-3" onClick={() => setNewMenu(false)}>
+      {/* 面包屑路径栏 */}
+      <Card className="flex flex-wrap items-center gap-2 py-2.5">
+        <IconButton
+          aria-label="返回上级"
+          title="返回上级"
+          icon={<ChevronRight size={16} className="rotate-180" />}
+          disabled={!cwd}
+          onClick={() => setCwd(parentPath(cwd))}
+        />
+        {editingPath ? (
+          <form
+            className="flex min-w-0 flex-1 items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              setCwd(pathInput.replace(/^\/+|\/+$/g, ''))
+            }}
           >
-            <House size={15} />
-            根目录
-          </button>
-          {crumbs.map((seg, i) => {
-            const target = crumbs.slice(0, i + 1).join('/')
-            const last = i === crumbs.length - 1
-            return (
-              <span key={target} className="flex items-center gap-0.5">
-                <ChevronRight size={14} className="text-muted" />
-                <button
-                  className={`rounded px-1.5 py-1 hover:bg-surface-2 ${last ? 'text-text' : 'text-brand'}`}
-                  onClick={() => setCwd(target)}
+            <input
+              autoFocus
+              value={pathInput}
+              onChange={(e) => setPathInput(e.target.value)}
+              onBlur={() => setEditingPath(false)}
+              placeholder="输入路径后回车跳转,如 www/wwwroot"
+              className="h-9 min-w-0 flex-1 rounded-(--radius-sm) border border-border bg-surface-2/70 px-3 font-[family-name:var(--font-mono)] text-sm text-text outline-none focus:border-brand"
+            />
+          </form>
+        ) : (
+          <nav
+            className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5 text-sm"
+            onDoubleClick={() => {
+              setPathInput(cwd)
+              setEditingPath(true)
+            }}
+            title="双击编辑路径"
+          >
+            <button
+              className="flex items-center gap-1 rounded px-1.5 py-1 text-brand hover:bg-surface-2"
+              onClick={() => setCwd('')}
+            >
+              <House size={15} />
+              根目录
+            </button>
+            {crumbs.map((seg, i) => {
+              const target = crumbs.slice(0, i + 1).join('/')
+              const last = i === crumbs.length - 1
+              return (
+                <span key={target} className="flex items-center gap-0.5">
+                  <ChevronRight size={14} className="text-muted" />
+                  <button
+                    className={`rounded px-1.5 py-1 hover:bg-surface-2 ${last ? 'text-text' : 'text-brand'}`}
+                    onClick={() => setCwd(target)}
+                  >
+                    {seg}
+                  </button>
+                </span>
+              )
+            })}
+          </nav>
+        )}
+        <IconButton
+          aria-label="编辑路径"
+          title="编辑路径"
+          icon={<FolderInput size={16} />}
+          onClick={() => {
+            setPathInput(cwd)
+            setEditingPath((v) => !v)
+          }}
+        />
+        <IconButton
+          aria-label="刷新"
+          title="刷新"
+          icon={<RefreshCw size={16} />}
+          onClick={() => void refresh()}
+        />
+      </Card>
+
+      {/* 工具栏 */}
+      <Card className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {canWrite && (
+            <div className="relative">
+              <Button
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setNewMenu((v) => !v)
+                }}
+              >
+                <FilePlus size={15} />
+                新建
+                <ChevronDown size={14} />
+              </Button>
+              {newMenu && (
+                <div
+                  className="absolute left-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-(--radius-sm) border border-border bg-surface shadow-[var(--shadow-elevated)]"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  {seg}
-                </button>
-              </span>
-            )
-          })}
-        </nav>
-        <div className="flex flex-wrap items-center gap-2">
-          {canWrite && selected.size > 0 && (
-            <Button size="sm" variant="ghost" onClick={() => void compressSelected()}>
-              <Archive size={15} />
-              压缩 {selected.size} 项
+                  <MenuItem
+                    icon={<FolderPlus size={15} />}
+                    label="新建文件夹"
+                    onClick={() => {
+                      setNewMenu(false)
+                      setDialog({ kind: 'newdir' })
+                    }}
+                  />
+                  <MenuItem
+                    icon={<FilePlus size={15} />}
+                    label="新建文件"
+                    onClick={() => {
+                      setNewMenu(false)
+                      setDialog({ kind: 'newfile' })
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          {canWrite && (
+            <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>
+              <Upload size={15} />
+              上传
             </Button>
           )}
-          <Button size="sm" variant="ghost" onClick={() => void refresh()}>
-            <RefreshCw size={15} />
-            刷新
+          {isAdmin && (
+            <Button size="sm" variant="ghost" onClick={() => setDialog({ kind: 'remote' })}>
+              <Cloud size={15} />
+              远程下载
+            </Button>
+          )}
+          <input
+            ref={fileInput}
+            type="file"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) void upload(f)
+              e.target.value = ''
+            }}
+          />
+          {canWrite && (
+            <>
+              <Button size="sm" variant="ghost" onClick={startCopy} disabled={selected.size === 0}>
+                <Copy size={15} />
+                复制
+              </Button>
+              <Button size="sm" variant="ghost" onClick={startCut} disabled={selected.size === 0}>
+                <Scissors size={15} />
+                剪切
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => void paste()} disabled={!clipboard}>
+                <ClipboardPaste size={15} />
+                粘贴{clipboard ? ` (${clipboard.names.length})` : ''}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void removeSelected()}
+                disabled={selected.size === 0}
+                className="hover:text-crit"
+              >
+                <Trash2 size={15} />
+                删除
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setDialog({ kind: 'chmod', entries: selectedEntries })}
+                disabled={selected.size === 0}
+              >
+                <FileCog size={15} />
+                权限
+              </Button>
+              {isAdmin && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setDialog({ kind: 'chown', entries: selectedEntries })}
+                  disabled={selected.size === 0}
+                >
+                  <UserCog size={15} />
+                  属主
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setDialog({ kind: 'compress', names: [...selected] })}
+                disabled={selected.size === 0}
+              >
+                <Archive size={15} />
+                压缩
+              </Button>
+            </>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button size="sm" variant="ghost" onClick={() => setDialog({ kind: 'search' })}>
+            <Search size={15} />
+            搜索
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setShowShares((v) => !v)}>
+          <label className="flex cursor-pointer items-center gap-1.5 px-2 text-sm text-muted">
+            <input
+              type="checkbox"
+              checked={showHidden}
+              onChange={(e) => setShowHidden(e.target.checked)}
+            />
+            隐藏文件
+          </label>
+          <Button size="sm" variant="ghost" onClick={() => setShowShares(true)}>
             <Share2 size={15} />
             分享列表
           </Button>
           {canWrite && (
-            <>
-              <Button size="sm" variant="ghost" onClick={() => void mkdir()}>
-                <FolderPlus size={15} />
-                新建文件夹
-              </Button>
-              <Button size="sm" onClick={() => fileInput.current?.click()}>
-                <Upload size={15} />
-                上传
-              </Button>
-              <input
-                ref={fileInput}
-                type="file"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (f) void upload(f)
-                  e.target.value = ''
-                }}
-              />
-            </>
+            <Button size="sm" variant="ghost" onClick={() => setShowTrash(true)}>
+              <Trash size={15} />
+              回收站
+            </Button>
           )}
         </div>
       </Card>
@@ -404,17 +596,25 @@ export default function Files() {
                   <th className="w-10 px-4 py-2.5 text-left font-medium">
                     <input
                       type="checkbox"
-                      checked={allSelected}
+                      checked={visible.length > 0 && selected.size === visible.length}
                       onChange={(e) =>
-                        setSelected(e.target.checked ? new Set(entries.map((x) => x.name)) : new Set())
+                        setSelected(
+                          e.target.checked ? new Set(visible.map((x) => x.name)) : new Set(),
+                        )
                       }
                     />
                   </th>
                 )}
                 <th className="px-4 py-2.5 text-left font-medium">名称</th>
-                <th className="hidden w-24 px-4 py-2.5 text-right font-medium sm:table-cell">大小</th>
-                <th className="hidden w-24 px-4 py-2.5 text-left font-medium md:table-cell">权限</th>
-                <th className="hidden w-44 px-4 py-2.5 text-left font-medium lg:table-cell">修改时间</th>
+                <th className="hidden w-40 px-4 py-2.5 text-left font-medium md:table-cell">
+                  权限 · 属主
+                </th>
+                <th className="hidden w-28 px-4 py-2.5 text-right font-medium sm:table-cell">
+                  大小
+                </th>
+                <th className="hidden w-44 px-4 py-2.5 text-left font-medium lg:table-cell">
+                  修改时间
+                </th>
                 <th className="px-4 py-2.5 text-right font-medium">操作</th>
               </tr>
             </thead>
@@ -425,20 +625,29 @@ export default function Files() {
                   onClick={() => setCwd(parentPath(cwd))}
                 >
                   {canWrite && <td className="px-4 py-2.5" />}
-                  <td className="px-4 py-2.5" colSpan={colCount - (canWrite ? 1 : 0)}>
-                    <span className="font-[family-name:var(--font-mono)] text-muted">.. 上级目录</span>
+                  <td
+                    className="px-4 py-2.5"
+                    colSpan={5}
+                  >
+                    <span className="font-[family-name:var(--font-mono)] text-muted">
+                      .. 上级目录
+                    </span>
                   </td>
                 </tr>
               )}
-              {entries.length === 0 ? (
+              {visible.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-muted" colSpan={colCount}>
+                  <td className="px-4 py-8 text-center text-muted" colSpan={canWrite ? 6 : 5}>
                     空目录。
                   </td>
                 </tr>
               ) : (
-                entries.map((entry) => (
-                  <tr key={entry.name} className="group border-b border-border/60 hover:bg-surface-2">
+                visible.map((entry) => (
+                  <tr
+                    key={entry.name}
+                    className="group border-b border-border/60 hover:bg-surface-2"
+                    onContextMenu={(e) => ctxMenu(e, entry)}
+                  >
                     {canWrite && (
                       <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                         <input
@@ -462,77 +671,51 @@ export default function Files() {
                         </span>
                       </button>
                     </td>
-                    <td className="hidden px-4 py-2.5 text-right font-[family-name:var(--font-mono)] text-xs text-muted sm:table-cell">
-                      {entry.is_dir ? '—' : formatBytes(entry.size)}
-                    </td>
                     <td className="hidden px-4 py-2.5 font-[family-name:var(--font-mono)] text-xs text-muted md:table-cell">
                       {modeOctal(entry.mode)}
+                      {'  '}
+                      <span className="text-faint">
+                        {entry.owner}:{entry.group}
+                      </span>
+                    </td>
+                    <td className="hidden px-4 py-2.5 text-right font-[family-name:var(--font-mono)] text-xs text-muted sm:table-cell">
+                      {entry.is_dir ? (
+                        dirSizes[entry.name] ? (
+                          formatBytes(dirSizes[entry.name].bytes)
+                        ) : (
+                          <button
+                            className="text-brand hover:underline"
+                            onClick={() => void calcDirSize(entry.name)}
+                          >
+                            计算
+                          </button>
+                        )
+                      ) : (
+                        formatBytes(entry.size)
+                      )}
                     </td>
                     <td className="hidden px-4 py-2.5 text-xs text-muted lg:table-cell">
                       {fmtTime(entry.mod_time)}
                     </td>
                     <td className="px-4 py-2.5">
-                      <div className="flex items-center justify-end gap-0.5">
+                      <div className="flex items-center justify-end gap-2 opacity-0 transition group-hover:opacity-100 [&>*+*]:before:mr-2 [&>*+*]:before:text-border [&>*+*]:before:content-['|']">
                         {!entry.is_dir && (
-                          <IconButton
-                            aria-label="下载"
-                            title="下载"
-                            icon={<Download size={16} />}
-                            onClick={() => void download(entry)}
-                          />
+                          <RowLink onClick={() => void download(entry)}>下载</RowLink>
                         )}
                         {!entry.is_dir && canWrite && (
-                          <IconButton
-                            aria-label="编辑"
-                            title="在线编辑"
-                            icon={<Pencil size={16} />}
-                            onClick={() => void openEditor(entry)}
-                          />
+                          <RowLink onClick={() => void openEditor(entry)}>编辑</RowLink>
                         )}
-                        <IconButton
-                          aria-label="分享"
-                          title="生成分享链接"
-                          icon={<Share2 size={16} />}
-                          disabled={!canWrite}
-                          onClick={() =>
-                            setSharing({ path: joinPath(cwd, entry.name), isDir: entry.is_dir })
-                          }
-                        />
                         {canWrite && (
                           <>
-                            <IconButton
-                              aria-label="复制"
-                              title="复制"
-                              icon={<Copy size={16} />}
-                              onClick={() => void copy(entry)}
-                            />
-                            <IconButton
-                              aria-label="重命名"
-                              title="重命名"
-                              icon={<Pencil size={16} />}
-                              onClick={() => void rename(entry)}
-                            />
-                            <IconButton
-                              aria-label="权限"
-                              title="修改权限"
-                              icon={<FileCog size={16} />}
-                              onClick={() => void chmod(entry)}
-                            />
-                            {!entry.is_dir && isArchive(entry.name) && (
-                              <IconButton
-                                aria-label="解压"
-                                title="解压"
-                                icon={<ArchiveRestore size={16} />}
-                                onClick={() => void extract(entry)}
-                              />
-                            )}
-                            <IconButton
-                              aria-label="删除"
-                              title="删除"
-                              icon={<Trash2 size={16} />}
-                              className="hover:text-crit"
-                              onClick={() => void remove(entry)}
-                            />
+                            <RowLink onClick={() => setDialog({ kind: 'chmod', entries: [entry] })}>
+                              权限
+                            </RowLink>
+                            <RowLink onClick={() => setDialog({ kind: 'rename', entry })}>
+                              重命名
+                            </RowLink>
+                            <RowLink danger onClick={() => void remove(entry)}>
+                              删除
+                            </RowLink>
                           </>
                         )}
                       </div>
@@ -543,7 +726,223 @@ export default function Files() {
             </tbody>
           </table>
         )}
+        <div className="flex items-center justify-between border-t border-border px-4 py-2 text-xs text-muted">
+          <span>
+            共 {visible.filter((e) => e.is_dir).length} 个目录,
+            {visible.filter((e) => !e.is_dir).length} 个文件
+          </span>
+          {selected.size > 0 && <span>已选 {selected.size} 项</span>}
+        </div>
       </Card>
+
+      {menu && (
+        <ContextMenu
+          menu={menu}
+          canWrite={canWrite}
+          isAdmin={isAdmin}
+          clipboard={clipboard}
+          onClose={() => setMenu(null)}
+          onAction={(action) => {
+            const e = menu.entry
+            setMenu(null)
+            switch (action) {
+              case 'open':
+                if (e.is_dir) setCwd(joinPath(cwd, e.name))
+                else void openEditor(e)
+                break
+              case 'download':
+                void download(e)
+                break
+              case 'edit':
+                void openEditor(e)
+                break
+              case 'copy':
+                startCopy()
+                break
+              case 'cut':
+                startCut()
+                break
+              case 'paste':
+                void paste()
+                break
+              case 'rename':
+                setDialog({ kind: 'rename', entry: e })
+                break
+              case 'chmod':
+                setDialog({ kind: 'chmod', entries: [e] })
+                break
+              case 'chown':
+                setDialog({ kind: 'chown', entries: [e] })
+                break
+              case 'compress':
+                setDialog({ kind: 'compress', names: [e.name] })
+                break
+              case 'extract':
+                setDialog({ kind: 'extract', entry: e })
+                break
+              case 'share':
+                setSharing({ path: joinPath(cwd, e.name), isDir: e.is_dir })
+                break
+              case 'delete':
+                void remove(e)
+                break
+              case 'props':
+                setDialog({ kind: 'props', entry: e })
+                break
+            }
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'newdir' && (
+        <NameDialog
+          title="新建文件夹"
+          label="文件夹名称"
+          onClose={() => setDialog(null)}
+          onSubmit={async (name) => {
+            await apiFetch(
+              `/api/m/files/mkdir?path=${encodeURIComponent(joinPath(cwd, name))}`,
+              { method: 'POST' },
+            )
+            flash('已创建文件夹')
+            setDialog(null)
+            await refresh()
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'newfile' && (
+        <NameDialog
+          title="新建文件"
+          label="文件名"
+          onClose={() => setDialog(null)}
+          onSubmit={async (name) => {
+            await apiFetch(
+              `/api/m/files/write?path=${encodeURIComponent(joinPath(cwd, name))}`,
+              { method: 'POST', body: '' },
+            )
+            flash('已创建文件')
+            setDialog(null)
+            await refresh()
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'rename' && (
+        <NameDialog
+          title="重命名"
+          label="新名称"
+          initial={dialog.entry.name}
+          onClose={() => setDialog(null)}
+          onSubmit={async (name) => {
+            await apiFetch('/api/m/files/rename', {
+              method: 'POST',
+              body: JSON.stringify({
+                from: joinPath(cwd, dialog.entry.name),
+                to: joinPath(cwd, name),
+              }),
+            })
+            flash('已重命名')
+            setDialog(null)
+            await refresh()
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'chmod' && (
+        <ChmodDialog
+          cwd={cwd}
+          entries={dialog.entries}
+          onClose={() => setDialog(null)}
+          onDone={async (msg) => {
+            flash(msg)
+            setDialog(null)
+            await refresh()
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'chown' && (
+        <ChownDialog
+          cwd={cwd}
+          entries={dialog.entries}
+          onClose={() => setDialog(null)}
+          onDone={async (msg) => {
+            flash(msg)
+            setDialog(null)
+            await refresh()
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'remote' && (
+        <RemoteDialog
+          cwd={cwd}
+          onClose={() => setDialog(null)}
+          onDone={async (msg) => {
+            flash(msg)
+            setDialog(null)
+            await refresh()
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'compress' && (
+        <NameDialog
+          title="压缩为 zip"
+          label="目标 zip 文件名"
+          initial={dialog.names.length === 1 ? `${dialog.names[0]}.zip` : 'archive.zip'}
+          onClose={() => setDialog(null)}
+          onSubmit={async (name) => {
+            await apiFetch('/api/m/files/compress', {
+              method: 'POST',
+              body: JSON.stringify({
+                paths: dialog.names.map((n) => joinPath(cwd, n)),
+                dest: joinPath(cwd, name),
+              }),
+            })
+            flash(`已压缩 ${dialog.names.length} 项`)
+            setDialog(null)
+            await refresh()
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'extract' && (
+        <NameDialog
+          title="解压到"
+          label="目标子目录"
+          initial={dialog.entry.name.replace(/\.[^.]+$/, '')}
+          onClose={() => setDialog(null)}
+          onSubmit={async (dest) => {
+            await apiFetch('/api/m/files/extract', {
+              method: 'POST',
+              body: JSON.stringify({
+                path: joinPath(cwd, dialog.entry.name),
+                dest: joinPath(cwd, dest),
+              }),
+            })
+            flash('已解压')
+            setDialog(null)
+            await refresh()
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'search' && (
+        <SearchDialog
+          cwd={cwd}
+          onClose={() => setDialog(null)}
+          onPick={(rel) => {
+            setDialog(null)
+            setCwd(parentPath(rel))
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'props' && (
+        <PropsDialog cwd={cwd} entry={dialog.entry} onClose={() => setDialog(null)} />
+      )}
 
       {editing && (
         <EditorModal
@@ -569,11 +968,774 @@ export default function Files() {
       )}
 
       {showShares && <ShareList onClose={() => setShowShares(false)} />}
+
+      {showTrash && (
+        <TrashModal isAdmin={isAdmin} onClose={() => setShowTrash(false)} onRestored={refresh} />
+      )}
     </div>
   )
 }
 
+function MenuItem({
+  icon,
+  label,
+  onClick,
+  danger,
+  disabled,
+}: {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+  danger?: boolean
+  disabled?: boolean
+}) {
+  return (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
+        danger ? 'text-muted hover:bg-surface-2 hover:text-crit' : 'text-text hover:bg-surface-2'
+      }`}
+    >
+      <span className="text-muted">{icon}</span>
+      {label}
+    </button>
+  )
+}
+
+function RowLink({
+  onClick,
+  children,
+  danger,
+}: {
+  onClick: () => void
+  children: React.ReactNode
+  danger?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      className={`text-[13px] outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60 ${
+        danger ? 'text-muted hover:text-crit' : 'text-muted hover:text-brand'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+type CtxAction =
+  | 'open'
+  | 'download'
+  | 'edit'
+  | 'copy'
+  | 'cut'
+  | 'paste'
+  | 'rename'
+  | 'chmod'
+  | 'chown'
+  | 'compress'
+  | 'extract'
+  | 'share'
+  | 'delete'
+  | 'props'
+
+function ContextMenu({
+  menu,
+  canWrite,
+  isAdmin,
+  clipboard,
+  onClose,
+  onAction,
+}: {
+  menu: Menu
+  canWrite: boolean
+  isAdmin: boolean
+  clipboard: Clipboard
+  onClose: () => void
+  onAction: (a: CtxAction) => void
+}) {
+  useEffect(() => {
+    const close = () => onClose()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('click', close)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  const e = menu.entry
+  // 视口边界内收口,避免溢出。
+  const top = Math.min(menu.y, window.innerHeight - 360)
+  const left = Math.min(menu.x, window.innerWidth - 200)
+
+  return (
+    <div
+      className="fixed z-50 w-48 overflow-hidden rounded-(--radius-sm) border border-border bg-surface py-1 shadow-[var(--shadow-elevated)]"
+      style={{ top, left }}
+      onClick={(ev) => ev.stopPropagation()}
+    >
+      <MenuItem
+        icon={e.is_dir ? <FolderInput size={15} /> : <Pencil size={15} />}
+        label={e.is_dir ? '进入' : '编辑'}
+        onClick={() => onAction('open')}
+      />
+      {!e.is_dir && (
+        <MenuItem icon={<Download size={15} />} label="下载" onClick={() => onAction('download')} />
+      )}
+      {canWrite && (
+        <>
+          <MenuItem icon={<Copy size={15} />} label="复制" onClick={() => onAction('copy')} />
+          <MenuItem icon={<Scissors size={15} />} label="剪切" onClick={() => onAction('cut')} />
+          <MenuItem
+            icon={<ClipboardPaste size={15} />}
+            label="粘贴"
+            disabled={!clipboard}
+            onClick={() => onAction('paste')}
+          />
+          <MenuItem icon={<Pencil size={15} />} label="重命名" onClick={() => onAction('rename')} />
+          <MenuItem icon={<FileCog size={15} />} label="权限" onClick={() => onAction('chmod')} />
+          {isAdmin && (
+            <MenuItem icon={<UserCog size={15} />} label="属主" onClick={() => onAction('chown')} />
+          )}
+          <MenuItem
+            icon={<Archive size={15} />}
+            label="压缩"
+            onClick={() => onAction('compress')}
+          />
+          {!e.is_dir && isArchive(e.name) && (
+            <MenuItem
+              icon={<ArchiveRestore size={15} />}
+              label="解压"
+              onClick={() => onAction('extract')}
+            />
+          )}
+          <MenuItem icon={<Share2 size={15} />} label="分享" onClick={() => onAction('share')} />
+          <MenuItem
+            icon={<Trash2 size={15} />}
+            label="删除"
+            danger
+            onClick={() => onAction('delete')}
+          />
+        </>
+      )}
+      <MenuItem icon={<Info size={15} />} label="属性" onClick={() => onAction('props')} />
+    </div>
+  )
+}
+
+function NameDialog({
+  title,
+  label,
+  initial = '',
+  onClose,
+  onSubmit,
+}: {
+  title: string
+  label: string
+  initial?: string
+  onClose: () => void
+  onSubmit: (name: string) => Promise<void>
+}) {
+  const [value, setValue] = useState(initial)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function submit() {
+    if (!value.trim() || busy) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await onSubmit(value.trim())
+    } catch (e) {
+      setErr(errorText(e))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          void submit()
+        }}
+      >
+        <h2 className="text-sm font-medium text-text">{title}</h2>
+        <Input label={label} autoFocus value={value} onChange={(e) => setValue(e.target.value)} />
+        {err && <p className="text-sm text-crit">{err}</p>}
+        <div className="flex items-center justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button type="submit" disabled={busy || !value.trim()}>
+            {busy ? '处理中…' : '确定'}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+const PERM_BITS = [
+  { key: 'owner', label: '属主 (Owner)' },
+  { key: 'group', label: '组 (Group)' },
+  { key: 'public', label: '公共 (Public)' },
+] as const
+
+function octalToBits(oct: string): boolean[] {
+  const o = oct.padStart(3, '0').slice(-3)
+  const bits: boolean[] = []
+  for (const ch of o) {
+    const v = Number(ch)
+    bits.push((v & 4) !== 0, (v & 2) !== 0, (v & 1) !== 0)
+  }
+  return bits
+}
+
+function bitsToOctal(bits: boolean[]): string {
+  let out = ''
+  for (let g = 0; g < 3; g++) {
+    let v = 0
+    if (bits[g * 3]) v += 4
+    if (bits[g * 3 + 1]) v += 2
+    if (bits[g * 3 + 2]) v += 1
+    out += String(v)
+  }
+  return out
+}
+
+function ChmodDialog({
+  cwd,
+  entries,
+  onClose,
+  onDone,
+}: {
+  cwd: string
+  entries: DirEntry[]
+  onClose: () => void
+  onDone: (msg: string) => Promise<void>
+}) {
+  const initialOct = entries.length === 1 ? modeOctal(entries[0].mode) : '755'
+  const [bits, setBits] = useState<boolean[]>(octalToBits(initialOct))
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const oct = bitsToOctal(bits)
+
+  function setOctText(v: string) {
+    if (/^[0-7]{0,3}$/.test(v)) setBits(octalToBits(v))
+  }
+
+  async function apply() {
+    setBusy(true)
+    setErr(null)
+    try {
+      for (const e of entries) {
+        await apiFetch('/api/m/files/chmod', {
+          method: 'POST',
+          body: JSON.stringify({ path: joinPath(cwd, e.name), mode: `0${oct}` }),
+        })
+      }
+      await onDone(`权限已改为 ${oct}`)
+    } catch (e) {
+      setErr(errorText(e))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <h2 className="text-sm font-medium text-text">
+          设置权限
+          <span className="ml-2 text-muted">
+            {entries.length === 1 ? entries[0].name : `${entries.length} 项`}
+          </span>
+        </h2>
+        <div className="grid grid-cols-3 gap-3">
+          {PERM_BITS.map((group, gi) => (
+            <div key={group.key} className="rounded-(--radius-sm) border border-border p-3">
+              <p className="mb-2 text-xs font-medium text-muted">{group.label}</p>
+              {['读 (Read)', '写 (Write)', '执行 (Execute)'].map((perm, pi) => {
+                const idx = gi * 3 + pi
+                return (
+                  <label
+                    key={perm}
+                    className="flex items-center gap-2 py-0.5 text-sm text-text"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={bits[idx]}
+                      onChange={(e) =>
+                        setBits((prev) => {
+                          const next = [...prev]
+                          next[idx] = e.target.checked
+                          return next
+                        })
+                      }
+                    />
+                    {perm}
+                  </label>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-text">
+            数字
+            <input
+              value={oct}
+              onChange={(e) => setOctText(e.target.value)}
+              className="h-9 w-20 rounded-(--radius-sm) border border-border bg-surface-2/70 px-3 text-center font-[family-name:var(--font-mono)] text-sm text-text outline-none focus:border-brand"
+            />
+          </label>
+        </div>
+        {err && <p className="text-sm text-crit">{err}</p>}
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button onClick={() => void apply()} disabled={busy}>
+            {busy ? '处理中…' : '确定'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function ChownDialog({
+  cwd,
+  entries,
+  onClose,
+  onDone,
+}: {
+  cwd: string
+  entries: DirEntry[]
+  onClose: () => void
+  onDone: (msg: string) => Promise<void>
+}) {
+  const [owner, setOwner] = useState(entries.length === 1 ? entries[0].owner : '')
+  const [group, setGroup] = useState(entries.length === 1 ? entries[0].group : '')
+  const [recursive, setRecursive] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function apply() {
+    if (!owner.trim() && !group.trim()) {
+      setErr('请至少填写属主或属组')
+      return
+    }
+    setBusy(true)
+    setErr(null)
+    try {
+      for (const e of entries) {
+        await apiFetch('/api/m/files/chown', {
+          method: 'POST',
+          body: JSON.stringify({
+            path: joinPath(cwd, e.name),
+            owner: owner.trim(),
+            group: group.trim(),
+            recursive,
+          }),
+        })
+      }
+      await onDone('属主已修改')
+    } catch (e) {
+      setErr(errorText(e))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium text-text">
+          设置属主
+          <span className="ml-2 text-muted">
+            {entries.length === 1 ? entries[0].name : `${entries.length} 项`}
+          </span>
+        </h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input label="属主 (Owner)" value={owner} onChange={(e) => setOwner(e.target.value)} />
+          <Input label="属组 (Group)" value={group} onChange={(e) => setGroup(e.target.value)} />
+        </div>
+        <label className="flex items-center gap-2 text-sm text-text">
+          <input
+            type="checkbox"
+            checked={recursive}
+            onChange={(e) => setRecursive(e.target.checked)}
+          />
+          应用到子目录(递归)
+        </label>
+        {err && <p className="text-sm text-crit">{err}</p>}
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button onClick={() => void apply()} disabled={busy}>
+            {busy ? '处理中…' : '确定'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function RemoteDialog({
+  cwd,
+  onClose,
+  onDone,
+}: {
+  cwd: string
+  onClose: () => void
+  onDone: (msg: string) => Promise<void>
+}) {
+  const [url, setUrl] = useState('https://')
+  const [dest, setDest] = useState(cwd)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function go() {
+    if (!url.trim() || busy) return
+    if (!window.confirm('远程下载会从外部 URL 拉取文件到服务器,确认继续?')) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await apiFetch('/api/m/files/remote-download', {
+        method: 'POST',
+        headers: DANGER,
+        body: JSON.stringify({ url: url.trim(), dest: dest.trim(), name: name.trim() }),
+      })
+      await onDone('已开始远程下载')
+    } catch (e) {
+      setErr(errorText(e))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium text-text">远程下载</h2>
+        <Input label="URL 地址" value={url} onChange={(e) => setUrl(e.target.value)} />
+        <Input label="保存到目录(相对根)" value={dest} onChange={(e) => setDest(e.target.value)} />
+        <Input
+          label="文件名(留空从 URL 推断)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        {err && <p className="text-sm text-crit">{err}</p>}
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button onClick={() => void go()} disabled={busy || !url.trim()}>
+            {busy ? '处理中…' : '确认下载'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function SearchDialog({
+  cwd,
+  onClose,
+  onPick,
+}: {
+  cwd: string
+  onClose: () => void
+  onPick: (rel: string) => void
+}) {
+  const [name, setName] = useState('')
+  const [content, setContent] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [results, setResults] = useState<string[] | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function run() {
+    if (!name.trim() && !content.trim()) {
+      setErr('请填写文件名或内容')
+      return
+    }
+    setBusy(true)
+    setErr(null)
+    try {
+      const q = new URLSearchParams({ path: cwd })
+      if (name.trim()) q.set('name', name.trim())
+      if (content.trim()) q.set('content', content.trim())
+      const r = await apiFetch<string[]>(`/api/m/files/search?${q.toString()}`)
+      setResults(r)
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium text-text">搜索文件</h2>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input
+            label="文件名(glob,如 *.php)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <Input
+            label="文件内容(可选)"
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+          />
+        </div>
+        <p className="text-xs text-muted">在「{cwd || '根目录'}」下递归搜索。</p>
+        {err && <p className="text-sm text-crit">{err}</p>}
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            关闭
+          </Button>
+          <Button onClick={() => void run()} disabled={busy}>
+            {busy ? '搜索中…' : '搜索'}
+          </Button>
+        </div>
+        {results && (
+          <div className="max-h-72 overflow-auto rounded-(--radius-sm) border border-border">
+            {results.length === 0 ? (
+              <p className="p-4 text-center text-sm text-muted">无匹配结果。</p>
+            ) : (
+              results.map((rel) => (
+                <button
+                  key={rel}
+                  onClick={() => onPick(rel)}
+                  className="flex w-full items-center gap-2 border-b border-border/60 px-3 py-2 text-left text-sm text-text last:border-b-0 hover:bg-surface-2"
+                >
+                  <FileIcon name={baseName(rel)} isDir={false} size={15} />
+                  <span className="truncate font-[family-name:var(--font-mono)] text-xs">
+                    {rel}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+function PropsDialog({
+  cwd,
+  entry,
+  onClose,
+}: {
+  cwd: string
+  entry: DirEntry
+  onClose: () => void
+}) {
+  const [size, setSize] = useState<DirSize | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function calc() {
+    setBusy(true)
+    try {
+      setSize(
+        await apiFetch<DirSize>(
+          `/api/m/files/dirsize?path=${encodeURIComponent(joinPath(cwd, entry.name))}`,
+        ),
+      )
+    } catch {
+      // 计算失败不致命,忽略。
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <h2 className="flex items-center gap-2 text-sm font-medium text-text">
+          <FileIcon name={entry.name} isDir={entry.is_dir} />
+          属性 · {entry.name}
+        </h2>
+        <dl className="grid grid-cols-[120px_1fr] gap-y-2 text-sm">
+          <dt className="text-muted">类型</dt>
+          <dd className="text-text">{entry.is_dir ? '目录' : '文件'}</dd>
+          <dt className="text-muted">位置</dt>
+          <dd className="truncate font-[family-name:var(--font-mono)] text-xs text-text">
+            /{joinPath(cwd, entry.name)}
+          </dd>
+          <dt className="text-muted">大小</dt>
+          <dd className="text-text">
+            {entry.is_dir ? (
+              size ? (
+                `${formatBytes(size.bytes)} · ${size.files} 文件 / ${size.dirs} 目录`
+              ) : (
+                <Button size="sm" variant="ghost" onClick={() => void calc()} disabled={busy}>
+                  {busy ? '计算中…' : '计算大小'}
+                </Button>
+              )
+            ) : (
+              `${formatBytes(entry.size)} (${entry.size} 字节)`
+            )}
+          </dd>
+          <dt className="text-muted">权限</dt>
+          <dd className="font-[family-name:var(--font-mono)] text-text">{modeOctal(entry.mode)}</dd>
+          <dt className="text-muted">属主</dt>
+          <dd className="text-text">
+            {entry.owner}:{entry.group}
+          </dd>
+          <dt className="text-muted">修改时间</dt>
+          <dd className="text-text">{fmtTime(entry.mod_time)}</dd>
+        </dl>
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={onClose}>
+            关闭
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function TrashModal({
+  isAdmin,
+  onClose,
+  onRestored,
+}: {
+  isAdmin: boolean
+  onClose: () => void
+  onRestored: () => Promise<void>
+}) {
+  const [items, setItems] = useState<TrashItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setErr(null)
+    try {
+      setItems(await apiFetch<TrashItem[]>('/api/m/files/trash'))
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  async function restore(id: string) {
+    try {
+      await apiFetch('/api/m/files/trash/restore', {
+        method: 'POST',
+        body: JSON.stringify({ id }),
+      })
+      await load()
+      await onRestored()
+    } catch (e) {
+      setErr(errorText(e))
+    }
+  }
+
+  async function empty() {
+    if (!window.confirm('确认清空回收站?所有条目将被永久删除,不可恢复。')) return
+    try {
+      await apiFetch('/api/m/files/trash/empty', { method: 'POST', headers: DANGER })
+      await load()
+    } catch (e) {
+      setErr(errorText(e))
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-medium text-text">回收站</h2>
+          {isAdmin && items.length > 0 && (
+            <Button size="sm" variant="danger" onClick={() => void empty()}>
+              清空回收站
+            </Button>
+          )}
+        </div>
+        {loading ? (
+          <div className="flex h-24 items-center justify-center">
+            <Spinner size={20} />
+          </div>
+        ) : err ? (
+          <p className="text-sm text-crit">{err}</p>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-muted">回收站为空。</p>
+        ) : (
+          <div className="max-h-[60vh] overflow-auto rounded-(--radius-sm) border border-border">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs text-muted">
+                  <th className="px-3 py-2 text-left font-medium">原路径</th>
+                  <th className="px-3 py-2 text-right font-medium">大小</th>
+                  <th className="px-3 py-2 text-left font-medium">删除时间</th>
+                  <th className="px-3 py-2 text-right font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it) => (
+                  <tr key={it.id} className="border-b border-border/60 last:border-b-0">
+                    <td className="px-3 py-2">
+                      <span className="flex items-center gap-2">
+                        <FileIcon name={baseName(it.orig_path)} isDir={it.is_dir} size={15} />
+                        <span className="truncate font-[family-name:var(--font-mono)] text-xs text-text">
+                          /{it.orig_path}
+                        </span>
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right text-xs text-muted">
+                      {it.is_dir ? '—' : formatBytes(it.size)}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-muted">{fmtTime(it.deleted_at)}</td>
+                    <td className="px-3 py-2 text-right">
+                      <RowLink onClick={() => void restore(it.id)}>还原</RowLink>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={onClose}>
+            关闭
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -635,13 +1797,7 @@ function EditorModal({
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        <CodeEditor
-          value={text}
-          onChange={onChange}
-          filename={path}
-          onSave={onSave}
-          height="100%"
-        />
+        <CodeEditor value={text} onChange={onChange} filename={path} onSave={onSave} height="100%" />
       </div>
     </div>
   )

@@ -106,6 +106,22 @@ export interface DirEntry {
   size: number
   mode: string
   mod_time: number
+  owner: string
+  group: string
+}
+
+export interface TrashItem {
+  id: string
+  orig_path: string
+  is_dir: boolean
+  size: number
+  deleted_at: number
+}
+
+export interface DirSize {
+  bytes: number
+  files: number
+  dirs: number
 }
 
 export interface Share {
