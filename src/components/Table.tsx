@@ -109,7 +109,7 @@ export function ActionLink({ onClick, children, danger, disabled, ...rest }: Act
 /** ActionLinks 把多个 ActionLink 用细竖线分隔横排。 */
 export function ActionLinks({ children }: { children: ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-2 [&>*+*]:before:mr-2 [&>*+*]:before:text-border [&>*+*]:before:content-['|']">
+    <span className="inline-flex items-center gap-2 whitespace-nowrap [&>*+*]:before:mr-2 [&>*+*]:before:text-border [&>*+*]:before:content-['|']">
       {children}
     </span>
   )
