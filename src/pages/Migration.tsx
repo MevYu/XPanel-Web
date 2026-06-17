@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/Button'
@@ -7,7 +7,20 @@ import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
-import { Plus, Settings2, Search, RefreshCw, Boxes, Database, Globe } from 'lucide-react'
+import { uid } from '../lib/uid'
+import {
+  Plus,
+  Settings2,
+  Search,
+  RefreshCw,
+  Boxes,
+  Database,
+  Globe,
+  ListChecks,
+  Download,
+  CheckCircle2,
+  XCircle,
+} from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -48,6 +61,37 @@ interface Settings {
   pgdump: string
   mysql_cli: string
   psql_cli: string
+}
+
+type TaskKind = 'export' | 'import'
+type TaskStatus = 'pending' | 'running' | 'success' | 'failed'
+
+interface Task {
+  id: string
+  kind: TaskKind
+  status: TaskStatus
+  progress: number
+  message: string
+  started_at: number
+  finished_at: number
+  // 导出成功后后端可回产物文件名,用于完成提示中的下载入口(可选,后端按需返回)。
+  filename?: string
+}
+
+const kindLabel: Record<TaskKind, string> = { export: '导出', import: '导入' }
+
+const taskStatusMeta: Record<
+  TaskStatus,
+  { label: string; badge: 'online' | 'warn' | 'crit' | 'neutral' }
+> = {
+  pending: { label: '排队中', badge: 'neutral' },
+  running: { label: '进行中', badge: 'warn' },
+  success: { label: '成功', badge: 'online' },
+  failed: { label: '失败', badge: 'crit' },
+}
+
+function isTerminal(s: TaskStatus): boolean {
+  return s === 'success' || s === 'failed'
 }
 
 interface ExportForm {
@@ -104,11 +148,15 @@ export default function Migration() {
   const isAdmin = role === 'admin'
 
   const [packages, setPackages] = useState<Package[]>([])
+  const [tasks, setTasks] = useState<Task[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [query, setQuery] = useState('')
+
+  // 正在轮询的任务:提交导出/导入后置入,轮询 GET /tasks/{id} 直到 success/failed。
+  const [activeTask, setActiveTask] = useState<Task | null>(null)
 
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -119,11 +167,13 @@ export default function Migration() {
   const load = useCallback(async () => {
     setLoadErr(null)
     try {
-      const [p, s] = await Promise.all([
+      const [p, t, s] = await Promise.all([
         apiFetch<Package[]>('/api/m/migration/packages'),
+        apiFetch<Task[]>('/api/m/migration/tasks'),
         apiFetch<Settings>('/api/m/migration/settings'),
       ])
       setPackages(p ?? [])
+      setTasks(t ?? [])
       setSettings(s)
     } catch (e) {
       setLoadErr(errorText(e))
@@ -136,6 +186,48 @@ export default function Migration() {
     if (isAdmin) void load()
     else setLoading(false)
   }, [isAdmin, load])
+
+  // activeTask 轮询:仅在有未完成任务时跑;setTimeout 自循环,卸载/任务终止时清理,
+  // 不泄漏定时器。终止后回填任务列表 + 导出成功时刷新迁移包。
+  const loadRef = useRef(load)
+  loadRef.current = load
+  useEffect(() => {
+    const id = activeTask && !isTerminal(activeTask.status) ? activeTask.id : null
+    if (!id) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    async function tick() {
+      try {
+        const t = await apiFetch<Task>(`/api/m/migration/tasks/${id}`)
+        if (cancelled) return
+        setActiveTask(t)
+        setTasks((prev) => {
+          const next = prev.filter((x) => x.id !== t.id)
+          return [t, ...next]
+        })
+        if (isTerminal(t.status)) {
+          if (t.status === 'success' && t.kind === 'export') void loadRef.current()
+          return
+        }
+        timer = setTimeout(() => void tick(), 1500)
+      } catch {
+        // 轮询单次失败不打断:稍后重试,避免瞬时网络抖动终止整个进度跟踪。
+        if (!cancelled) timer = setTimeout(() => void tick(), 1500)
+      }
+    }
+
+    void tick()
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [activeTask])
+
+  const beginTask = useCallback((task: Task) => {
+    setActiveTask(task)
+    setTasks((prev) => [task, ...prev.filter((x) => x.id !== task.id)])
+  }, [])
 
   // download 经鉴权 fetch 拉附件(apiFetch 走 JSON 解析,不适用于二进制流)。
   async function download(pkg: Package) {
@@ -357,13 +449,22 @@ export default function Migration() {
         </p>
       )}
 
+      {activeTask && (
+        <ActiveTaskPanel
+          task={activeTask}
+          onClose={() => setActiveTask(null)}
+        />
+      )}
+
+      <TasksSection tasks={tasks} loading={loading} />
+
       {exporting && (
         <ExportModal
           onClose={() => setExporting(false)}
-          onDone={(msg) => {
-            setFeedback({ kind: 'ok', text: msg })
+          onStarted={(task) => {
+            beginTask(task)
+            setFeedback(null)
             setExporting(false)
-            void load()
           }}
         />
       )}
@@ -375,8 +476,9 @@ export default function Migration() {
             setImporting(false)
             setPreselect('')
           }}
-          onDone={(msg) => {
-            setFeedback({ kind: 'ok', text: msg })
+          onStarted={(task) => {
+            beginTask(task)
+            setFeedback(null)
             setImporting(false)
             setPreselect('')
           }}
@@ -398,13 +500,183 @@ export default function Migration() {
   )
 }
 
-/** ExportModal 新建迁移包:固定尺寸表单,按 POST /export 契约提交。 */
+/** ActiveTaskPanel 当前迁移进度:进度条 + 状态徽标,完成(success/failed)给出对应提示。 */
+function ActiveTaskPanel({ task, onClose }: { task: Task; onClose: () => void }) {
+  const meta = taskStatusMeta[task.status]
+  const done = isTerminal(task.status)
+  const pct = Math.max(0, Math.min(100, Math.round(task.progress)))
+  const barColor =
+    task.status === 'failed' ? 'bg-crit' : task.status === 'success' ? 'bg-online' : 'bg-brand'
+
+  return (
+    <section className="flex flex-col gap-3 rounded-(--radius-card) border border-border bg-surface px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {done ? (
+            task.status === 'success' ? (
+              <CheckCircle2 size={16} className="text-online" />
+            ) : (
+              <XCircle size={16} className="text-crit" />
+            )
+          ) : (
+            <Spinner size={16} />
+          )}
+          <span className="text-sm font-medium text-text">{kindLabel[task.kind]}任务</span>
+          <Badge status={meta.badge}>{meta.label}</Badge>
+        </div>
+        {done && (
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            收起
+          </Button>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
+          <div
+            className={`h-full rounded-full transition-[width] duration-500 ${barColor}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <span className="w-10 text-right font-[family-name:var(--font-mono)] text-xs text-muted">
+          {pct}%
+        </span>
+      </div>
+
+      {task.status === 'success' && (
+        <p className="flex items-center gap-2 text-sm text-online">
+          <Download size={15} className="shrink-0" />
+          {task.kind === 'export'
+            ? `导出完成${task.filename ? `:${task.filename}` : ''},可在下方迁移包列表下载。`
+            : '导入完成,目标站点已还原。'}
+        </p>
+      )}
+      {task.status === 'failed' && (
+        <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {task.message || `${kindLabel[task.kind]}失败`}
+        </p>
+      )}
+      {!done && task.message && <p className="text-xs text-muted">{task.message}</p>}
+    </section>
+  )
+}
+
+/** TasksSection 迁移任务表:类型/状态/进度/时间/消息,来自 GET /tasks,空态优雅。 */
+function TasksSection({ tasks, loading }: { tasks: Task[]; loading: boolean }) {
+  const columns: Column<Task>[] = useMemo(
+    () => [
+      {
+        key: 'kind',
+        header: '类型',
+        width: '88px',
+        cell: (t) => (
+          <span className="inline-flex items-center gap-2 text-sm text-text">
+            {t.kind === 'export' ? (
+              <Boxes size={15} className="shrink-0 text-warn" />
+            ) : (
+              <Database size={15} className="shrink-0 text-brand" />
+            )}
+            {kindLabel[t.kind]}
+          </span>
+        ),
+      },
+      {
+        key: 'status',
+        header: '状态',
+        width: '92px',
+        cell: (t) => {
+          const m = taskStatusMeta[t.status]
+          return <Badge status={m.badge}>{m.label}</Badge>
+        },
+      },
+      {
+        key: 'progress',
+        header: '进度',
+        width: '140px',
+        cell: (t) => {
+          const pct = Math.max(0, Math.min(100, Math.round(t.progress)))
+          return (
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 w-20 overflow-hidden rounded-full bg-surface-2">
+                <div
+                  className={`h-full rounded-full ${
+                    t.status === 'failed' ? 'bg-crit' : t.status === 'success' ? 'bg-online' : 'bg-brand'
+                  }`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="font-[family-name:var(--font-mono)] text-xs text-muted">{pct}%</span>
+            </div>
+          )
+        },
+      },
+      {
+        key: 'time',
+        header: '时间',
+        width: '150px',
+        cell: (t) => (
+          <span className="text-xs text-muted">{fmtTime(t.finished_at || t.started_at)}</span>
+        ),
+      },
+      {
+        key: 'message',
+        header: '消息',
+        cell: (t) => (
+          <span
+            className={`truncate text-xs ${t.status === 'failed' ? 'text-crit' : 'text-muted'}`}
+          >
+            {t.message || '—'}
+          </span>
+        ),
+      },
+    ],
+    [],
+  )
+
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <ListChecks size={15} className="text-muted" />
+        <h2 className="text-sm font-semibold text-text">迁移任务</h2>
+      </div>
+      {loading ? (
+        <div className="h-32 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      ) : (
+        <Table
+          columns={columns}
+          rows={tasks}
+          rowKey={(t) => t.id || uid()}
+          emptyText={
+            <span className="flex flex-col items-center gap-1 py-6">
+              <span className="text-sm font-medium text-text">还没有迁移任务</span>
+              <span className="text-xs text-muted">导出或导入后,任务进度会显示在这里。</span>
+            </span>
+          }
+        />
+      )}
+    </section>
+  )
+}
+
+function newTask(id: string, kind: TaskKind): Task {
+  return {
+    id,
+    kind,
+    status: 'pending',
+    progress: 0,
+    message: '',
+    started_at: Math.floor(Date.now() / 1000),
+    finished_at: 0,
+  }
+}
+
+/** ExportModal 新建迁移包:固定尺寸表单,POST /export 返回 202 {task_id},交父组件轮询。 */
 function ExportModal({
   onClose,
-  onDone,
+  onStarted,
 }: {
   onClose: () => void
-  onDone: (msg: string) => void
+  onStarted: (task: Task) => void
 }) {
   const [form, setForm] = useState<ExportForm>(emptyExport)
   const [busy, setBusy] = useState(false)
@@ -424,7 +696,7 @@ function ExportModal({
     setBusy(true)
     setErr(null)
     try {
-      await apiFetch('/api/m/migration/export', {
+      const res = await apiFetch<{ task_id: string }>('/api/m/migration/export', {
         method: 'POST',
         body: JSON.stringify({
           name: form.name.trim(),
@@ -435,7 +707,7 @@ function ExportModal({
           db_name: form.db_kind ? form.db_name.trim() : '',
         }),
       })
-      onDone('迁移包已导出')
+      onStarted(newTask(res.task_id, 'export'))
     } catch (e) {
       setErr(errorText(e))
     } finally {
@@ -530,12 +802,12 @@ function ImportModal({
   packages,
   initialPackageId,
   onClose,
-  onDone,
+  onStarted,
 }: {
   packages: Package[]
   initialPackageId: string
   onClose: () => void
-  onDone: (msg: string) => void
+  onStarted: (task: Task) => void
 }) {
   const [form, setForm] = useState<ImportForm>({ ...emptyImport, package_id: initialPackageId })
   const [busy, setBusy] = useState(false)
@@ -560,7 +832,7 @@ function ImportModal({
     setBusy(true)
     setErr(null)
     try {
-      await apiFetch('/api/m/migration/import', {
+      const res = await apiFetch<{ task_id: string }>('/api/m/migration/import', {
         method: 'POST',
         headers: DANGER,
         body: JSON.stringify({
@@ -570,7 +842,7 @@ function ImportModal({
           db_name: form.db_name.trim(),
         }),
       })
-      onDone('迁移包已导入')
+      onStarted(newTask(res.task_id, 'import'))
     } catch (e) {
       setErr(errorText(e))
     } finally {
