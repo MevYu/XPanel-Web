@@ -53,4 +53,27 @@ describe('loadTabs localStorage 恢复', () => {
     const r = loadTabs()
     expect(r.activeId).toBe('a')
   })
+
+  // 非安全上下文(局域网 HTTP)下 crypto.randomUUID 不存在,回退路径生成 tab id 不能崩。
+  it('无 crypto.randomUUID 时回退仍能生成标签且不抛', () => {
+    const realRandomUUID = globalThis.crypto?.randomUUID
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    })
+    try {
+      expect(globalThis.crypto.randomUUID).toBeUndefined()
+      expect(() => loadTabs()).not.toThrow()
+      expectRootFallback(loadTabs())
+    } finally {
+      if (realRandomUUID) {
+        Object.defineProperty(globalThis.crypto, 'randomUUID', {
+          value: realRandomUUID,
+          configurable: true,
+          writable: true,
+        })
+      }
+    }
+  })
 })

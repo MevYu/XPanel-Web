@@ -34,6 +34,7 @@ import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
 import { Spinner } from '../components/Spinner'
 import { formatBytes } from '../lib/format'
+import { uid } from '../lib/uid'
 import type { DirEntry, DirSize, Share, TrashItem } from '../api/types'
 import { FileIcon, isArchive } from './files/FileIcon'
 import { CodeEditor } from '../components/CodeEditor'
@@ -123,7 +124,7 @@ function tabLabel(path: string): string {
 // 从 localStorage 恢复标签;数据非法/旧结构/为空时回退到单个根目录标签,cwd 永不为 undefined。
 export function loadTabs(): { tabs: DirTab[]; activeId: string } {
   const fallback = () => {
-    const id = crypto.randomUUID()
+    const id = uid()
     return { tabs: [{ id, path: '' }], activeId: id }
   }
   try {
@@ -172,7 +173,7 @@ export default function Files() {
 
   function addTab() {
     setTabState((s) => {
-      const id = crypto.randomUUID()
+      const id = uid()
       const cur = s.tabs.find((t) => t.id === s.activeId)?.path ?? ''
       return { tabs: [...s.tabs, { id, path: cur }], activeId: id }
     })
@@ -180,7 +181,7 @@ export default function Files() {
 
   function openInNewTab(path: string) {
     setTabState((s) => {
-      const id = crypto.randomUUID()
+      const id = uid()
       return { tabs: [...s.tabs, { id, path }], activeId: id }
     })
   }
