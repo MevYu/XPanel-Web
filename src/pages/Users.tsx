@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
@@ -6,6 +6,11 @@ import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
+import { Modal } from '../components/Modal'
+import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Plus, ShieldCheck, KeyRound } from 'lucide-react'
+
+const DANGER = { 'X-Confirm-Danger': '1' }
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -19,6 +24,7 @@ function fmtTime(unix: number | null): string {
 
 type Role = 'admin' | 'operator' | 'readonly'
 const ROLES: Role[] = ['admin', 'operator', 'readonly']
+const ROLE_LABEL: Record<Role, string> = { admin: '管理员', operator: '操作员', readonly: '只读' }
 
 interface UserInfo {
   id: number
@@ -45,9 +51,9 @@ interface TotpSetup {
   otpauth_url: string
 }
 
-const newUserEmpty = { username: '', password: '', role: 'operator' as Role }
+const USERNAME_RE = /^[A-Za-z0-9_.-]{3,32}$/
 
-/** Users 用户与凭证:用户增删改角色与重置密码(admin),自身 2FA 绑定/关闭,API Key 创建/列出/吊销。 */
+/** Users 用户与凭证:面板用户紧凑表(增删改角色/重置密码,admin),自身 2FA 绑定与 API Key。 */
 export default function Users() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
@@ -71,9 +77,12 @@ function UserTable() {
   const [users, setUsers] = useState<UserInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
-  const [form, setForm] = useState(newUserEmpty)
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+
+  const [creating, setCreating] = useState(false)
+  const [rolingUser, setRolingUser] = useState<UserInfo | null>(null)
+  const [pwdUser, setPwdUser] = useState<UserInfo | null>(null)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -90,79 +99,12 @@ function UserTable() {
     void load()
   }, [load])
 
-  const username = form.username.trim()
-  const usernameValid = /^[A-Za-z0-9_.-]{3,32}$/.test(username)
-  const passwordValid = form.password.length >= 8
-  const canCreate = usernameValid && passwordValid && !busy
-
-  async function create() {
-    if (!canCreate) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      await apiFetch('/api/m/users/users', {
-        method: 'POST',
-        body: JSON.stringify({ username, password: form.password, role: form.role }),
-      })
-      setFeedback({ kind: 'ok', text: `用户 ${username} 已创建` })
-      setForm(newUserEmpty)
-      await load()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function changeRole(u: UserInfo, next: Role) {
-    if (next === u.role) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      await apiFetch(`/api/m/users/users/${u.id}/role`, {
-        method: 'PUT',
-        body: JSON.stringify({ role: next }),
-      })
-      setFeedback({ kind: 'ok', text: `${u.username} 角色已改为 ${next}` })
-      await load()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function resetPassword(u: UserInfo) {
-    const pwd = window.prompt(`为 ${u.username} 设置新密码(至少 8 位):`)
-    if (pwd === null) return
-    if (pwd.length < 8) {
-      setFeedback({ kind: 'err', text: '密码至少 8 位' })
-      return
-    }
-    setBusy(true)
-    setFeedback(null)
-    try {
-      await apiFetch(`/api/m/users/users/${u.id}/reset-password`, {
-        method: 'POST',
-        body: JSON.stringify({ password: pwd }),
-      })
-      setFeedback({ kind: 'ok', text: `${u.username} 密码已重置` })
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function remove(u: UserInfo) {
     if (!window.confirm(`确认删除用户「${u.username}」?此操作危险且不可恢复。`)) return
     setBusy(true)
     setFeedback(null)
     try {
-      await apiFetch(`/api/m/users/users/${u.id}`, {
-        method: 'DELETE',
-        headers: { 'X-Confirm-Danger': '1' },
-      })
+      await apiFetch(`/api/m/users/users/${u.id}`, { method: 'DELETE', headers: DANGER })
       setFeedback({ kind: 'ok', text: `用户 ${u.username} 已删除` })
       await load()
     } catch (e) {
@@ -172,108 +114,378 @@ function UserTable() {
     }
   }
 
+  const columns: Column<UserInfo>[] = useMemo(
+    () => [
+      {
+        key: 'username',
+        header: '用户名',
+        cell: (u) => <span className="font-medium text-text">{u.username}</span>,
+      },
+      {
+        key: 'role',
+        header: '角色',
+        width: '110px',
+        cell: (u) => <span className="text-muted">{ROLE_LABEL[u.role as Role] ?? u.role}</span>,
+      },
+      {
+        key: 'totp',
+        header: '2FA',
+        width: '92px',
+        cell: (u) =>
+          u.totp_enabled ? (
+            <Badge status="online">已开启</Badge>
+          ) : (
+            <Badge status="neutral">未开启</Badge>
+          ),
+      },
+      {
+        key: 'last_login',
+        header: '最近登录',
+        width: '180px',
+        // 后端 UserInfo 暂无最近登录字段,占位待补。
+        cell: () => <span className="text-xs text-muted">—</span>,
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '170px',
+        align: 'right',
+        cell: (u) => (
+          <ActionLinks>
+            <ActionLink onClick={() => setPwdUser(u)}>改密</ActionLink>
+            <ActionLink onClick={() => setRolingUser(u)}>角色</ActionLink>
+            <ActionLink danger aria-label="删除用户" onClick={() => void remove(u)}>
+              删除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    [],
+  )
+
   return (
     <>
-      <Card className="flex flex-col gap-4">
-        <h2 className="text-sm font-medium text-text">新增用户</h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Input
-            label="用户名"
-            placeholder="3–32 位,字母数字 _ - ."
-            value={form.username}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            error={form.username.length > 0 && !usernameValid ? '3–32 位,字母数字 _ - .' : undefined}
-            onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
-          />
-          <Input
-            label="密码"
-            type="password"
-            placeholder="至少 8 位"
-            value={form.password}
-            error={form.password.length > 0 && !passwordValid ? '至少 8 位' : undefined}
-            onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-          />
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-muted">角色</span>
-            <select
-              value={form.role}
-              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as Role }))}
-              className="h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-            >
-              {ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {r}
-                </option>
-              ))}
-            </select>
-          </label>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+            面板用户
+          </h1>
+          <p className="text-xs text-muted">
+            {users.length > 0 ? `共 ${users.length} 个用户` : '管理可登录面板的账号与角色'}
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => void create()} disabled={!canCreate}>
-            创建用户
+        <Button onClick={() => setCreating(true)} disabled={busy}>
+          <Plus size={15} />
+          添加用户
+        </Button>
+      </header>
+
+      {feedback && (
+        <p
+          className={`flex items-center justify-between gap-3 rounded-(--radius-card) border px-3 py-2 text-sm ${
+            feedback.kind === 'ok'
+              ? 'border-online/40 bg-online-soft text-online'
+              : 'border-crit/40 bg-crit/10 text-crit'
+          }`}
+        >
+          {feedback.text}
+          <button
+            onClick={() => setFeedback(null)}
+            className="text-xs text-muted hover:text-text"
+            aria-label="关闭提示"
+          >
+            知道了
+          </button>
+        </p>
+      )}
+
+      {loadErr && users.length === 0 && !loading && (
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
           </Button>
-          {busy && <Spinner size={16} />}
-        </div>
-        {feedback && (
-          <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
-            {feedback.text}
+        </p>
+      )}
+
+      {loading ? (
+        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      ) : (
+        <Table
+          columns={columns}
+          rows={users}
+          rowKey={(u) => u.id}
+          emptyText={
+            <span className="flex flex-col items-center gap-1 py-6">
+              <span className="text-sm font-medium text-text">还没有面板用户</span>
+              <span className="text-xs text-muted">点击「添加用户」创建第一个账号。</span>
+            </span>
+          }
+        />
+      )}
+
+      {creating && (
+        <CreateUserModal
+          onClose={() => setCreating(false)}
+          onCreated={(name) => {
+            setCreating(false)
+            setFeedback({ kind: 'ok', text: `用户 ${name} 已创建` })
+            void load()
+          }}
+        />
+      )}
+      {rolingUser && (
+        <RoleModal
+          user={rolingUser}
+          onClose={() => setRolingUser(null)}
+          onSaved={(name, next) => {
+            setRolingUser(null)
+            setFeedback({ kind: 'ok', text: `${name} 角色已改为 ${ROLE_LABEL[next]}` })
+            void load()
+          }}
+        />
+      )}
+      {pwdUser && (
+        <PasswordModal
+          user={pwdUser}
+          onClose={() => setPwdUser(null)}
+          onSaved={(name) => {
+            setPwdUser(null)
+            setFeedback({ kind: 'ok', text: `${name} 密码已重置` })
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+function CreateUserModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void
+  onCreated: (username: string) => void
+}) {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [role, setRole] = useState<Role>('operator')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const name = username.trim()
+  const usernameValid = USERNAME_RE.test(name)
+  const passwordValid = password.length >= 8
+  const canSubmit = usernameValid && passwordValid && !busy
+
+  async function submit() {
+    if (!canSubmit) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await apiFetch('/api/m/users/users', {
+        method: 'POST',
+        body: JSON.stringify({ username: name, password, role }),
+      })
+      onCreated(name)
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="添加用户" size="sm" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <Input
+          label="用户名"
+          placeholder="3–32 位,字母数字 _ - ."
+          value={username}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          autoFocus
+          error={username.length > 0 && !usernameValid ? '3–32 位,字母数字 _ - .' : undefined}
+          onChange={(e) => setUsername(e.target.value)}
+        />
+        <Input
+          label="密码"
+          type="password"
+          placeholder="至少 8 位"
+          value={password}
+          error={password.length > 0 && !passwordValid ? '至少 8 位' : undefined}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-muted">角色</span>
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as Role)}
+            className="h-10 rounded-(--radius-sm) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          >
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {ROLE_LABEL[r]}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {err && (
+          <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+            {err}
           </p>
         )}
-      </Card>
 
-      <Card className="p-0">
-        <div className="flex items-center justify-between px-5 py-3">
-          <span className="text-sm font-medium text-text">用户列表</span>
-          <Button size="sm" variant="ghost" onClick={() => void load()} disabled={busy}>
-            刷新
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            取消
+          </Button>
+          <Button onClick={() => void submit()} disabled={!canSubmit}>
+            {busy && <Spinner size={14} />}
+            创建用户
           </Button>
         </div>
-        {loading ? (
-          <div className="flex h-32 items-center justify-center">
-            <Spinner size={24} />
-          </div>
-        ) : loadErr && users.length === 0 ? (
-          <p className="px-5 pb-4 text-sm text-muted">{loadErr}</p>
-        ) : (
-          <div className="divide-y divide-border">
-            {users.map((u) => (
-              <div key={u.id} className="flex flex-wrap items-center gap-4 px-5 py-3.5">
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="flex items-center gap-2 text-sm font-medium text-text">
-                    {u.username}
-                    {u.totp_enabled && <Badge status="online">2FA</Badge>}
-                  </span>
-                  <span className="text-xs text-muted">创建于 {fmtTime(u.created_at)}</span>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <select
-                    value={u.role}
-                    onChange={(e) => void changeRole(u, e.target.value as Role)}
-                    disabled={busy}
-                    aria-label={`${u.username} 角色`}
-                    className="h-9 rounded-(--radius-card) border border-border bg-surface-2 px-2 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
-                  >
-                    {ROLES.map((r) => (
-                      <option key={r} value={r}>
-                        {r}
-                      </option>
-                    ))}
-                  </select>
-                  <Button size="sm" variant="ghost" onClick={() => void resetPassword(u)} disabled={busy}>
-                    重置密码
-                  </Button>
-                  <Button size="sm" variant="danger" onClick={() => void remove(u)} disabled={busy}>
-                    删除
-                  </Button>
-                </div>
-              </div>
+      </div>
+    </Modal>
+  )
+}
+
+function RoleModal({
+  user,
+  onClose,
+  onSaved,
+}: {
+  user: UserInfo
+  onClose: () => void
+  onSaved: (username: string, role: Role) => void
+}) {
+  const [role, setRole] = useState<Role>((user.role as Role) ?? 'operator')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function submit() {
+    if (role === user.role) {
+      onClose()
+      return
+    }
+    setBusy(true)
+    setErr(null)
+    try {
+      await apiFetch(`/api/m/users/users/${user.id}/role`, {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      })
+      onSaved(user.username, role)
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={`修改角色 · ${user.username}`} size="sm" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-sm font-medium text-muted">角色</span>
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as Role)}
+            aria-label="角色"
+            className="h-10 rounded-(--radius-sm) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          >
+            {ROLES.map((r) => (
+              <option key={r} value={r}>
+                {ROLE_LABEL[r]}
+              </option>
             ))}
-          </div>
+          </select>
+        </label>
+
+        {err && (
+          <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+            {err}
+          </p>
         )}
-      </Card>
-    </>
+
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            取消
+          </Button>
+          <Button onClick={() => void submit()} disabled={busy}>
+            {busy && <Spinner size={14} />}
+            保存
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function PasswordModal({
+  user,
+  onClose,
+  onSaved,
+}: {
+  user: UserInfo
+  onClose: () => void
+  onSaved: (username: string) => void
+}) {
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const valid = password.length >= 8
+
+  async function submit() {
+    if (!valid || busy) return
+    setBusy(true)
+    setErr(null)
+    try {
+      await apiFetch(`/api/m/users/users/${user.id}/reset-password`, {
+        method: 'POST',
+        body: JSON.stringify({ password }),
+      })
+      onSaved(user.username)
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={`重置密码 · ${user.username}`} size="sm" onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        <Input
+          label="新密码"
+          type="password"
+          placeholder="至少 8 位"
+          value={password}
+          autoFocus
+          error={password.length > 0 && !valid ? '至少 8 位' : undefined}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+
+        {err && (
+          <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+            {err}
+          </p>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            取消
+          </Button>
+          <Button onClick={() => void submit()} disabled={!valid || busy}>
+            {busy && <Spinner size={14} />}
+            重置密码
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
@@ -332,7 +544,10 @@ function TwoFactor() {
 
   return (
     <Card className="flex flex-col gap-4">
-      <h2 className="text-sm font-medium text-text">两步验证 (TOTP)</h2>
+      <h2 className="flex items-center gap-2 text-sm font-medium text-text">
+        <ShieldCheck size={15} className="text-warn" />
+        两步验证 (TOTP)
+      </h2>
       {setup ? (
         <div className="flex flex-col gap-3">
           <p className="text-sm text-muted">
@@ -438,10 +653,7 @@ function ApiKeys() {
     setBusy(true)
     setFeedback(null)
     try {
-      await apiFetch(`/api/m/users/api-keys/${k.id}`, {
-        method: 'DELETE',
-        headers: { 'X-Confirm-Danger': '1' },
-      })
+      await apiFetch(`/api/m/users/api-keys/${k.id}`, { method: 'DELETE', headers: DANGER })
       if (created?.id === k.id) setCreated(null)
       await load()
     } catch (e) {
@@ -453,7 +665,10 @@ function ApiKeys() {
 
   return (
     <Card className="flex flex-col gap-4">
-      <h2 className="text-sm font-medium text-text">API Key</h2>
+      <h2 className="flex items-center gap-2 text-sm font-medium text-text">
+        <KeyRound size={15} className="text-warn" />
+        API Key
+      </h2>
       <div className="flex flex-wrap items-end gap-2">
         <Input
           label="名称"
