@@ -23,6 +23,8 @@ import {
   Info,
   Pencil,
   FolderInput,
+  X,
+  Plus,
 } from 'lucide-react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
@@ -106,12 +108,97 @@ interface Menu {
   entry: DirEntry
 }
 
+// 一个目录标签:id 用于 React key 与切换,path 是该标签当前所在目录(根目录为空串)。
+interface DirTab {
+  id: string
+  path: string
+}
+
+const TABS_KEY = 'xpanel.files.tabs'
+
+function tabLabel(path: string): string {
+  return path ? baseName(path) : '根目录'
+}
+
+// 从 localStorage 恢复标签;数据非法或为空时回退到单个根目录标签。
+function loadTabs(): { tabs: DirTab[]; activeId: string } {
+  const fallback = () => {
+    const id = crypto.randomUUID()
+    return { tabs: [{ id, path: '' }], activeId: id }
+  }
+  try {
+    const raw = localStorage.getItem(TABS_KEY)
+    if (!raw) return fallback()
+    const parsed = JSON.parse(raw) as { tabs?: DirTab[]; activeId?: string }
+    const tabs = (parsed.tabs ?? []).filter(
+      (t): t is DirTab => typeof t?.id === 'string' && typeof t?.path === 'string',
+    )
+    if (tabs.length === 0) return fallback()
+    const activeId = tabs.some((t) => t.id === parsed.activeId) ? parsed.activeId! : tabs[0].id
+    return { tabs, activeId }
+  } catch {
+    return fallback()
+  }
+}
+
 export default function Files() {
   const { role } = useAuth()
   const canWrite = role === 'admin' || role === 'operator'
   const isAdmin = role === 'admin'
 
-  const [cwd, setCwd] = useState('')
+  const [{ tabs, activeId }, setTabState] = useState(loadTabs)
+  const cwd = tabs.find((t) => t.id === activeId)?.path ?? ''
+
+  // setCwd 更新活动标签的 path,签名兼容旧的 setState(支持函数式更新)。
+  const setCwd = useCallback(
+    (next: string | ((prev: string) => string)) => {
+      setTabState((s) => {
+        const cur = s.tabs.find((t) => t.id === s.activeId)?.path ?? ''
+        const path = typeof next === 'function' ? next(cur) : next
+        return {
+          ...s,
+          tabs: s.tabs.map((t) => (t.id === s.activeId ? { ...t, path } : t)),
+        }
+      })
+    },
+    [],
+  )
+
+  function selectTab(id: string) {
+    setTabState((s) => ({ ...s, activeId: id }))
+  }
+
+  function addTab() {
+    setTabState((s) => {
+      const id = crypto.randomUUID()
+      const cur = s.tabs.find((t) => t.id === s.activeId)?.path ?? ''
+      return { tabs: [...s.tabs, { id, path: cur }], activeId: id }
+    })
+  }
+
+  function openInNewTab(path: string) {
+    setTabState((s) => {
+      const id = crypto.randomUUID()
+      return { tabs: [...s.tabs, { id, path }], activeId: id }
+    })
+  }
+
+  function closeTab(id: string) {
+    setTabState((s) => {
+      if (s.tabs.length <= 1) return s
+      const idx = s.tabs.findIndex((t) => t.id === id)
+      const tabs = s.tabs.filter((t) => t.id !== id)
+      // 关掉活动标签时切到相邻标签(优先右侧,边界回退左侧)。
+      const activeId =
+        s.activeId === id ? (tabs[idx] ?? tabs[idx - 1] ?? tabs[0]).id : s.activeId
+      return { tabs, activeId }
+    })
+  }
+
+  useEffect(() => {
+    localStorage.setItem(TABS_KEY, JSON.stringify({ tabs, activeId }))
+  }, [tabs, activeId])
+
   const [pathInput, setPathInput] = useState('')
   const [editingPath, setEditingPath] = useState(false)
   const [entries, setEntries] = useState<DirEntry[]>([])
@@ -358,6 +445,14 @@ export default function Files() {
 
   return (
     <div className="flex flex-col gap-3" onClick={() => setNewMenu(false)}>
+      {/* 目录标签栏 */}
+      <DirTabs
+        tabs={tabs}
+        activeId={activeId}
+        onSelect={selectTab}
+        onAdd={addTab}
+        onClose={closeTab}
+      />
       {/* 面包屑路径栏 */}
       <Card className="flex flex-wrap items-center gap-2 py-2.5">
         <IconButton
@@ -750,6 +845,9 @@ export default function Files() {
                 if (e.is_dir) setCwd(joinPath(cwd, e.name))
                 else void openEditor(e)
                 break
+              case 'open-new-tab':
+                openInNewTab(joinPath(cwd, e.name))
+                break
               case 'download':
                 void download(e)
                 break
@@ -976,6 +1074,77 @@ export default function Files() {
   )
 }
 
+function DirTabs({
+  tabs,
+  activeId,
+  onSelect,
+  onAdd,
+  onClose,
+}: {
+  tabs: DirTab[]
+  activeId: string
+  onSelect: (id: string) => void
+  onAdd: () => void
+  onClose: (id: string) => void
+}) {
+  const closable = tabs.length > 1
+  return (
+    <div
+      role="tablist"
+      aria-label="目录标签"
+      className="flex items-center gap-1 overflow-x-auto rounded-(--radius-card) border border-border bg-surface-2/40 px-1.5 py-1.5"
+    >
+      {tabs.map((t) => {
+        const active = t.id === activeId
+        return (
+          <div
+            key={t.id}
+            role="tab"
+            tabIndex={0}
+            aria-selected={active}
+            title={t.path ? `/${t.path}` : '根目录'}
+            onClick={() => onSelect(t.id)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onSelect(t.id)
+              }
+            }}
+            className={`group flex shrink-0 cursor-pointer items-center gap-1.5 rounded-(--radius-sm) border px-2.5 py-1 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60 ${
+              active
+                ? 'border-brand/50 bg-surface text-text'
+                : 'border-transparent text-muted hover:bg-surface hover:text-text'
+            }`}
+          >
+            <FolderInput size={13} className={active ? 'text-brand' : 'text-faint'} />
+            <span className="max-w-40 truncate">{tabLabel(t.path)}</span>
+            {closable && (
+              <button
+                type="button"
+                aria-label={`关闭标签 ${tabLabel(t.path)}`}
+                title="关闭标签"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onClose(t.id)
+                }}
+                className="-mr-1 rounded p-0.5 text-faint opacity-60 transition hover:bg-surface-2 hover:text-crit group-hover:opacity-100"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        )
+      })}
+      <IconButton
+        aria-label="新建标签"
+        title="新建标签"
+        icon={<Plus size={16} />}
+        onClick={onAdd}
+      />
+    </div>
+  )
+}
+
 function MenuItem({
   icon,
   label,
@@ -1030,6 +1199,7 @@ function RowLink({
 
 type CtxAction =
   | 'open'
+  | 'open-new-tab'
   | 'download'
   | 'edit'
   | 'copy'
@@ -1090,6 +1260,13 @@ function ContextMenu({
         label={e.is_dir ? '进入' : '编辑'}
         onClick={() => onAction('open')}
       />
+      {e.is_dir && (
+        <MenuItem
+          icon={<Plus size={15} />}
+          label="在新标签打开"
+          onClick={() => onAction('open-new-tab')}
+        />
+      )}
       {!e.is_dir && (
         <MenuItem icon={<Download size={15} />} label="下载" onClick={() => onAction('download')} />
       )}
