@@ -39,15 +39,15 @@ function ext(name: string): string {
 function specFor(name: string, isDir: boolean): IconSpec {
   if (isDir) return { Icon: Folder, color: 'text-gold' }
   const e = ext(name)
-  if (e === 'json') return { Icon: FileJson, color: 'text-amber-300' }
-  if (CODE.has(e)) return { Icon: FileCode, color: 'text-sky-400' }
-  if (WEB.has(e)) return { Icon: FileCode, color: 'text-orange-400' }
-  if (CONFIG.has(e)) return { Icon: FileCog, color: 'text-slate-400' }
-  if (IMAGE.has(e)) return { Icon: FileImage, color: 'text-emerald-400' }
-  if (ARCHIVE.has(e)) return { Icon: FileArchive, color: 'text-amber-400' }
-  if (TEXT.has(e)) return { Icon: FileText, color: 'text-indigo-300' }
-  if (AUDIO.has(e)) return { Icon: FileAudio, color: 'text-pink-400' }
-  if (VIDEO.has(e)) return { Icon: FileVideo, color: 'text-rose-400' }
+  if (e === 'json') return { Icon: FileJson, color: 'text-amber-200' }
+  if (CODE.has(e)) return { Icon: FileCode, color: 'text-sky-300' }
+  if (WEB.has(e)) return { Icon: FileCode, color: 'text-orange-300' }
+  if (CONFIG.has(e)) return { Icon: FileCog, color: 'text-slate-200' }
+  if (IMAGE.has(e)) return { Icon: FileImage, color: 'text-emerald-300' }
+  if (ARCHIVE.has(e)) return { Icon: FileArchive, color: 'text-amber-300' }
+  if (TEXT.has(e)) return { Icon: FileText, color: 'text-indigo-200' }
+  if (AUDIO.has(e)) return { Icon: FileAudio, color: 'text-pink-300' }
+  if (VIDEO.has(e)) return { Icon: FileVideo, color: 'text-rose-300' }
   return { Icon: File, color: 'text-muted' }
 }
 
