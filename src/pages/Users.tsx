@@ -32,6 +32,7 @@ interface UserInfo {
   role: string
   created_at: number
   totp_enabled: boolean
+  last_login_at: number | null
 }
 
 interface ApiKeyInfo {
@@ -142,8 +143,11 @@ function UserTable() {
         key: 'last_login',
         header: '最近登录',
         width: '180px',
-        // 后端 UserInfo 暂无最近登录字段,占位待补。
-        cell: () => <span className="text-xs text-muted">—</span>,
+        cell: (u) => (
+          <span className="text-xs text-muted">
+            {u.last_login_at ? fmtTime(u.last_login_at) : '从未登录'}
+          </span>
+        ),
       },
       {
         key: 'actions',
