@@ -1,12 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
-import { Badge } from '../components/Badge'
 import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
+import { Badge } from '../components/Badge'
+import { Modal } from '../components/Modal'
+import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Plus, BellRing, History, SlidersHorizontal, SendHorizontal, Radio } from 'lucide-react'
+
+// alert 删除端点后端不强制 X-Confirm-Danger,这里仍随危险删除惯例带上,保持各页一致。
+const DANGER = { 'X-Confirm-Danger': '1' }
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -40,6 +45,12 @@ const KINDS = [
 ] as const
 type Kind = (typeof KINDS)[number]['value']
 
+const KIND_LABEL: Record<string, string> = {
+  email: '邮件',
+  webhook: 'Webhook',
+  telegram: 'Telegram',
+}
+
 interface Rule {
   id: number
   name: string
@@ -69,7 +80,7 @@ interface Channel {
   updated_at: number
 }
 
-interface History {
+interface AlertHistory {
   id: number
   rule_id: number
   rule_name: string
@@ -81,64 +92,19 @@ interface History {
   fired_at: number
 }
 
-interface RuleForm {
-  id: number | null
-  name: string
-  metric: Metric
-  comparator: Comparator
-  threshold: string
-  duration_sec: string
-  channel_id: string
-  enabled: boolean
+interface Settings {
+  interval_sec: number
+  silence_sec: number
 }
 
-const emptyRule: RuleForm = {
-  id: null,
-  name: '',
-  metric: 'cpu',
-  comparator: 'gt',
-  threshold: '80',
-  duration_sec: '60',
-  channel_id: '',
-  enabled: true,
-}
-
-interface ChannelForm {
-  id: number | null
-  name: string
-  kind: Kind
-  smtp_host: string
-  smtp_port: string
-  smtp_user: string
-  smtp_from: string
-  smtp_to: string
-  webhook_url: string
-  telegram_chat_id: string
-  secret: string
-}
-
-const emptyChannel: ChannelForm = {
-  id: null,
-  name: '',
-  kind: 'email',
-  smtp_host: '',
-  smtp_port: '587',
-  smtp_user: '',
-  smtp_from: '',
-  smtp_to: '',
-  webhook_url: '',
-  telegram_chat_id: '',
-  secret: '',
-}
-
-const fieldClass =
+const selectClass =
   'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
 
 function metricLabel(m: string): string {
   return METRICS.find((x) => x.value === m)?.label ?? m
 }
 
-/** 监控告警:告警规则(operator+)、通知渠道(admin,凭证只写,可测试发送)、告警历史、评估设置。 */
+/** 监控告警:告警规则(operator+)、通知渠道(admin,凭证只写,可测试发送)、告警历史、评估设置;aaPanel 风格紧凑表 + 固定弹窗。 */
 export default function Alert() {
   const { role } = useAuth()
   const canWriteRule = role === 'admin' || role === 'operator'
@@ -146,30 +112,26 @@ export default function Alert() {
 
   const [rules, setRules] = useState<Rule[]>([])
   const [channels, setChannels] = useState<Channel[]>([])
-  const [history, setHistory] = useState<History[]>([])
-  const [settings, setSettings] = useState<{ interval_sec: number; silence_sec: number } | null>(null)
+  const [settings, setSettings] = useState<Settings | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
-  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
-  const [busy, setBusy] = useState(false)
 
-  const [ruleForm, setRuleForm] = useState<RuleForm>(emptyRule)
-  const [chForm, setChForm] = useState<ChannelForm>(emptyChannel)
+  const [editingRule, setEditingRule] = useState<Rule | 'new' | null>(null)
+  const [channelsOpen, setChannelsOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoadErr(null)
     try {
-      const [r, c, h, s] = await Promise.all([
+      const [r, c, s] = await Promise.all([
         apiFetch<Rule[]>('/api/m/alert/rules'),
         apiFetch<Channel[]>('/api/m/alert/channels'),
-        apiFetch<History[]>('/api/m/alert/history'),
-        apiFetch<{ interval_sec: number; silence_sec: number }>('/api/m/alert/settings'),
+        apiFetch<Settings>('/api/m/alert/settings'),
       ])
       setRules(r)
       setChannels(c)
-      setHistory(h)
       setSettings(s)
-      setRuleForm((f) => (f.channel_id === '' && c[0] ? { ...f, channel_id: String(c[0].id) } : f))
     } catch (e) {
       setLoadErr(errorText(e))
     } finally {
@@ -181,54 +143,13 @@ export default function Alert() {
     void load()
   }, [load])
 
-  const channelName = (id: number): string =>
-    channels.find((c) => c.id === id)?.name ?? `渠道 #${id}`
-
-  // --- Rules ---
-  const thresholdNum = Number(ruleForm.threshold)
-  const durationNum = Number(ruleForm.duration_sec)
-  const canSubmitRule =
-    ruleForm.name.trim().length > 0 &&
-    Number.isFinite(thresholdNum) &&
-    Number.isInteger(durationNum) &&
-    durationNum >= 0 &&
-    ruleForm.channel_id !== '' &&
-    !busy &&
-    canWriteRule
-
-  async function submitRule() {
-    if (!canSubmitRule) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      const body = JSON.stringify({
-        name: ruleForm.name.trim(),
-        metric: ruleForm.metric,
-        comparator: ruleForm.comparator,
-        threshold: thresholdNum,
-        duration_sec: durationNum,
-        channel_id: Number(ruleForm.channel_id),
-        enabled: ruleForm.enabled,
-      })
-      if (ruleForm.id === null) {
-        await apiFetch('/api/m/alert/rules', { method: 'POST', body })
-        setFeedback({ kind: 'ok', text: '规则已创建' })
-      } else {
-        await apiFetch(`/api/m/alert/rules/${ruleForm.id}`, { method: 'PUT', body })
-        setFeedback({ kind: 'ok', text: '规则已更新' })
-      }
-      setRuleForm({ ...emptyRule, channel_id: ruleForm.channel_id })
-      await load()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
+  const channelName = useCallback(
+    (id: number): string => channels.find((c) => c.id === id)?.name ?? `渠道 #${id}`,
+    [channels],
+  )
 
   async function toggleRule(rule: Rule, next: boolean) {
     if (!canWriteRule) return
-    setFeedback(null)
     try {
       await apiFetch(`/api/m/alert/rules/${rule.id}`, {
         method: 'PUT',
@@ -244,176 +165,308 @@ export default function Alert() {
       })
       await load()
     } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
+      setLoadErr(errorText(e))
     }
   }
 
   async function deleteRule(rule: Rule) {
     if (!canWriteRule) return
-    if (!window.confirm(`确认删除规则 ${rule.name}?`)) return
-    setBusy(true)
-    setFeedback(null)
+    if (!window.confirm(`确认删除规则「${rule.name}」?此操作不可恢复。`)) return
     try {
-      await apiFetch(`/api/m/alert/rules/${rule.id}`, { method: 'DELETE' })
-      if (ruleForm.id === rule.id) setRuleForm({ ...emptyRule, channel_id: ruleForm.channel_id })
-      setFeedback({ kind: 'ok', text: '规则已删除' })
+      await apiFetch(`/api/m/alert/rules/${rule.id}`, { method: 'DELETE', headers: DANGER })
       await load()
     } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
+      setLoadErr(errorText(e))
     }
   }
 
-  function editRule(rule: Rule) {
-    setRuleForm({
-      id: rule.id,
-      name: rule.name,
-      metric: (METRICS.some((m) => m.value === rule.metric) ? rule.metric : 'cpu') as Metric,
-      comparator: (rule.comparator === 'lt' ? 'lt' : 'gt') as Comparator,
-      threshold: String(rule.threshold),
-      duration_sec: String(rule.duration_sec),
-      channel_id: String(rule.channel_id),
-      enabled: rule.enabled,
-    })
-    setFeedback(null)
-  }
-
-  // --- Channels ---
-  function channelPayload(): string {
-    const base: Record<string, unknown> = { name: chForm.name.trim(), kind: chForm.kind }
-    if (chForm.kind === 'email') {
-      base.smtp_host = chForm.smtp_host.trim()
-      base.smtp_port = Number(chForm.smtp_port) || 0
-      base.smtp_user = chForm.smtp_user.trim()
-      base.smtp_from = chForm.smtp_from.trim()
-      base.smtp_to = chForm.smtp_to.trim()
-    } else if (chForm.kind === 'webhook') {
-      base.webhook_url = chForm.webhook_url.trim()
-    } else {
-      base.telegram_chat_id = chForm.telegram_chat_id.trim()
-    }
-    if (chForm.secret.length > 0) base.secret = chForm.secret
-    return JSON.stringify(base)
-  }
-
-  const canSubmitChannel = chForm.name.trim().length > 0 && !busy && isAdmin
-
-  async function submitChannel() {
-    if (!canSubmitChannel) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      if (chForm.id === null) {
-        await apiFetch('/api/m/alert/channels', { method: 'POST', body: channelPayload() })
-        setFeedback({ kind: 'ok', text: '渠道已创建' })
-      } else {
-        await apiFetch(`/api/m/alert/channels/${chForm.id}`, {
-          method: 'PUT',
-          body: channelPayload(),
-        })
-        setFeedback({ kind: 'ok', text: '渠道已更新' })
-      }
-      setChForm(emptyChannel)
-      await load()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function deleteChannel(c: Channel) {
-    if (!isAdmin) return
-    if (!window.confirm(`确认删除渠道 ${c.name}?引用它的规则将失效。`)) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      await apiFetch(`/api/m/alert/channels/${c.id}`, { method: 'DELETE' })
-      if (chForm.id === c.id) setChForm(emptyChannel)
-      setFeedback({ kind: 'ok', text: '渠道已删除' })
-      await load()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function testChannel(c: Channel) {
-    if (!isAdmin) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      await apiFetch(`/api/m/alert/channels/${c.id}/test`, { method: 'POST' })
-      setFeedback({ kind: 'ok', text: `测试消息已发送至 ${c.name}` })
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function editChannel(c: Channel) {
-    setChForm({
-      id: c.id,
-      name: c.name,
-      kind: (KINDS.some((k) => k.value === c.kind) ? c.kind : 'email') as Kind,
-      smtp_host: c.smtp_host,
-      smtp_port: String(c.smtp_port || ''),
-      smtp_user: c.smtp_user,
-      smtp_from: c.smtp_from,
-      smtp_to: c.smtp_to,
-      webhook_url: c.webhook_url,
-      telegram_chat_id: c.telegram_chat_id,
-      secret: '',
-    })
-    setFeedback(null)
-  }
-
-  async function saveSettings() {
-    if (!settings || busy || !isAdmin) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      const res = await apiFetch<{ interval_sec: number; silence_sec: number }>(
-        '/api/m/alert/settings',
-        { method: 'PUT', body: JSON.stringify(settings) },
-      )
-      setSettings(res)
-      setFeedback({ kind: 'ok', text: '设置已保存' })
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const secretLabel =
-    chForm.kind === 'email'
-      ? 'SMTP 密码(只写)'
-      : chForm.kind === 'webhook'
-        ? 'Bearer token(只写,可选)'
-        : 'Bot token(只写)'
+  const columns: Column<Rule>[] = useMemo(
+    () => [
+      {
+        key: 'name',
+        header: '规则名',
+        cell: (rule) => (
+          <div className="flex min-w-0 items-center gap-2">
+            <BellRing size={15} className="shrink-0 text-warn" />
+            <span className="truncate font-medium text-text">{rule.name}</span>
+          </div>
+        ),
+      },
+      {
+        key: 'metric',
+        header: '监控指标',
+        width: '150px',
+        cell: (rule) => <span className="text-muted">{metricLabel(rule.metric)}</span>,
+      },
+      {
+        key: 'threshold',
+        header: '阈值',
+        width: '150px',
+        cell: (rule) => (
+          <span className="font-[family-name:var(--font-mono)] text-xs text-muted">
+            {rule.comparator === 'lt' ? '<' : '>'} {rule.threshold}
+            <span className="text-text/60"> · {rule.duration_sec}s</span>
+          </span>
+        ),
+      },
+      {
+        key: 'channel',
+        header: '通知渠道',
+        width: '160px',
+        cell: (rule) => <span className="truncate text-muted">{channelName(rule.channel_id)}</span>,
+      },
+      {
+        key: 'status',
+        header: '状态',
+        width: '64px',
+        cell: (rule) => (
+          <Switch
+            checked={rule.enabled}
+            onChange={(next) => void toggleRule(rule, next)}
+            disabled={!canWriteRule}
+            aria-label={`${rule.enabled ? '停用' : '启用'} 规则 ${rule.name}`}
+          />
+        ),
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '120px',
+        align: 'right',
+        cell: (rule) => (
+          <ActionLinks>
+            <ActionLink disabled={!canWriteRule} onClick={() => setEditingRule(rule)}>
+              编辑
+            </ActionLink>
+            <ActionLink
+              danger
+              disabled={!canWriteRule}
+              aria-label="删除规则"
+              title={canWriteRule ? '删除规则' : '需要 operator 或 admin 角色'}
+              onClick={() => void deleteRule(rule)}
+            >
+              删除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    [canWriteRule, channelName],
+  )
 
   return (
     <div className="flex flex-col gap-4">
-      <Card className="flex flex-col gap-4">
-        <h2 className="text-sm font-medium text-text">
-          {ruleForm.id === null ? '新增告警规则' : `编辑规则 #${ruleForm.id}`}
-        </h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Input
-            label="规则名称"
-            value={ruleForm.name}
-            onChange={(e) => setRuleForm((f) => ({ ...f, name: e.target.value }))}
-          />
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+            监控告警
+          </h1>
+          <p className="text-xs text-muted">
+            {rules.length > 0
+              ? `共 ${rules.length} 条告警规则`
+              : '按指标阈值触发告警,经通知渠道推送'}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" size="md" onClick={() => setChannelsOpen(true)}>
+            <Radio size={15} />
+            通知渠道
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => setHistoryOpen(true)}>
+            <History size={15} />
+            告警历史
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+            <SlidersHorizontal size={15} />
+            评估设置
+          </Button>
+          <Button size="md" disabled={!canWriteRule} onClick={() => setEditingRule('new')}>
+            <Plus size={15} />
+            添加规则
+          </Button>
+        </div>
+      </header>
+
+      {loadErr && rules.length === 0 && !loading && (
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
+          </Button>
+        </p>
+      )}
+
+      {loading ? (
+        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      ) : (
+        <Table
+          columns={columns}
+          rows={rules}
+          rowKey={(rule) => rule.id}
+          emptyText={
+            <span className="flex flex-col items-center gap-1 py-6">
+              <span className="text-sm font-medium text-text">还没有告警规则</span>
+              <span className="text-xs text-muted">
+                {channels.length === 0
+                  ? '先在「通知渠道」创建一个渠道,再「添加规则」。'
+                  : '点击「添加规则」创建你的第一条告警规则。'}
+              </span>
+            </span>
+          }
+        />
+      )}
+
+      {!canWriteRule && (
+        <p className="text-xs text-muted">规则写操作需要 operator 或 admin 角色,渠道与设置需要 admin。</p>
+      )}
+
+      {editingRule && (
+        <RuleModal
+          rule={editingRule === 'new' ? null : editingRule}
+          channels={channels}
+          canWrite={canWriteRule}
+          onClose={() => setEditingRule(null)}
+          onSaved={() => {
+            setEditingRule(null)
+            void load()
+          }}
+        />
+      )}
+      {channelsOpen && (
+        <ChannelsModal
+          channels={channels}
+          isAdmin={isAdmin}
+          onClose={() => setChannelsOpen(false)}
+          onChanged={() => void load()}
+        />
+      )}
+      {historyOpen && <HistoryModal onClose={() => setHistoryOpen(false)} />}
+      {settingsOpen && settings && (
+        <SettingsModal
+          settings={settings}
+          isAdmin={isAdmin}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={(s) => {
+            setSettings(s)
+            setSettingsOpen(false)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+interface RuleForm {
+  name: string
+  metric: Metric
+  comparator: Comparator
+  threshold: string
+  duration_sec: string
+  channel_id: string
+  enabled: boolean
+}
+
+function ruleToForm(rule: Rule | null, channels: Channel[]): RuleForm {
+  if (!rule) {
+    return {
+      name: '',
+      metric: 'cpu',
+      comparator: 'gt',
+      threshold: '80',
+      duration_sec: '60',
+      channel_id: channels[0] ? String(channels[0].id) : '',
+      enabled: true,
+    }
+  }
+  return {
+    name: rule.name,
+    metric: (METRICS.some((m) => m.value === rule.metric) ? rule.metric : 'cpu') as Metric,
+    comparator: (rule.comparator === 'lt' ? 'lt' : 'gt') as Comparator,
+    threshold: String(rule.threshold),
+    duration_sec: String(rule.duration_sec),
+    channel_id: String(rule.channel_id),
+    enabled: rule.enabled,
+  }
+}
+
+/** RuleModal 新建/编辑告警规则弹窗:指标 + 比较器 + 阈值 + 持续时间 + 通知渠道,固定尺寸表单。 */
+function RuleModal({
+  rule,
+  channels,
+  canWrite,
+  onClose,
+  onSaved,
+}: {
+  rule: Rule | null
+  channels: Channel[]
+  canWrite: boolean
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [form, setForm] = useState<RuleForm>(() => ruleToForm(rule, channels))
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const thresholdNum = Number(form.threshold)
+  const durationNum = Number(form.duration_sec)
+  const canSubmit =
+    canWrite &&
+    !busy &&
+    form.name.trim().length > 0 &&
+    Number.isFinite(thresholdNum) &&
+    Number.isInteger(durationNum) &&
+    durationNum >= 0 &&
+    form.channel_id !== ''
+
+  function set<K extends keyof RuleForm>(key: K, value: RuleForm[K]) {
+    setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  async function submit() {
+    if (!canSubmit) return
+    setBusy(true)
+    setErr(null)
+    try {
+      const body = JSON.stringify({
+        name: form.name.trim(),
+        metric: form.metric,
+        comparator: form.comparator,
+        threshold: thresholdNum,
+        duration_sec: durationNum,
+        channel_id: Number(form.channel_id),
+        enabled: form.enabled,
+      })
+      if (rule === null) {
+        await apiFetch('/api/m/alert/rules', { method: 'POST', body })
+      } else {
+        await apiFetch(`/api/m/alert/rules/${rule.id}`, { method: 'PUT', body })
+      }
+      onSaved()
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={rule === null ? '添加告警规则' : `编辑规则 #${rule.id}`} onClose={onClose} size="md">
+      <div className="flex flex-col gap-4">
+        <Input
+          label="规则名称"
+          placeholder="例如 CPU 持续过高"
+          value={form.name}
+          autoFocus
+          onChange={(e) => set('name', e.target.value)}
+        />
+
+        <div className="grid gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-muted">指标</span>
+            <span className="text-xs font-medium text-muted">监控指标</span>
             <select
-              value={ruleForm.metric}
-              onChange={(e) => setRuleForm((f) => ({ ...f, metric: e.target.value as Metric }))}
-              className={fieldClass}
+              value={form.metric}
+              onChange={(e) => set('metric', e.target.value as Metric)}
+              className={selectClass}
             >
               {METRICS.map((m) => (
                 <option key={m.value} value={m.value}>
@@ -423,11 +476,11 @@ export default function Alert() {
             </select>
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-muted">比较</span>
+            <span className="text-xs font-medium text-muted">比较方式</span>
             <select
-              value={ruleForm.comparator}
-              onChange={(e) => setRuleForm((f) => ({ ...f, comparator: e.target.value as Comparator }))}
-              className={fieldClass}
+              value={form.comparator}
+              onChange={(e) => set('comparator', e.target.value as Comparator)}
+              className={selectClass}
             >
               {COMPARATORS.map((c) => (
                 <option key={c.value} value={c.value}>
@@ -436,136 +489,352 @@ export default function Alert() {
               ))}
             </select>
           </label>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
           <Input
             label="阈值"
             inputMode="decimal"
-            value={ruleForm.threshold}
-            onChange={(e) => setRuleForm((f) => ({ ...f, threshold: e.target.value }))}
+            value={form.threshold}
+            error={
+              form.threshold.length > 0 && !Number.isFinite(thresholdNum) ? '阈值需为数字' : undefined
+            }
+            onChange={(e) => set('threshold', e.target.value)}
           />
           <Input
             label="持续时间(秒)"
             inputMode="numeric"
-            value={ruleForm.duration_sec}
-            onChange={(e) => setRuleForm((f) => ({ ...f, duration_sec: e.target.value }))}
+            value={form.duration_sec}
+            error={
+              form.duration_sec.length > 0 && (!Number.isInteger(durationNum) || durationNum < 0)
+                ? '需为非负整数'
+                : undefined
+            }
+            onChange={(e) => set('duration_sec', e.target.value)}
           />
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-muted">通知渠道</span>
-            <select
-              value={ruleForm.channel_id}
-              onChange={(e) => setRuleForm((f) => ({ ...f, channel_id: e.target.value }))}
-              className={fieldClass}
-            >
-              <option value="">选择渠道…</option>
-              {channels.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2">
-            <Switch
-              checked={ruleForm.enabled}
-              onChange={(next) => setRuleForm((f) => ({ ...f, enabled: next }))}
-              disabled={!canWriteRule}
-              aria-label="启用规则"
-            />
-            <span className="text-sm text-muted">启用</span>
-          </label>
-          <Button onClick={() => void submitRule()} disabled={!canSubmitRule}>
-            {ruleForm.id === null ? '创建规则' : '保存'}
-          </Button>
-          {ruleForm.id !== null && (
-            <Button
-              variant="ghost"
-              onClick={() => setRuleForm({ ...emptyRule, channel_id: ruleForm.channel_id })}
-              disabled={busy}
-            >
-              取消
-            </Button>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-muted">通知渠道</span>
+          <select
+            value={form.channel_id}
+            onChange={(e) => set('channel_id', e.target.value)}
+            className={selectClass}
+          >
+            <option value="">选择渠道…</option>
+            {channels.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          {channels.length === 0 && (
+            <span className="text-xs text-warn">尚无通知渠道,请先在「通知渠道」创建。</span>
           )}
-          {busy && <Spinner size={16} />}
-        </div>
-        {channels.length === 0 && (
-          <p className="text-xs text-warn">尚无通知渠道,请先在下方创建渠道。</p>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <Switch
+            checked={form.enabled}
+            onChange={(next) => set('enabled', next)}
+            disabled={!canWrite}
+            aria-label="启用规则"
+          />
+          <span className="text-sm text-text">启用</span>
+        </label>
+
+        {err && (
+          <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+            {err}
+          </p>
         )}
-        {!canWriteRule && <p className="text-xs text-muted">规则写操作需要 operator 或 admin 角色。</p>}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button onClick={() => void submit()} disabled={!canSubmit}>
+            {busy && <Spinner size={14} />}
+            {rule === null ? '创建规则' : '保存'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+interface ChannelFormState {
+  name: string
+  kind: Kind
+  smtp_host: string
+  smtp_port: string
+  smtp_user: string
+  smtp_from: string
+  smtp_to: string
+  webhook_url: string
+  telegram_chat_id: string
+  secret: string
+}
+
+function channelToForm(c: Channel | null): ChannelFormState {
+  if (!c) {
+    return {
+      name: '',
+      kind: 'email',
+      smtp_host: '',
+      smtp_port: '587',
+      smtp_user: '',
+      smtp_from: '',
+      smtp_to: '',
+      webhook_url: '',
+      telegram_chat_id: '',
+      secret: '',
+    }
+  }
+  return {
+    name: c.name,
+    kind: (KINDS.some((k) => k.value === c.kind) ? c.kind : 'email') as Kind,
+    smtp_host: c.smtp_host,
+    smtp_port: String(c.smtp_port || ''),
+    smtp_user: c.smtp_user,
+    smtp_from: c.smtp_from,
+    smtp_to: c.smtp_to,
+    webhook_url: c.webhook_url,
+    telegram_chat_id: c.telegram_chat_id,
+    secret: '',
+  }
+}
+
+/** ChannelsModal 通知渠道管理弹窗:渠道紧凑表 + 新建/编辑弹窗(凭证只写,可测试发送)。 */
+function ChannelsModal({
+  channels,
+  isAdmin,
+  onClose,
+  onChanged,
+}: {
+  channels: Channel[]
+  isAdmin: boolean
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const [editing, setEditing] = useState<Channel | 'new' | null>(null)
+  const [busyId, setBusyId] = useState<number | null>(null)
+  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+
+  async function test(c: Channel) {
+    if (!isAdmin) return
+    setBusyId(c.id)
+    setFeedback(null)
+    try {
+      await apiFetch(`/api/m/alert/channels/${c.id}/test`, { method: 'POST' })
+      setFeedback({ kind: 'ok', text: `测试消息已发送至 ${c.name}` })
+    } catch (e) {
+      setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function remove(c: Channel) {
+    if (!isAdmin) return
+    if (!window.confirm(`确认删除渠道「${c.name}」?引用它的规则将失效。`)) return
+    setBusyId(c.id)
+    setFeedback(null)
+    try {
+      await apiFetch(`/api/m/alert/channels/${c.id}`, { method: 'DELETE', headers: DANGER })
+      setFeedback({ kind: 'ok', text: '渠道已删除' })
+      onChanged()
+    } catch (e) {
+      setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const columns: Column<Channel>[] = [
+    {
+      key: 'name',
+      header: '渠道名',
+      cell: (c) => (
+        <div className="flex min-w-0 items-center gap-2">
+          <SendHorizontal size={15} className="shrink-0 text-warn" />
+          <span className="truncate font-medium text-text">{c.name}</span>
+        </div>
+      ),
+    },
+    {
+      key: 'kind',
+      header: '类型',
+      width: '96px',
+      cell: (c) => <span className="text-muted">{KIND_LABEL[c.kind] ?? c.kind}</span>,
+    },
+    {
+      key: 'secret',
+      header: '凭证',
+      width: '110px',
+      cell: (c) =>
+        c.has_secret ? <Badge status="online">已配置</Badge> : <Badge status="neutral">未配置</Badge>,
+    },
+    {
+      key: 'actions',
+      header: '操作',
+      width: '170px',
+      align: 'right',
+      cell: (c) => (
+        <ActionLinks>
+          <ActionLink disabled={!isAdmin || busyId === c.id} onClick={() => void test(c)}>
+            {busyId === c.id ? '处理中' : '测试'}
+          </ActionLink>
+          <ActionLink disabled={!isAdmin} onClick={() => setEditing(c)}>
+            编辑
+          </ActionLink>
+          <ActionLink
+            danger
+            disabled={!isAdmin}
+            aria-label="删除渠道"
+            title={isAdmin ? '删除渠道' : '需要 admin 角色'}
+            onClick={() => void remove(c)}
+          >
+            删除
+          </ActionLink>
+        </ActionLinks>
+      ),
+    },
+  ]
+
+  if (editing) {
+    return (
+      <ChannelEditModal
+        channel={editing === 'new' ? null : editing}
+        isAdmin={isAdmin}
+        onClose={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null)
+          onChanged()
+        }}
+      />
+    )
+  }
+
+  return (
+    <Modal title="通知渠道" onClose={onClose} size="lg">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-muted">凭证只写不回显;新建后可「测试」验证可达性。</p>
+          <Button size="sm" disabled={!isAdmin} onClick={() => setEditing('new')}>
+            <Plus size={14} />
+            新增渠道
+          </Button>
+        </div>
+
         {feedback && (
           <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
             {feedback.text}
           </p>
         )}
-      </Card>
 
-      <Card className="p-0">
-        <div className="px-5 py-3">
-          <span className="text-sm font-medium text-text">告警规则</span>
-        </div>
-        {loading ? (
-          <div className="flex h-24 items-center justify-center">
-            <Spinner size={24} />
-          </div>
-        ) : loadErr && rules.length === 0 ? (
-          <p className="px-5 pb-4 text-sm text-muted">{loadErr}</p>
-        ) : rules.length === 0 ? (
-          <p className="px-5 pb-4 text-sm text-muted">暂无告警规则。</p>
-        ) : (
-          <div className="divide-y divide-border border-t border-border">
-            {rules.map((rule) => (
-              <div key={rule.id} className="flex items-center gap-4 px-5 py-3">
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="truncate text-sm font-medium text-text">{rule.name}</span>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-                    <span>
-                      {metricLabel(rule.metric)} {rule.comparator === 'lt' ? '<' : '>'} {rule.threshold}
-                    </span>
-                    <span>持续 {rule.duration_sec}s</span>
-                    <span>→ {channelName(rule.channel_id)}</span>
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-3">
-                  <Switch
-                    checked={rule.enabled}
-                    onChange={(next) => void toggleRule(rule, next)}
-                    disabled={!canWriteRule}
-                    aria-label={`${rule.enabled ? '停用' : '启用'} 规则 ${rule.name}`}
-                  />
-                  <Button size="sm" variant="ghost" onClick={() => editRule(rule)} disabled={!canWriteRule}>
-                    编辑
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => void deleteRule(rule)}
-                    disabled={!canWriteRule}
-                  >
-                    删除
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+        <Table
+          columns={columns}
+          rows={channels}
+          rowKey={(c) => c.id}
+          emptyText={
+            <span className="flex flex-col items-center gap-1 py-6">
+              <span className="text-sm font-medium text-text">还没有通知渠道</span>
+              <span className="text-xs text-muted">点击「新增渠道」配置邮件 / Webhook / Telegram。</span>
+            </span>
+          }
+        />
 
-      <Card className="flex flex-col gap-4">
-        <h2 className="text-sm font-medium text-text">
-          {chForm.id === null ? '新增通知渠道' : `编辑渠道 #${chForm.id}`}
-        </h2>
+        {!isAdmin && <p className="text-xs text-muted">通知渠道操作需要 admin 角色。</p>}
+      </div>
+    </Modal>
+  )
+}
+
+/** ChannelEditModal 新建/编辑通知渠道弹窗:类型切换展开对应字段,密钥只写(留空保持不变)。 */
+function ChannelEditModal({
+  channel,
+  isAdmin,
+  onClose,
+  onSaved,
+}: {
+  channel: Channel | null
+  isAdmin: boolean
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [form, setForm] = useState<ChannelFormState>(() => channelToForm(channel))
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const canSubmit = isAdmin && !busy && form.name.trim().length > 0
+
+  function set<K extends keyof ChannelFormState>(key: K, value: ChannelFormState[K]) {
+    setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  function payload(): string {
+    const base: Record<string, unknown> = { name: form.name.trim(), kind: form.kind }
+    if (form.kind === 'email') {
+      base.smtp_host = form.smtp_host.trim()
+      base.smtp_port = Number(form.smtp_port) || 0
+      base.smtp_user = form.smtp_user.trim()
+      base.smtp_from = form.smtp_from.trim()
+      base.smtp_to = form.smtp_to.trim()
+    } else if (form.kind === 'webhook') {
+      base.webhook_url = form.webhook_url.trim()
+    } else {
+      base.telegram_chat_id = form.telegram_chat_id.trim()
+    }
+    if (form.secret.length > 0) base.secret = form.secret
+    return JSON.stringify(base)
+  }
+
+  async function submit() {
+    if (!canSubmit) return
+    setBusy(true)
+    setErr(null)
+    try {
+      if (channel === null) {
+        await apiFetch('/api/m/alert/channels', { method: 'POST', body: payload() })
+      } else {
+        await apiFetch(`/api/m/alert/channels/${channel.id}`, { method: 'PUT', body: payload() })
+      }
+      onSaved()
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const secretLabel =
+    form.kind === 'email'
+      ? 'SMTP 密码(只写)'
+      : form.kind === 'webhook'
+        ? 'Bearer token(只写,可选)'
+        : 'Bot token(只写)'
+
+  return (
+    <Modal
+      title={channel === null ? '新增通知渠道' : `编辑渠道 #${channel.id}`}
+      onClose={onClose}
+      size="md"
+    >
+      <div className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
             label="渠道名称"
-            value={chForm.name}
-            onChange={(e) => setChForm((f) => ({ ...f, name: e.target.value }))}
+            value={form.name}
+            autoFocus
+            onChange={(e) => set('name', e.target.value)}
           />
           <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-muted">类型</span>
+            <span className="text-xs font-medium text-muted">类型</span>
             <select
-              value={chForm.kind}
-              onChange={(e) => setChForm((f) => ({ ...f, kind: e.target.value as Kind }))}
-              className={fieldClass}
+              value={form.kind}
+              onChange={(e) => set('kind', e.target.value as Kind)}
+              className={selectClass}
             >
               {KINDS.map((k) => (
                 <option key={k.value} value={k.value}>
@@ -575,164 +844,230 @@ export default function Alert() {
             </select>
           </label>
         </div>
-        {chForm.kind === 'email' && (
+
+        {form.kind === 'email' && (
           <div className="grid gap-4 sm:grid-cols-2">
             <Input
               label="SMTP 主机"
               spellCheck={false}
-              value={chForm.smtp_host}
-              onChange={(e) => setChForm((f) => ({ ...f, smtp_host: e.target.value }))}
+              value={form.smtp_host}
+              onChange={(e) => set('smtp_host', e.target.value)}
             />
             <Input
               label="SMTP 端口"
               inputMode="numeric"
-              value={chForm.smtp_port}
-              onChange={(e) => setChForm((f) => ({ ...f, smtp_port: e.target.value }))}
+              value={form.smtp_port}
+              onChange={(e) => set('smtp_port', e.target.value)}
             />
             <Input
               label="SMTP 用户名(可选)"
               spellCheck={false}
-              value={chForm.smtp_user}
-              onChange={(e) => setChForm((f) => ({ ...f, smtp_user: e.target.value }))}
+              value={form.smtp_user}
+              onChange={(e) => set('smtp_user', e.target.value)}
             />
             <Input
               label="发件地址 (from)"
               spellCheck={false}
-              value={chForm.smtp_from}
-              onChange={(e) => setChForm((f) => ({ ...f, smtp_from: e.target.value }))}
+              value={form.smtp_from}
+              onChange={(e) => set('smtp_from', e.target.value)}
             />
             <Input
               label="收件地址(逗号分隔)"
               spellCheck={false}
               className="sm:col-span-2"
-              value={chForm.smtp_to}
-              onChange={(e) => setChForm((f) => ({ ...f, smtp_to: e.target.value }))}
+              value={form.smtp_to}
+              onChange={(e) => set('smtp_to', e.target.value)}
             />
           </div>
         )}
-        {chForm.kind === 'webhook' && (
+        {form.kind === 'webhook' && (
           <Input
             label="Webhook URL"
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
             className="font-[family-name:var(--font-mono)]"
-            value={chForm.webhook_url}
-            onChange={(e) => setChForm((f) => ({ ...f, webhook_url: e.target.value }))}
+            value={form.webhook_url}
+            onChange={(e) => set('webhook_url', e.target.value)}
           />
         )}
-        {chForm.kind === 'telegram' && (
+        {form.kind === 'telegram' && (
           <Input
             label="Telegram chat id"
             spellCheck={false}
-            value={chForm.telegram_chat_id}
-            onChange={(e) => setChForm((f) => ({ ...f, telegram_chat_id: e.target.value }))}
+            value={form.telegram_chat_id}
+            onChange={(e) => set('telegram_chat_id', e.target.value)}
           />
         )}
+
         <Input
-          label={`${secretLabel}${chForm.id !== null ? ' · 留空保持不变' : ''}`}
+          label={`${secretLabel}${channel !== null ? ' · 留空保持不变' : ''}`}
           type="password"
           autoComplete="off"
-          value={chForm.secret}
-          onChange={(e) => setChForm((f) => ({ ...f, secret: e.target.value }))}
+          value={form.secret}
+          onChange={(e) => set('secret', e.target.value)}
         />
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => void submitChannel()} disabled={!canSubmitChannel}>
-            {chForm.id === null ? '创建渠道' : '保存'}
-          </Button>
-          {chForm.id !== null && (
-            <Button variant="ghost" onClick={() => setChForm(emptyChannel)} disabled={busy}>
-              取消
-            </Button>
-          )}
-        </div>
-        {!isAdmin && <p className="text-xs text-muted">通知渠道操作需要 admin 角色。</p>}
 
-        {channels.length > 0 && (
-          <div className="divide-y divide-border rounded-(--radius-card) border border-border">
-            {channels.map((c) => (
-              <div key={c.id} className="flex items-center gap-4 px-4 py-2.5">
-                <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <span className="truncate text-sm font-medium text-text">{c.name}</span>
-                  <Badge status="neutral">{c.kind}</Badge>
-                  {c.has_secret && <Badge status="online">凭证已配置</Badge>}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => void testChannel(c)} disabled={!isAdmin}>
-                    测试发送
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => editChannel(c)} disabled={!isAdmin}>
-                    编辑
-                  </Button>
-                  <Button size="sm" variant="danger" onClick={() => void deleteChannel(c)} disabled={!isAdmin}>
-                    删除
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
+        {err && (
+          <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+            {err}
+          </p>
         )}
-      </Card>
 
-      <Card className="p-0">
-        <div className="flex items-center justify-between px-5 py-3">
-          <span className="text-sm font-medium text-text">告警历史</span>
-          <Button size="sm" variant="ghost" onClick={() => void load()} disabled={busy}>
-            刷新
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button onClick={() => void submit()} disabled={!canSubmit}>
+            {busy && <Spinner size={14} />}
+            {channel === null ? '创建渠道' : '保存'}
           </Button>
         </div>
-        {history.length === 0 ? (
-          <p className="px-5 pb-4 text-sm text-muted">暂无告警记录。</p>
-        ) : (
-          <div className="divide-y divide-border border-t border-border">
-            {history.map((h) => (
-              <div key={h.id} className="flex items-center gap-4 px-5 py-3">
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-text">{h.rule_name}</span>
-                    <Badge status={h.notified ? 'online' : 'warn'}>
-                      {h.notified ? '已通知' : '未通知'}
-                    </Badge>
-                  </div>
-                  <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
-                    {h.detail}
-                  </span>
-                </div>
-                <span className="shrink-0 text-xs text-muted">{fmtTime(h.fired_at)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      </div>
+    </Modal>
+  )
+}
 
-      {settings && (
-        <Card className="flex flex-col gap-4">
-          <h2 className="text-sm font-medium text-text">评估设置</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              label="评估间隔(秒,5–3600)"
-              inputMode="numeric"
-              value={String(settings.interval_sec)}
-              onChange={(e) =>
-                setSettings((s) => (s ? { ...s, interval_sec: Number(e.target.value) || 0 } : s))
-              }
-            />
-            <Input
-              label="静默时长(秒,0–86400)"
-              inputMode="numeric"
-              value={String(settings.silence_sec)}
-              onChange={(e) =>
-                setSettings((s) => (s ? { ...s, silence_sec: Number(e.target.value) || 0 } : s))
-              }
-            />
-          </div>
-          <div>
-            <Button onClick={() => void saveSettings()} disabled={busy || !isAdmin}>
-              保存设置
-            </Button>
-          </div>
-        </Card>
+/** HistoryModal 告警历史弹窗:触发记录紧凑表,展示规则 / 指标实测值 / 是否已通知 / 触发时间。 */
+function HistoryModal({ onClose }: { onClose: () => void }) {
+  const [history, setHistory] = useState<AlertHistory[] | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    apiFetch<AlertHistory[]>('/api/m/alert/history')
+      .then((d) => alive && setHistory(d))
+      .catch((e) => alive && setErr(errorText(e)))
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const columns: Column<AlertHistory>[] = [
+    {
+      key: 'rule',
+      header: '规则',
+      cell: (h) => <span className="truncate font-medium text-text">{h.rule_name}</span>,
+    },
+    {
+      key: 'metric',
+      header: '触发条件',
+      width: '220px',
+      cell: (h) => (
+        <span className="font-[family-name:var(--font-mono)] text-xs text-muted">
+          {metricLabel(h.metric)} · 实测 {h.value} / 阈值 {h.threshold}
+        </span>
+      ),
+    },
+    {
+      key: 'notified',
+      header: '通知',
+      width: '90px',
+      cell: (h) => (
+        <Badge status={h.notified ? 'online' : 'warn'}>{h.notified ? '已通知' : '未通知'}</Badge>
+      ),
+    },
+    {
+      key: 'fired',
+      header: '触发时间',
+      width: '180px',
+      align: 'right',
+      cell: (h) => <span className="text-xs text-muted">{fmtTime(h.fired_at)}</span>,
+    },
+  ]
+
+  return (
+    <Modal title="告警历史" onClose={onClose} size="lg">
+      {err ? (
+        <p className="text-sm text-crit">{err}</p>
+      ) : history === null ? (
+        <div className="flex h-32 items-center justify-center">
+          <Spinner size={24} />
+        </div>
+      ) : (
+        <Table
+          columns={columns}
+          rows={history}
+          rowKey={(h) => h.id}
+          emptyText={
+            <span className="flex flex-col items-center gap-1 py-6">
+              <span className="text-sm font-medium text-text">暂无告警记录</span>
+              <span className="text-xs text-muted">规则触发后,这里会出现历史记录。</span>
+            </span>
+          }
+        />
       )}
-    </div>
+    </Modal>
+  )
+}
+
+/** SettingsModal 评估设置弹窗:评估间隔与静默时长,admin 可改。 */
+function SettingsModal({
+  settings,
+  isAdmin,
+  onClose,
+  onSaved,
+}: {
+  settings: Settings
+  isAdmin: boolean
+  onClose: () => void
+  onSaved: (s: Settings) => void
+}) {
+  const [form, setForm] = useState<Settings>(settings)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  async function save() {
+    if (!isAdmin || busy) return
+    setBusy(true)
+    setErr(null)
+    try {
+      const res = await apiFetch<Settings>('/api/m/alert/settings', {
+        method: 'PUT',
+        body: JSON.stringify(form),
+      })
+      onSaved(res)
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="评估设置" onClose={onClose} size="sm">
+      <div className="flex flex-col gap-4">
+        <Input
+          label="评估间隔(秒,5–3600)"
+          inputMode="numeric"
+          value={String(form.interval_sec)}
+          onChange={(e) => setForm((s) => ({ ...s, interval_sec: Number(e.target.value) || 0 }))}
+        />
+        <Input
+          label="静默时长(秒,0–86400)"
+          inputMode="numeric"
+          value={String(form.silence_sec)}
+          onChange={(e) => setForm((s) => ({ ...s, silence_sec: Number(e.target.value) || 0 }))}
+        />
+
+        {!isAdmin && <p className="text-xs text-muted">评估设置需要 admin 角色。</p>}
+
+        {err && (
+          <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+            {err}
+          </p>
+        )}
+
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button onClick={() => void save()} disabled={busy || !isAdmin}>
+            {busy && <Spinner size={14} />}
+            保存设置
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
