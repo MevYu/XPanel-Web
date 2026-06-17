@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, lazy, Suspense} from 'react'
 import {
   RefreshCw,
   FolderPlus,
@@ -28,6 +28,8 @@ import {
   Minus,
   Save,
   WrapText,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
@@ -46,6 +48,12 @@ import {
   type CursorStats,
 } from '../components/CodeEditor'
 import { languageFromFilename, languageLabel } from '../components/codeEditorLang'
+import { FileTreeSidebar } from '../components/editor/FileTreeSidebar'
+
+// 懒加载查找/替换栏:它引用 @codemirror/search 运行时,懒加载避免把 codemirror 拉进首屏主包。
+const SearchBar = lazy(() =>
+  import('../components/editor/SearchBar').then((m) => ({ default: m.SearchBar })),
+)
 
 const DANGER = { 'X-Confirm-Danger': '1' }
 
@@ -225,12 +233,7 @@ export default function Files() {
   const [menu, setMenu] = useState<Menu | null>(null)
   const [newMenu, setNewMenu] = useState(false)
 
-  const [editing, setEditing] = useState<{
-    path: string
-    text: string
-    saved: string
-  } | null>(null)
-  const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState<{ path: string; text: string } | null>(null)
   const [sharing, setSharing] = useState<{ path: string; isDir: boolean } | null>(null)
   const [showShares, setShowShares] = useState(false)
   const [showTrash, setShowTrash] = useState(false)
@@ -303,43 +306,49 @@ export default function Files() {
     }
   }
 
+  // readFileText 读取文件文本;对超大(413)/二进制(415)抛出友好错误。
+  const readFileText = useCallback(async (path: string): Promise<string> => {
+    const res = await fetch(`/api/m/files/read?path=${encodeURIComponent(path)}`, {
+      headers: authHeaders(),
+    })
+    if (!res.ok) {
+      const detail = (await res.text()).trim()
+      if (res.status === 413) throw new Error('文件过大,无法在线编辑(上限 5 MiB)。')
+      if (res.status === 415) throw new Error('二进制文件,无法在线编辑。')
+      throw new Error(detail || '读取文件失败')
+    }
+    return res.text()
+  }, [])
+
+  // listDir 供编辑器文件树按需拉取子目录(不影响主列表 state)。
+  const listDir = useCallback(async (path: string): Promise<DirEntry[]> => {
+    return apiFetch<DirEntry[]>(`/api/m/files/list?path=${encodeURIComponent(path)}`)
+  }, [])
+
   async function openEditor(entry: DirEntry) {
     const path = joinPath(cwd, entry.name)
     try {
-      const res = await fetch(`/api/m/files/read?path=${encodeURIComponent(path)}`, {
-        headers: authHeaders(),
-      })
-      if (!res.ok) {
-        // 后端对超大(413)/二进制(415)返回明确文本,直接提示而非进编辑器。
-        const detail = (await res.text()).trim()
-        if (res.status === 413) throw new Error('文件过大,无法在线编辑(上限 5 MiB)。')
-        if (res.status === 415) throw new Error('二进制文件,无法在线编辑。')
-        throw new Error(detail || '读取文件失败')
-      }
-      const text = await res.text()
-      setEditing({ path, text, saved: text })
+      const text = await readFileText(path)
+      setEditing({ path, text })
     } catch (e) {
       setErr(errorText(e))
     }
   }
 
-  async function saveEditor() {
-    if (!editing || saving) return
-    setSaving(true)
-    try {
-      await apiFetch(`/api/m/files/write?path=${encodeURIComponent(editing.path)}`, {
+  // writeFile 写文件并刷新主列表;失败抛错由编辑器内部捕获展示。
+  const writeFile = useCallback(
+    async (path: string, text: string): Promise<void> => {
+      await apiFetch(`/api/m/files/write?path=${encodeURIComponent(path)}`, {
         method: 'POST',
-        body: editing.text,
+        body: text,
       })
-      setEditing({ ...editing, saved: editing.text })
-      flash(`已保存 ${editing.path}`)
+      flash(`已保存 ${path}`)
       await refresh()
-    } catch (e) {
-      setErr(errorText(e))
-    } finally {
-      setSaving(false)
-    }
-  }
+    },
+    // refresh/flash 为组件作用域内稳定闭包,刻意省略依赖避免无谓重建。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
 
   async function upload(file: File) {
     const fd = new FormData()
@@ -1062,20 +1071,13 @@ export default function Files() {
 
       {editing && (
         <EditorModal
-          path={editing.path}
-          text={editing.text}
-          dirty={editing.text !== editing.saved}
-          saving={saving}
-          onChange={(t) => setEditing({ ...editing, text: t })}
-          onSave={() => void saveEditor()}
-          onClose={() => {
-            if (
-              editing.text !== editing.saved &&
-              !window.confirm('有未保存的改动,确认关闭?')
-            )
-              return
-            setEditing(null)
-          }}
+          initialPath={editing.path}
+          initialText={editing.text}
+          rootDir={cwd}
+          readFileText={readFileText}
+          listDir={listDir}
+          writeFile={writeFile}
+          onClose={() => setEditing(null)}
         />
       )}
 
@@ -1991,54 +1993,169 @@ function Modal({ children, onClose }: { children: React.ReactNode; onClose: () =
   )
 }
 
+// 编辑器内单文件的可编辑缓冲:text 为当前内容,saved 为最后保存值,dirty = 二者不等。
+type OpenFile = { path: string; text: string; saved: string }
+
+type WindowState = 'normal' | 'maximized' | 'minimized'
+
+const FONT_SIZE = 13
+
 function EditorModal({
-  path,
-  text,
-  dirty,
-  saving,
-  onChange,
-  onSave,
+  initialPath,
+  initialText,
+  rootDir,
+  readFileText,
+  listDir,
+  writeFile,
   onClose,
 }: {
-  path: string
-  text: string
-  dirty: boolean
-  saving: boolean
-  onChange: (t: string) => void
-  onSave: () => void
+  initialPath: string
+  initialText: string
+  rootDir: string
+  readFileText: (path: string) => Promise<string>
+  listDir: (path: string) => Promise<DirEntry[]>
+  writeFile: (path: string, text: string) => Promise<void>
   onClose: () => void
 }) {
-  const lang = languageFromFilename(path)
   const editorRef = useRef<CodeEditorViewHandle>(null)
+  const [file, setFile] = useState<OpenFile>({
+    path: initialPath,
+    text: initialText,
+    saved: initialText,
+  })
   const [wrap, setWrap] = useState(true)
-  const [fontSize, setFontSize] = useState(13)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [windowState, setWindowState] = useState<WindowState>('normal')
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [showReplace, setShowReplace] = useState(false)
+  const [searchFocus, setSearchFocus] = useState(0)
   const [cursor, setCursor] = useState<CursorStats>({
     line: 1,
     col: 1,
-    chars: text.length,
+    chars: initialText.length,
   })
 
+  const dirty = file.text !== file.saved
+  const lang = languageFromFilename(file.path)
   const onCursor = useCallback((s: CursorStats) => setCursor(s), [])
 
+  const closeWithConfirm = useCallback(() => {
+    if (dirty && !window.confirm('有未保存的改动,确认关闭?')) return
+    onClose()
+  }, [dirty, onClose])
+
+  function openSearch(replace: boolean) {
+    setSearchOpen(true)
+    if (replace) setShowReplace(true)
+    setSearchFocus((n) => n + 1)
+  }
+
+  async function save() {
+    if (!dirty || saving) return
+    setSaving(true)
+    setErr(null)
+    try {
+      await writeFile(file.path, file.text)
+      setFile((f) => ({ ...f, saved: f.text }))
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  // 在编辑器内打开另一个文件:有未保存改动先确认;读取失败提示但不切换。
+  async function openFile(path: string) {
+    if (path === file.path) return
+    if (dirty && !window.confirm('有未保存的改动,确认放弃并打开其他文件?')) return
+    setErr(null)
+    try {
+      const text = await readFileText(path)
+      setFile({ path, text, saved: text })
+      setCursor({ line: 1, col: 1, chars: text.length })
+    } catch (e) {
+      setErr(errorText(e))
+    }
+  }
+
+  // 编辑器级快捷键:Ctrl/Cmd+F 查找、Ctrl/Cmd+H 替换、Esc 关搜索栏(关着时不关编辑器)。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault()
+        openSearch(false)
+      } else if (mod && (e.key === 'h' || e.key === 'H')) {
+        e.preventDefault()
+        openSearch(true)
+      } else if (e.key === 'Escape') {
+        if (searchOpen) {
+          e.preventDefault()
+          setSearchOpen(false)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [searchOpen])
+
+  // 最小化:左下角小条,显示文件名 + 还原,内容保留(组件不卸载)。
+  if (windowState === 'minimized') {
+    return (
+      <div className="fixed bottom-3 left-3 z-50 flex max-w-[min(90vw,320px)] items-center gap-2 rounded-(--radius-card) border border-border bg-surface px-3 py-2 shadow-[var(--shadow-elevated)]">
+        <FileIcon name={file.path} isDir={false} size={16} />
+        <span
+          className="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-xs text-text"
+          title={file.path}
+        >
+          {baseName(file.path)}
+          {dirty && <span className="ml-1 text-warn">●</span>}
+        </span>
+        <IconButton
+          aria-label="还原"
+          title="还原"
+          icon={<Maximize2 size={15} />}
+          onClick={() => setWindowState('normal')}
+        />
+        <IconButton
+          aria-label="关闭"
+          title="关闭"
+          icon={<X size={16} />}
+          onClick={closeWithConfirm}
+          className="hover:text-crit"
+        />
+      </div>
+    )
+  }
+
+  const maximized = windowState === 'maximized'
+  const shellCls = maximized
+    ? 'fixed inset-0 z-50'
+    : 'fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6'
+  const panelCls = maximized
+    ? 'flex h-full w-full flex-col overflow-hidden border border-border bg-surface'
+    : 'flex h-[92vh] w-[94vw] max-w-[1400px] flex-col overflow-hidden rounded-(--radius-card) border border-border bg-surface shadow-[var(--shadow-elevated)]'
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">
-      <div className="flex h-[92vh] w-[94vw] max-w-[1400px] flex-col overflow-hidden rounded-(--radius-card) border border-border bg-surface shadow-[var(--shadow-elevated)]">
+    <div className={shellCls}>
+      <div className={panelCls}>
         {/* 顶部工具栏 */}
         <div className="flex items-center gap-3 border-b border-border bg-surface-2/50 px-3 py-2">
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <FileCog size={15} className="shrink-0 text-brand" />
+            <FileIcon name={file.path} isDir={false} size={15} />
             <span
               className="truncate font-[family-name:var(--font-mono)] text-xs text-muted"
-              title={path}
+              title={file.path}
             >
-              {path}
+              {file.path}
             </span>
             <span className="shrink-0 rounded border border-border bg-surface px-1.5 py-0.5 text-[11px] text-muted">
               {languageLabel(lang)}
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <Button size="sm" onClick={onSave} disabled={saving || !dirty} title="保存 (Ctrl/Cmd+S)">
+            <Button size="sm" onClick={() => void save()} disabled={saving || !dirty} title="保存 (Ctrl/Cmd+S)">
               {dirty && !saving && (
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warn" aria-hidden />
               )}
@@ -2050,7 +2167,8 @@ function EditorModal({
               aria-label="查找 / 替换"
               title="查找 / 替换 (Ctrl+F)"
               icon={<Search size={15} />}
-              onClick={() => editorRef.current?.openSearch()}
+              onClick={() => (searchOpen ? setSearchOpen(false) : openSearch(false))}
+              className={searchOpen ? 'bg-brand-soft text-brand' : ''}
             />
             <IconButton
               aria-label="自动换行"
@@ -2059,46 +2177,83 @@ function EditorModal({
               onClick={() => setWrap((v) => !v)}
               className={wrap ? 'bg-brand-soft text-brand' : ''}
             />
-            <IconButton
-              aria-label="减小字号"
-              title="减小字号"
-              icon={<Minus size={15} />}
-              onClick={() => setFontSize((v) => Math.max(10, v - 1))}
-            />
-            <span className="w-7 text-center font-[family-name:var(--font-mono)] text-xs text-muted">
-              {fontSize}
-            </span>
-            <IconButton
-              aria-label="增大字号"
-              title="增大字号"
-              icon={<Plus size={15} />}
-              onClick={() => setFontSize((v) => Math.min(28, v + 1))}
-            />
             <span className="mx-0.5 h-5 w-px bg-border" aria-hidden />
             <IconButton
+              aria-label="最小化"
+              title="最小化到左下角"
+              icon={<Minus size={15} />}
+              onClick={() => setWindowState('minimized')}
+            />
+            {maximized ? (
+              <IconButton
+                aria-label="还原"
+                title="还原"
+                icon={<Minimize2 size={15} />}
+                onClick={() => setWindowState('normal')}
+              />
+            ) : (
+              <IconButton
+                aria-label="最大化"
+                title="最大化"
+                icon={<Maximize2 size={15} />}
+                onClick={() => setWindowState('maximized')}
+              />
+            )}
+            <button
+              type="button"
               aria-label="关闭"
               title="关闭"
-              icon={<X size={16} />}
-              onClick={onClose}
+              onClick={closeWithConfirm}
               disabled={saving}
-              className="hover:text-crit"
-            />
+              className="ml-1 inline-flex h-9 w-9 items-center justify-center rounded-(--radius-sm) text-muted transition hover:bg-surface-2 hover:text-crit disabled:opacity-40"
+            >
+              <X size={22} />
+            </button>
           </div>
         </div>
-        {/* 编辑区 */}
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <CodeEditor
-            ref={editorRef}
-            value={text}
-            onChange={onChange}
-            filename={path}
-            onSave={onSave}
-            height="100%"
-            lineWrap={wrap}
-            fontSize={fontSize}
-            onCursor={onCursor}
-          />
+
+        {/* 主体:左侧文件树 + 右侧编辑区 */}
+        <div className="flex min-h-0 flex-1">
+          <div className="w-60 shrink-0">
+            <FileTreeSidebar
+              rootDir={rootDir}
+              activePath={file.path}
+              listDir={listDir}
+              onOpenFile={(p) => void openFile(p)}
+            />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col">
+            {searchOpen && (
+              <Suspense fallback={null}>
+                <SearchBar
+                  view={editorRef.current?.getView() ?? null}
+                  showReplace={showReplace}
+                  onToggleReplace={() => setShowReplace((v) => !v)}
+                  onClose={() => setSearchOpen(false)}
+                  focusSignal={searchFocus}
+                />
+              </Suspense>
+            )}
+            {err && (
+              <p className="border-b border-border bg-crit/10 px-3 py-1.5 text-xs text-crit">{err}</p>
+            )}
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <CodeEditor
+                key={file.path}
+                ref={editorRef}
+                value={file.text}
+                onChange={(t) => setFile((f) => ({ ...f, text: t }))}
+                filename={file.path}
+                onSave={() => void save()}
+                height="100%"
+                lineWrap={wrap}
+                fontSize={FONT_SIZE}
+                onCursor={onCursor}
+              />
+            </div>
+          </div>
         </div>
+
         {/* 底部状态栏 */}
         <div className="flex items-center gap-4 border-t border-border bg-surface-2/50 px-3 py-1.5 font-[family-name:var(--font-mono)] text-[11px] text-muted">
           <span>
@@ -2117,6 +2272,7 @@ function EditorModal({
     </div>
   )
 }
+
 
 function ShareModal({
   path,

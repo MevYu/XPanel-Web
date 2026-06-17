@@ -6,7 +6,7 @@ import CodeMirror, {
 import { EditorView, keymap } from '@codemirror/view'
 import { Prec } from '@codemirror/state'
 import { StreamLanguage } from '@codemirror/language'
-import { search, openSearchPanel } from '@codemirror/search'
+import { search } from '@codemirror/search'
 import { javascript, json, typescript } from '@codemirror/legacy-modes/mode/javascript'
 import { css } from '@codemirror/legacy-modes/mode/css'
 import { xml } from '@codemirror/legacy-modes/mode/xml'
@@ -62,8 +62,8 @@ function languageExtension(lang: EditorLanguage): Extension {
 export type CursorStats = { line: number; col: number; chars: number }
 
 export type CodeEditorViewHandle = {
-  /** 打开 CodeMirror 内置查找/替换面板。 */
-  openSearch: () => void
+  /** 返回底层 EditorView,供自绘搜索栏命令式驱动 @codemirror/search。 */
+  getView: () => EditorView | null
 }
 
 export type CodeEditorViewProps = {
@@ -95,10 +95,7 @@ function CodeEditorViewInner(
   const cmRef = useRef<ReactCodeMirrorRef>(null)
 
   useImperativeHandle(ref, () => ({
-    openSearch: () => {
-      const view = cmRef.current?.view
-      if (view) openSearchPanel(view)
-    },
+    getView: () => cmRef.current?.view ?? null,
   }))
 
   const extensions = useMemo(() => {
