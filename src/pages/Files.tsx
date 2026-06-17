@@ -447,7 +447,7 @@ export default function Files() {
   }
 
   return (
-    <div className="flex flex-col gap-3" onClick={() => setNewMenu(false)}>
+    <div className="flex h-full flex-col gap-3 min-h-0" onClick={() => setNewMenu(false)}>
       {/* 目录标签栏 */}
       <DirTabs
         tabs={tabs}
@@ -679,7 +679,7 @@ export default function Files() {
 
       {notice && <p className="text-sm text-online">{notice}</p>}
 
-      <Card className="overflow-hidden p-0">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
         {loading ? (
           <div className="flex h-32 items-center justify-center">
             <Spinner size={24} />
@@ -687,9 +687,10 @@ export default function Files() {
         ) : err ? (
           <p className="p-5 text-sm text-crit">{err}</p>
         ) : (
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-border text-xs text-muted">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead className="sticky top-0 z-20 bg-surface">
+                <tr className="border-b border-border text-xs text-muted">
                 {canWrite && (
                   <th className="w-10 px-4 py-2.5 text-left font-medium">
                     <input
@@ -722,9 +723,9 @@ export default function Files() {
                   className="cursor-pointer border-b border-border/60 hover:bg-surface-2"
                   onClick={() => setCwd(parentPath(cwd))}
                 >
-                  {canWrite && <td className="px-4 py-2.5" />}
+                  {canWrite && <td className="sticky top-[37px] z-10 bg-surface px-4 py-2.5" />}
                   <td
-                    className="px-4 py-2.5"
+                    className="sticky top-[37px] z-10 bg-surface px-4 py-2.5"
                     colSpan={5}
                   >
                     <span className="font-[family-name:var(--font-mono)] text-muted">
@@ -763,7 +764,7 @@ export default function Files() {
                       >
                         <FileIcon name={entry.name} isDir={entry.is_dir} />
                         <span
-                          className={`truncate ${entry.is_dir ? 'text-brand group-hover:underline' : 'text-text'}`}
+                          className={`truncate text-text ${entry.is_dir ? 'group-hover:underline' : ''}`}
                         >
                           {entry.name}
                         </span>
@@ -822,7 +823,8 @@ export default function Files() {
                 ))
               )}
             </tbody>
-          </table>
+            </table>
+          </div>
         )}
         <div className="flex items-center justify-between border-t border-border px-4 py-2 text-xs text-muted">
           <span>
@@ -1408,7 +1410,12 @@ function ChmodDialog({
   onDone: (msg: string) => Promise<void>
 }) {
   const initialOct = entries.length === 1 ? modeOctal(entries[0].mode) : '755'
+  const initialOwner = entries.length === 1 ? entries[0].owner : ''
+  const initialGroup = entries.length === 1 ? entries[0].group : ''
   const [bits, setBits] = useState<boolean[]>(octalToBits(initialOct))
+  const [owner, setOwner] = useState(initialOwner)
+  const [group, setGroup] = useState(initialGroup)
+  const [recursive, setRecursive] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const oct = bitsToOctal(bits)
@@ -1418,16 +1425,43 @@ function ChmodDialog({
   }
 
   async function apply() {
+    const modeChanged = oct !== initialOct
+    const ownerChanged = owner.trim() !== initialOwner.trim()
+    const groupChanged = group.trim() !== initialGroup.trim()
+    const chownNeeded = ownerChanged || groupChanged
+    if (!modeChanged && !chownNeeded) {
+      await onDone('未做改动')
+      return
+    }
     setBusy(true)
     setErr(null)
     try {
       for (const e of entries) {
-        await apiFetch('/api/m/files/chmod', {
-          method: 'POST',
-          body: JSON.stringify({ path: joinPath(cwd, e.name), mode: `0${oct}` }),
-        })
+        if (modeChanged) {
+          await apiFetch('/api/m/files/chmod', {
+            method: 'POST',
+            body: JSON.stringify({ path: joinPath(cwd, e.name), mode: `0${oct}` }),
+          })
+        }
+        if (chownNeeded) {
+          await apiFetch('/api/m/files/chown', {
+            method: 'POST',
+            body: JSON.stringify({
+              path: joinPath(cwd, e.name),
+              owner: owner.trim(),
+              group: group.trim(),
+              recursive,
+            }),
+          })
+        }
       }
-      await onDone(`权限已改为 ${oct}`)
+      const msg =
+        modeChanged && chownNeeded
+          ? '权限与属主已更新'
+          : modeChanged
+            ? `权限已改为 ${oct}`
+            : '属主已更新'
+      await onDone(msg)
     } catch (e) {
       setErr(errorText(e))
       setBusy(false)
@@ -1482,6 +1516,19 @@ function ChmodDialog({
             />
           </label>
         </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Input label="属主 (Owner)" value={owner} onChange={(e) => setOwner(e.target.value)} />
+          <Input label="属组 (Group)" value={group} onChange={(e) => setGroup(e.target.value)} />
+        </div>
+        <p className="text-xs text-muted">属主(不改则留默认值即可,改了才生效)</p>
+        <label className="flex items-center gap-2 text-sm text-text">
+          <input
+            type="checkbox"
+            checked={recursive}
+            onChange={(e) => setRecursive(e.target.checked)}
+          />
+          应用到子目录(递归)
+        </label>
         {err && <p className="text-sm text-crit">{err}</p>}
         <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={busy}>
