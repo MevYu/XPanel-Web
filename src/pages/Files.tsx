@@ -120,8 +120,8 @@ function tabLabel(path: string): string {
   return path ? baseName(path) : '根目录'
 }
 
-// 从 localStorage 恢复标签;数据非法或为空时回退到单个根目录标签。
-function loadTabs(): { tabs: DirTab[]; activeId: string } {
+// 从 localStorage 恢复标签;数据非法/旧结构/为空时回退到单个根目录标签,cwd 永不为 undefined。
+export function loadTabs(): { tabs: DirTab[]; activeId: string } {
   const fallback = () => {
     const id = crypto.randomUUID()
     return { tabs: [{ id, path: '' }], activeId: id }
@@ -129,12 +129,14 @@ function loadTabs(): { tabs: DirTab[]; activeId: string } {
   try {
     const raw = localStorage.getItem(TABS_KEY)
     if (!raw) return fallback()
-    const parsed = JSON.parse(raw) as { tabs?: DirTab[]; activeId?: string }
-    const tabs = (parsed.tabs ?? []).filter(
+    const parsed = JSON.parse(raw) as { tabs?: unknown; activeId?: unknown }
+    // parsed 可能是旧结构(顶层数组)、非对象或缺字段;tabs 非数组直接回退,不依赖 filter 抛错。
+    const rawTabs = Array.isArray(parsed?.tabs) ? parsed.tabs : []
+    const tabs = rawTabs.filter(
       (t): t is DirTab => typeof t?.id === 'string' && typeof t?.path === 'string',
     )
     if (tabs.length === 0) return fallback()
-    const activeId = tabs.some((t) => t.id === parsed.activeId) ? parsed.activeId! : tabs[0].id
+    const activeId = tabs.some((t) => t.id === parsed?.activeId) ? (parsed.activeId as string) : tabs[0].id
     return { tabs, activeId }
   } catch {
     return fallback()
