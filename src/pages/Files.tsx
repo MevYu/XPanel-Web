@@ -770,13 +770,21 @@ export default function Files() {
                     )}
                     <td className="px-4 py-2.5">
                       <button
+                        type="button"
                         className="flex min-w-0 items-center gap-2.5 text-left"
                         onClick={() => entry.is_dir && setCwd(joinPath(cwd, entry.name))}
-                        disabled={!entry.is_dir}
+                        onDoubleClick={(e) => {
+                          // 文件名按钮自身处理双击打开,避免按钮吞掉冒泡到 tr 的 dblclick。
+                          if (!entry.is_dir && canWrite) {
+                            e.stopPropagation()
+                            void openEditor(entry)
+                          }
+                        }}
+                        title={entry.is_dir ? '进入目录' : '双击编辑'}
                       >
                         <FileIcon name={entry.name} isDir={entry.is_dir} />
                         <span
-                          className={`truncate text-text ${entry.is_dir ? 'group-hover:underline' : ''}`}
+                          className={`truncate text-text ${entry.is_dir ? 'group-hover:underline' : 'group-hover:text-brand'}`}
                         >
                           {entry.name}
                         </span>
