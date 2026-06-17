@@ -2,12 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { CodeEditor } from '../components/CodeEditor'
+import { FileCode2, RefreshCw } from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -42,7 +42,7 @@ async function putText(path: string, body: string): Promise<void> {
 }
 
 const fieldClass =
-  'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-40'
+  'h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-40'
 
 interface VersionInfo {
   version: string
@@ -82,7 +82,7 @@ function FeedbackLine({ msg }: { msg: Feedback }) {
   if (!msg) return null
   return (
     <p
-      className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+      className={`rounded-(--radius-sm) border px-3 py-2 text-sm ${
         msg.kind === 'ok'
           ? 'border-online/40 bg-online/10 text-online'
           : 'border-crit/40 bg-crit/10 text-crit'
@@ -103,9 +103,19 @@ function Loading({ h = 'h-40' }: { h?: string }) {
 
 function ErrorLine({ text }: { text: string }) {
   return (
-    <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+    <p className="rounded-(--radius-sm) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
       {text}
     </p>
+  )
+}
+
+// 分组区块:统一密度(p-4 / gap-3)与边界,贴合全站紧凑卡观感。
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3 rounded-(--radius-card) border border-border bg-surface p-4">
+      <h3 className="text-xs font-medium uppercase tracking-wide text-muted">{title}</h3>
+      {children}
+    </section>
   )
 }
 
@@ -178,15 +188,11 @@ function IniFormTab({ version, canWrite }: { version: string; canWrite: boolean 
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <FeedbackLine msg={msg} />
       {groups.map((g) => (
-        <section
-          key={g.name}
-          className="flex flex-col gap-4 rounded-(--radius-card) border border-border bg-surface p-5"
-        >
-          <h3 className="text-xs font-medium uppercase tracking-wide text-muted">{g.name}</h3>
-          <div className="grid gap-4 sm:grid-cols-2">
+        <Section key={g.name} title={g.name}>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {g.fields.map((f) => (
               <div key={f.key} className="flex flex-col gap-1">
                 <Input
@@ -200,7 +206,7 @@ function IniFormTab({ version, canWrite }: { version: string; canWrite: boolean 
               </div>
             ))}
           </div>
-        </section>
+        </Section>
       ))}
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={() => void save()} disabled={!canWrite || busy}>
@@ -365,12 +371,12 @@ function DisabledFunctionsTab({ version, canWrite }: { version: string; canWrite
   const all = [...candidates, ...extra]
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <FeedbackLine msg={msg} />
       <p className="text-xs text-muted">
         已禁用 {disabled.length} 个函数。勾选即加入禁用,保存后写入 php.ini 的 disable_functions。
       </p>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1.5">
         {all.map((fn) => {
           const on = disabled.includes(fn)
           return (
@@ -378,7 +384,7 @@ function DisabledFunctionsTab({ version, canWrite }: { version: string; canWrite
               key={fn}
               onClick={() => toggle(fn)}
               disabled={!canWrite}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-[family-name:var(--font-mono)] text-xs transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 disabled:cursor-not-allowed disabled:opacity-40 ${
+              className={`inline-flex items-center gap-1.5 rounded-(--radius-sm) border px-2.5 py-1 font-[family-name:var(--font-mono)] text-xs transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 disabled:cursor-not-allowed disabled:opacity-40 ${
                 on
                   ? 'border-crit/40 bg-crit/10 text-crit'
                   : 'border-border bg-surface-2 text-muted hover:text-text'
@@ -490,12 +496,11 @@ function FpmTab({ version, canWrite }: { version: string; canWrite: boolean }) {
   const running = status?.active === 'active'
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       <FeedbackLine msg={msg} />
       {status && (
-        <section className="flex flex-col gap-3 rounded-(--radius-card) border border-border bg-surface p-5">
+        <Section title="运行状态">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-text">运行状态</span>
             <Badge status={running ? 'online' : 'neutral'}>
               {running ? '运行中' : status.active || '已停止'}
             </Badge>
@@ -506,18 +511,17 @@ function FpmTab({ version, canWrite }: { version: string; canWrite: boolean }) {
             )}
           </div>
           {status.status && (
-            <pre className="max-h-48 overflow-auto rounded-(--radius-card) bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
+            <pre className="max-h-48 overflow-auto rounded-(--radius-sm) bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
               {status.status.trim()}
             </pre>
           )}
-        </section>
+        </Section>
       )}
-      <section className="flex flex-col gap-4 rounded-(--radius-card) border border-border bg-surface p-5">
-        <h3 className="text-xs font-medium uppercase tracking-wide text-muted">进程参数</h3>
+      <Section title="进程参数">
         {schema.length === 0 ? (
           <p className="text-sm text-muted">无可配置项。</p>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {schema.map((f) => (
               <div key={f.key} className="flex flex-col gap-1">
                 <Input
@@ -532,7 +536,7 @@ function FpmTab({ version, canWrite }: { version: string; canWrite: boolean }) {
             ))}
           </div>
         )}
-      </section>
+      </Section>
       <div className="flex items-center gap-2">
         <Button size="sm" variant="danger" onClick={() => void save()} disabled={!canWrite || busy}>
           {busy && <Spinner size={14} />}
@@ -573,7 +577,7 @@ function LogTab({ version, kind }: { version: string; kind: 'slow' | 'error' }) 
         <select
           value={lines}
           onChange={(e) => setLines(Number(e.target.value))}
-          className={`${fieldClass} h-8 w-28`}
+          className={`${fieldClass} w-28`}
         >
           {[100, 200, 500, 1000].map((n) => (
             <option key={n} value={n}>
@@ -582,6 +586,7 @@ function LogTab({ version, kind }: { version: string; kind: 'slow' | 'error' }) 
           ))}
         </select>
         <Button size="sm" variant="ghost" onClick={() => void load()} disabled={loading}>
+          <RefreshCw size={14} />
           刷新
         </Button>
       </div>
@@ -639,13 +644,13 @@ function VersionDetail({ version, canWrite }: { version: string; canWrite: boole
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-1 rounded-(--radius-card) border border-border bg-surface p-1">
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`h-8 rounded-(--radius-card) px-3 text-sm font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
+            className={`h-9 rounded-sm px-3 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
               tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
             }`}
           >
@@ -696,88 +701,98 @@ export default function Php() {
     void load()
   }, [load])
 
+  const header = (
+    <header className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-1">
+        <h1 className="flex items-center gap-2 font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+          <FileCode2 size={18} className="text-warn" />
+          PHP
+        </h1>
+        <p className="text-xs text-muted">
+          {versions.length > 0
+            ? `共 ${versions.length} 个版本`
+            : '管理已安装 PHP 的 ini 配置、禁用函数、FPM 参数与日志'}
+        </p>
+      </div>
+      <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
+        <RefreshCw size={15} />
+        刷新
+      </Button>
+    </header>
+  )
+
   if (loading) {
     return (
-      <Card>
-        <Loading />
-      </Card>
+      <div className="flex flex-col gap-4">
+        {header}
+        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      </div>
     )
   }
 
   if (loadErr && versions.length === 0) {
     return (
-      <Card>
+      <div className="flex flex-col gap-4">
+        {header}
         <ErrorLine text={loadErr} />
-      </Card>
+      </div>
     )
   }
 
   if (versions.length === 0) {
     return (
-      <Card className="flex flex-col items-center gap-3 py-12 text-center">
-        <p className="text-sm font-medium text-text">未检测到 PHP</p>
-        <p className="max-w-md text-sm text-muted">
-          系统中没有可管理的 PHP 版本。请前往软件商店安装 PHP 后再回到本页配置。
-        </p>
-        <Button size="sm" variant="ghost" onClick={() => void load()}>
-          重新检测
-        </Button>
-      </Card>
+      <div className="flex flex-col gap-4">
+        {header}
+        <div className="flex flex-col items-center gap-3 rounded-(--radius-card) border border-border bg-surface p-12 text-center">
+          <p className="text-sm font-medium text-text">未检测到 PHP</p>
+          <p className="max-w-md text-sm text-muted">
+            系统中没有可管理的 PHP 版本。请前往软件商店安装 PHP 后再回到本页配置。
+          </p>
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重新检测
+          </Button>
+        </div>
+      </div>
     )
   }
 
   return (
     <div className="flex flex-col gap-4">
-      <Card className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-text">PHP 版本</span>
-          <Button size="sm" variant="ghost" onClick={() => void load()}>
-            刷新
-          </Button>
+      {header}
+
+      <div className="flex flex-wrap items-center gap-2">
+        {versions.map((v) => {
+          const on = selected === v.version
+          return (
+            <button
+              key={v.version}
+              onClick={() => setSelected(v.version)}
+              className={`flex items-center gap-2 rounded-(--radius-sm) border px-3 py-1.5 text-left transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
+                on
+                  ? 'border-brand/50 bg-brand-soft'
+                  : 'border-border bg-surface-2 hover:border-border-strong'
+              }`}
+            >
+              <span className="text-sm font-medium text-text">PHP {v.version}</span>
+              <Badge status={v.fpm_active ? 'online' : 'neutral'}>
+                FPM {v.fpm_active ? '运行中' : '已停止'}
+              </Badge>
+              {v.cli_default && <Badge status="online">CLI 默认</Badge>}
+            </button>
+          )
+        })}
+      </div>
+
+      {cli && (
+        <div className="flex flex-wrap items-center gap-2 rounded-(--radius-sm) border border-border bg-surface-2 px-3 py-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted">命令行默认</span>
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-text">
+            {cli.available ? cli.banner || '可用' : '命令行未配置默认 PHP'}
+          </span>
         </div>
-
-        <div className="flex flex-wrap gap-2">
-          {versions.map((v) => {
-            const on = selected === v.version
-            return (
-              <button
-                key={v.version}
-                onClick={() => setSelected(v.version)}
-                className={`flex flex-col gap-1.5 rounded-(--radius-card) border px-4 py-3 text-left transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-                  on
-                    ? 'border-brand/50 bg-brand-soft'
-                    : 'border-border bg-surface-2 hover:border-border-strong'
-                }`}
-              >
-                <span className="text-sm font-medium text-text">PHP {v.version}</span>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge status={v.fpm_active ? 'online' : 'neutral'}>
-                    FPM {v.fpm_active ? '运行中' : '已停止'}
-                  </Badge>
-                  {v.cli_default && <Badge status="online">CLI 默认</Badge>}
-                </div>
-              </button>
-            )
-          })}
-        </div>
-
-        {cli && (
-          <div className="rounded-(--radius-card) border border-border bg-surface-2 px-4 py-3">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted">
-              命令行默认
-            </span>
-            <p className="mt-1 truncate font-[family-name:var(--font-mono)] text-xs text-text">
-              {cli.available ? cli.banner || '可用' : '命令行未配置默认 PHP'}
-            </p>
-          </div>
-        )}
-      </Card>
-
-      {selected && (
-        <Card>
-          <VersionDetail version={selected} canWrite={canWrite} />
-        </Card>
       )}
+
+      {selected && <VersionDetail version={selected} canWrite={canWrite} />}
 
       {!canWrite && (
         <p className="text-xs text-muted">配置、禁用函数与 FPM 参数等写操作需要 admin 角色。</p>
