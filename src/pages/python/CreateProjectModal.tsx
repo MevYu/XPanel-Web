@@ -80,7 +80,7 @@ export function CreateProjectModal({
 
   return (
     <Modal title="添加项目" size="md" onClose={onClose}>
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
             label="名称"

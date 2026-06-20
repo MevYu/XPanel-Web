@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthContext'
 import { useModules } from '../hooks/useModules'
 import { IconButton } from '../components/IconButton'
 import { Logo } from '../components/Logo'
+import { TelemetryRail } from './TelemetryRail'
 import { iconFor, colorFor } from './icons'
 import type { NavItem } from '../api/types'
 
@@ -39,7 +40,7 @@ export function Sidebar() {
   return (
     <nav
       className={`flex h-full flex-col border-r border-border bg-gradient-to-b from-surface to-bg transition-[width] duration-(--dur-base) ease-(--ease-out) ${
-        collapsed ? 'w-16' : 'w-60'
+        collapsed ? 'w-16' : 'w-56'
       }`}
     >
       <div className={`flex h-14 items-center border-b border-border/60 px-3 ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
@@ -82,6 +83,12 @@ export function Sidebar() {
         </div>
       </div>
 
+      {!collapsed && (
+        <div className="border-t border-border/60 p-1.5">
+          <TelemetryRail />
+        </div>
+      )}
+
       <div className="border-t border-border/60 p-1.5">
         <div
           className={`flex items-center ${collapsed ? 'flex-col gap-2' : 'justify-between'}`}
@@ -118,14 +125,14 @@ function NavRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
       title={collapsed ? item.label : undefined}
       className={({ isActive }) =>
         // 图标常驻语义彩色;活动项加品牌底 + 左侧高亮条强化,非活动项静息半透明、hover 提亮。
-        `relative flex items-center gap-2.5 rounded-(--radius-sm) px-1.5 py-2 text-sm transition-[background-color,color,opacity] duration-(--dur-micro) ease-(--ease-out) outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${
+        `relative flex items-center gap-2.5 rounded-(--radius-sm) px-1.5 py-1.5 text-sm transition-[background-color,color,opacity] duration-(--dur-micro) ease-(--ease-out) outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${
           isActive
             ? 'bg-brand-soft font-medium text-text [&_svg]:opacity-100 before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-0.5 before:rounded-full before:bg-brand before:shadow-[0_0_8px_rgba(110,139,255,0.6)]'
             : 'text-muted [&_svg]:opacity-80 hover:bg-surface-2/70 hover:text-text hover:[&_svg]:opacity-100'
         } ${collapsed ? 'justify-center' : ''}`
       }
     >
-      <Icon size={18} className={`shrink-0 ${iconColor}`} />
+      <Icon size={16} className={`shrink-0 ${iconColor}`} />
       {!collapsed && <span className="truncate">{item.label}</span>}
     </NavLink>
   )

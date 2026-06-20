@@ -35,11 +35,6 @@ export default function Database() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">数据库</h1>
-        <p className="text-xs text-muted">MySQL / PostgreSQL / Redis 管理,库级备份与连接设置</p>
-      </header>
-
       <div className="flex flex-wrap gap-1 rounded-(--radius-card) border border-border bg-surface p-1">
         {TABS.map((t) => (
           <button

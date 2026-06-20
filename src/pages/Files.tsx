@@ -752,8 +752,8 @@ export default function Files() {
               {cwd && (
                 <tr
                   className="cursor-pointer border-b border-border/60 hover:bg-surface-2"
-                  onDoubleClick={() => setCwd(parentPath(cwd))}
-                  title="双击返回上级"
+                  onClick={() => setCwd(parentPath(cwd))}
+                  title="返回上级"
                 >
                   {canWrite && <td className="sticky top-[37px] z-10 bg-surface px-4 py-2.5" />}
                   <td
@@ -778,11 +778,13 @@ export default function Files() {
                     key={entry.name}
                     className="group cursor-pointer border-b border-border/60 hover:bg-surface-2"
                     onContextMenu={(e) => ctxMenu(e, entry)}
-                    onClick={() => setSelected(new Set([entry.name]))}
-                    onDoubleClick={() => {
-                      // 单击选中该行,双击才进入/打开:目录进入,文件进编辑器。
+                    onClick={() => {
+                      // 目录单击即进入(对齐 aaPanel);文件单击选中,双击进编辑器。
                       if (entry.is_dir) setCwd(joinPath(cwd, entry.name))
-                      else if (canWrite) void openEditor(entry)
+                      else setSelected(new Set([entry.name]))
+                    }}
+                    onDoubleClick={() => {
+                      if (!entry.is_dir && canWrite) void openEditor(entry)
                     }}
                   >
                     {canWrite && (
@@ -797,7 +799,7 @@ export default function Files() {
                     <td className="px-4 py-2.5">
                       <div
                         className="flex min-w-0 items-center gap-2.5 text-left"
-                        title={entry.is_dir ? '双击进入目录' : '双击编辑'}
+                        title={entry.is_dir ? '单击进入目录' : '双击编辑'}
                       >
                         <FileIcon name={entry.name} isDir={entry.is_dir} />
                         <span
@@ -1587,17 +1589,40 @@ function ChownDialog({
   onClose: () => void
   onDone: (msg: string) => Promise<void>
 }) {
+  const [users, setUsers] = useState<{ name: string; group: string }[]>([])
   const [owner, setOwner] = useState(entries.length === 1 ? entries[0].owner : '')
-  const [group, setGroup] = useState(entries.length === 1 ? entries[0].group : '')
   const [recursive, setRecursive] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  useEffect(() => {
+    let alive = true
+    apiFetch<{ name: string; group: string }[]>('/api/m/files/users')
+      .then((list) => {
+        if (!alive) return
+        setUsers(list)
+        // 单选/未定属主时默认选列表首项;已有属主则保留。
+        setOwner((cur) => cur || list[0]?.name || '')
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // 当前属主可能不在列表内(数字 uid / 已删用户),补一个选项避免丢失原值。
+  const options =
+    !owner || users.some((u) => u.name === owner)
+      ? users
+      : [{ name: owner, group: owner }, ...users]
+
   async function apply() {
-    if (!owner.trim() && !group.trim()) {
-      setErr('请至少填写属主或属组')
+    if (!owner) {
+      setErr('请选择属主')
       return
     }
+    // 属组随属主走(取该用户主组),与 aaPanel 一致,不单独暴露属组。
+    const group = users.find((u) => u.name === owner)?.group ?? owner
     setBusy(true)
     setErr(null)
     try {
@@ -1606,8 +1631,8 @@ function ChownDialog({
           method: 'POST',
           body: JSON.stringify({
             path: joinPath(cwd, e.name),
-            owner: owner.trim(),
-            group: group.trim(),
+            owner,
+            group,
             recursive,
           }),
         })
@@ -1628,9 +1653,22 @@ function ChownDialog({
             {entries.length === 1 ? entries[0].name : `${entries.length} 项`}
           </span>
         </h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Input label="属主 (Owner)" value={owner} onChange={(e) => setOwner(e.target.value)} />
-          <Input label="属组 (Group)" value={group} onChange={(e) => setGroup(e.target.value)} />
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="chown-owner" className="text-sm font-medium text-muted">
+            属主
+          </label>
+          <select
+            id="chown-owner"
+            value={owner}
+            onChange={(e) => setOwner(e.target.value)}
+            className="h-10 rounded-(--radius-sm) border border-border bg-surface-2/70 px-3 text-sm text-text outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-[border-color,box-shadow,background-color] duration-(--dur-micro) ease-(--ease-out) hover:border-border-strong focus:border-brand focus:bg-surface-2 focus:shadow-[0_0_0_3px_var(--color-brand-soft),inset_0_1px_2px_rgba(0,0,0,0.25)]"
+          >
+            {options.map((u) => (
+              <option key={u.name} value={u.name}>
+                {u.name}
+              </option>
+            ))}
+          </select>
         </div>
         <label className="flex items-center gap-2 text-sm text-text">
           <input
@@ -1645,7 +1683,7 @@ function ChownDialog({
           <Button variant="ghost" onClick={onClose} disabled={busy}>
             取消
           </Button>
-          <Button onClick={() => void apply()} disabled={busy}>
+          <Button onClick={() => void apply()} disabled={busy || !owner}>
             {busy ? '处理中…' : '确定'}
           </Button>
         </div>

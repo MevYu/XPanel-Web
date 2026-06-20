@@ -11,11 +11,9 @@ import {
   type Domain,
   type DnsRecord,
   type RecordType,
-  type Settings,
   PRIORITY_TYPES,
   DANGER,
   errorText,
-  providerLabel,
 } from './dns/shared'
 import { RecordModal } from './dns/RecordModal'
 import { DnsSettingsModal } from './dns/DnsSettingsModal'
@@ -32,7 +30,6 @@ export default function Dns() {
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [recordsLoading, setRecordsLoading] = useState(false)
   const [recErr, setRecErr] = useState<string | null>(null)
-  const [provider, setProvider] = useState<string>('')
 
   const [addDomainOpen, setAddDomainOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -44,21 +41,15 @@ export default function Dns() {
   const loadDomains = useCallback(async () => {
     setLoadErr(null)
     try {
-      const [d, s] = await Promise.all([
-        apiFetch<{ domains: Domain[] }>('/api/m/dns/domains'),
-        isAdmin
-          ? apiFetch<{ settings: Settings; creds_set: boolean }>('/api/m/dns/settings')
-          : Promise.resolve(null),
-      ])
+      const d = await apiFetch<{ domains: Domain[] }>('/api/m/dns/domains')
       setDomains(d.domains)
-      if (s) setProvider(s.settings.provider_kind)
       setSelected((cur) => cur ?? d.domains[0]?.id ?? null)
     } catch (e) {
       setLoadErr(errorText(e))
     } finally {
       setLoading(false)
     }
-  }, [isAdmin])
+  }, [])
 
   const loadRecords = useCallback(async (zoneId: number) => {
     setRecordsLoading(true)
@@ -177,19 +168,6 @@ export default function Dns() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            DNS
-          </h1>
-          <p className="text-xs text-muted">
-            {domains.length > 0
-              ? `共 ${domains.length} 个域名${provider ? ` · 服务商 ${providerLabel(provider)}` : ''}`
-              : '管理受管域名与解析记录,后端支持本地 BIND 或云 provider'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -318,7 +296,7 @@ export default function Dns() {
         <DnsSettingsModal
           isAdmin={isAdmin}
           onClose={() => setSettingsOpen(false)}
-          onSaved={(s) => setProvider(s.provider_kind)}
+          onSaved={() => {}}
         />
       )}
       {recordModal.open && selectedDomain && (

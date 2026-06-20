@@ -277,15 +277,6 @@ export default function Mail() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-          邮局
-        </h1>
-        <p className="text-xs text-muted">
-          管理 postfix / dovecot 邮件域、邮箱账户、别名转发与服务设置。
-        </p>
-      </header>
-
       <div className="flex gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">
         {SECTIONS.map((s) => {
           const active = section === s.key

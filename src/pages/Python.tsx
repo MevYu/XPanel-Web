@@ -228,19 +228,6 @@ export default function Python() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            Python 项目
-          </h1>
-          <p className="text-xs text-muted">
-            {projects.length > 0
-              ? `共 ${projects.length} 个项目`
-              : '管理 Python 项目:venv、依赖、进程启停与日志'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button

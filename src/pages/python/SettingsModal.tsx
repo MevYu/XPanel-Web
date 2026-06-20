@@ -42,7 +42,7 @@ export function SettingsModal({ isAdmin, onClose }: { isAdmin: boolean; onClose:
 
   return (
     <Modal title="Python 设置" size="md" onClose={onClose}>
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
             label="项目根目录 project_root"

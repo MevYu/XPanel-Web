@@ -17,6 +17,8 @@ import {
   FileCode2,
   Archive,
   SlidersHorizontal,
+  Gauge,
+  FileWarning,
   type LucideIcon,
 } from 'lucide-react'
 import { type Site, type Kind, kindLabel } from './shared'
@@ -32,6 +34,8 @@ import { RedirectsTab } from './tabs/RedirectsTab'
 import { AntiLeechTab } from './tabs/AntiLeechTab'
 import { RunDirTab } from './tabs/RunDirTab'
 import { LogsTab } from './tabs/LogsTab'
+import { LimitsTab } from './tabs/LimitsTab'
+import { ErrorPagesTab } from './tabs/ErrorPagesTab'
 import { ConfigTab } from './tabs/ConfigTab'
 import { BackupsTab } from './tabs/BackupsTab'
 import { SettingsTab } from './tabs/SettingsTab'
@@ -49,6 +53,8 @@ type TabKey =
   | 'anti-leech'
   | 'run-dir'
   | 'logs'
+  | 'limits'
+  | 'error-pages'
   | 'backups'
   | 'settings'
   | 'config'
@@ -72,6 +78,8 @@ const ALL_TABS: TabDef[] = [
   { key: 'anti-leech', label: '防盗链', Icon: ShieldAlert },
   { key: 'run-dir', label: '运行目录', Icon: FolderTree, kinds: ['static', 'php'] },
   { key: 'logs', label: '日志', Icon: ScrollText },
+  { key: 'limits', label: '流量控制', Icon: Gauge },
+  { key: 'error-pages', label: '错误页', Icon: FileWarning, kinds: ['static', 'php'] },
   { key: 'backups', label: '备份', Icon: Archive },
   { key: 'settings', label: '设置', Icon: SlidersHorizontal },
   { key: 'config', label: '配置文件', Icon: FileCode2 },
@@ -121,6 +129,8 @@ export function SiteDrawer({ site, canWrite, isAdmin, onClose, onChanged, initia
       {tab === 'anti-leech' && <AntiLeechTab site={site} canWrite={canWrite} onChanged={onChanged} />}
       {tab === 'run-dir' && <RunDirTab site={site} canWrite={canWrite} onChanged={onChanged} />}
       {tab === 'logs' && <LogsTab site={site} canWrite={canWrite} />}
+      {tab === 'limits' && <LimitsTab site={site} canWrite={canWrite} onChanged={onChanged} />}
+      {tab === 'error-pages' && <ErrorPagesTab site={site} canWrite={canWrite} onChanged={onChanged} />}
       {tab === 'backups' && <BackupsTab site={site} isAdmin={isAdmin} />}
       {tab === 'settings' && (
         <SettingsTab site={site} canWrite={canWrite} isAdmin={isAdmin} onChanged={onChanged} />

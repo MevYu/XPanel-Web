@@ -94,7 +94,7 @@ export function CreateSiteModal({
       onClick={onClose}
     >
       <Card
-        className="flex max-h-[90vh] w-full max-w-xl flex-col gap-5 overflow-auto border-border/80 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.8)]"
+        className="flex max-h-[90vh] w-full max-w-xl flex-col gap-4 overflow-auto border-border/80 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.8)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">

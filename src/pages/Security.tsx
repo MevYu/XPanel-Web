@@ -70,10 +70,6 @@ export default function Security() {
   if (!isAdmin) {
     return (
       <div className="flex flex-col gap-4">
-        <header className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">主机安全</h1>
-          <p className="text-xs text-muted">SSH 加固、公钥、防爆破与登录审阅。</p>
-        </header>
         <Card>
           <p className="text-sm text-muted">主机安全管理需要 admin 角色。</p>
         </Card>
@@ -83,11 +79,6 @@ export default function Security() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">主机安全</h1>
-        <p className="text-xs text-muted">SSH 加固、公钥管理、防爆破封禁与登录日志审阅。</p>
-      </header>
-
       <div className="flex gap-0.5 self-start rounded-(--radius-sm) border border-border bg-surface p-0.5">
         {TABS.map((t) => (
           <button

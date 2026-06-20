@@ -330,19 +330,6 @@ export default function Nodejs() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            Node 项目
-          </h1>
-          <p className="text-xs text-muted">
-            {projects.length > 0
-              ? `共 ${projects.length} 个项目`
-              : '托管 Node 进程,supervisor 守护启停'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button

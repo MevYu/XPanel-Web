@@ -42,6 +42,9 @@ const KINDS = [
   { value: 'email', label: '邮件 (email)' },
   { value: 'webhook', label: 'Webhook' },
   { value: 'telegram', label: 'Telegram' },
+  { value: 'dingtalk', label: '钉钉' },
+  { value: 'wecom', label: '企业微信' },
+  { value: 'feishu', label: '飞书' },
 ] as const
 type Kind = (typeof KINDS)[number]['value']
 
@@ -49,6 +52,18 @@ const KIND_LABEL: Record<string, string> = {
   email: '邮件',
   webhook: 'Webhook',
   telegram: 'Telegram',
+  dingtalk: '钉钉',
+  wecom: '企业微信',
+  feishu: '飞书',
+}
+
+// 钉钉/企微/飞书:均为「机器人 Webhook 地址」一栏(复用 webhook_url 字段)。
+const WEBHOOK_URL_KINDS = ['webhook', 'dingtalk', 'wecom', 'feishu']
+const URL_LABEL: Record<string, string> = {
+  webhook: 'Webhook URL',
+  dingtalk: '钉钉机器人 Webhook 地址',
+  wecom: '企业微信机器人 Webhook 地址',
+  feishu: '飞书机器人 Webhook 地址',
 }
 
 interface Rule {
@@ -256,19 +271,6 @@ export default function Alert() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            监控告警
-          </h1>
-          <p className="text-xs text-muted">
-            {rules.length > 0
-              ? `共 ${rules.length} 条告警规则`
-              : '按指标阈值触发告警,经通知渠道推送'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button size="md" disabled={!canWriteRule} onClick={() => setEditingRule('new')}>
@@ -745,7 +747,7 @@ function ChannelsModal({
           emptyText={
             <span className="flex flex-col items-center gap-1 py-6">
               <span className="text-sm font-medium text-text">还没有通知渠道</span>
-              <span className="text-xs text-muted">点击「新增渠道」配置邮件 / Webhook / Telegram。</span>
+              <span className="text-xs text-muted">点击「新增渠道」配置邮件 / Webhook / Telegram / 钉钉 / 企业微信 / 飞书。</span>
             </span>
           }
         />
@@ -786,7 +788,7 @@ function ChannelEditModal({
       base.smtp_user = form.smtp_user.trim()
       base.smtp_from = form.smtp_from.trim()
       base.smtp_to = form.smtp_to.trim()
-    } else if (form.kind === 'webhook') {
+    } else if (WEBHOOK_URL_KINDS.includes(form.kind)) {
       base.webhook_url = form.webhook_url.trim()
     } else {
       base.telegram_chat_id = form.telegram_chat_id.trim()
@@ -818,7 +820,11 @@ function ChannelEditModal({
       ? 'SMTP 密码(只写)'
       : form.kind === 'webhook'
         ? 'Bearer token(只写,可选)'
-        : 'Bot token(只写)'
+        : form.kind === 'telegram'
+          ? 'Bot token(只写)'
+          : ''
+  // 钉钉/企微/飞书:仅需 Webhook 地址,无密钥项。
+  const showSecret = secretLabel !== ''
 
   return (
     <Modal
@@ -885,9 +891,9 @@ function ChannelEditModal({
             />
           </div>
         )}
-        {form.kind === 'webhook' && (
+        {WEBHOOK_URL_KINDS.includes(form.kind) && (
           <Input
-            label="Webhook URL"
+            label={URL_LABEL[form.kind] ?? 'Webhook URL'}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
@@ -905,13 +911,15 @@ function ChannelEditModal({
           />
         )}
 
-        <Input
-          label={`${secretLabel}${channel !== null ? ' · 留空保持不变' : ''}`}
-          type="password"
-          autoComplete="off"
-          value={form.secret}
-          onChange={(e) => set('secret', e.target.value)}
-        />
+        {showSecret && (
+          <Input
+            label={`${secretLabel}${channel !== null ? ' · 留空保持不变' : ''}`}
+            type="password"
+            autoComplete="off"
+            value={form.secret}
+            onChange={(e) => set('secret', e.target.value)}
+          />
+        )}
 
         {err && (
           <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">

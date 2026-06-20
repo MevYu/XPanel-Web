@@ -124,7 +124,7 @@ export function TargetSettingsModal({
 
   return (
     <Modal title="备份目标设置" size="lg" onClose={onClose}>
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-4">
         <section className="flex flex-col gap-3">
           <h3 className="text-sm font-medium text-text">远端存储</h3>
           {remotes.length > 0 && (

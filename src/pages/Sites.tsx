@@ -145,6 +145,17 @@ export default function Sites() {
         ),
       },
       {
+        key: 'ssl',
+        header: 'SSL',
+        width: '84px',
+        cell: (s) =>
+          s.ssl?.ssl_enabled ? (
+            <Badge status="online">已开启</Badge>
+          ) : (
+            <span className="text-xs text-faint">未启用</span>
+          ),
+      },
+      {
         key: 'created',
         header: '创建时间',
         width: '150px',
@@ -177,17 +188,6 @@ export default function Sites() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            网站
-          </h1>
-          <p className="text-xs text-muted">
-            {sites.length > 0 ? `共 ${sites.length} 个站点` : '管理 nginx vhost,支持静态 / PHP / 反向代理'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button size="md" disabled={!canWrite} onClick={() => setCreating(true)}>

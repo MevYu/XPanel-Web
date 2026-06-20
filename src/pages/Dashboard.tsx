@@ -8,6 +8,7 @@ import { Sparkline } from '../components/Sparkline'
 import { formatBytes, formatRate, formatDuration } from '../lib/format'
 import type { Metrics, DetailMetrics, ProcessInfo } from '../api/types'
 import { GaugeRow } from './dashboard/GaugeRow'
+import { OverviewStats } from './dashboard/OverviewStats'
 import { levelFor, levelText, levelStroke, clampPct } from './dashboard/Gauge'
 
 // recharts 懒加载,移出首屏主包(首次渲染图表时才拉取该 vendor chunk)。
@@ -148,12 +149,14 @@ export default function Dashboard() {
   const cpuLevel = levelFor(m.cpu_percent)
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <OverviewBar detail={detail.data} online={!error} />
+
+      <OverviewStats />
 
       <section className="flex flex-col gap-3">
         <SectionHeading>系统状态</SectionHeading>
-        <Card className="px-4 py-8 sm:px-8">
+        <Card className="px-4 py-5 sm:px-6">
           <GaugeRow m={m} detail={detail.data} />
         </Card>
       </section>

@@ -170,20 +170,12 @@ function UserTable() {
 
   return (
     <>
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            面板用户
-          </h1>
-          <p className="text-xs text-muted">
-            {users.length > 0 ? `共 ${users.length} 个用户` : '管理可登录面板的账号与角色'}
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Button onClick={() => setCreating(true)} disabled={busy}>
           <Plus size={15} />
           添加用户
         </Button>
-      </header>
+      </div>
 
       {feedback && (
         <p

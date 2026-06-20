@@ -2,14 +2,26 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../../api/client'
 import { Button } from '../../components/Button'
 import { Table, ActionLink, ActionLinks, type Column } from '../../components/Table'
-import { Plus, UserPlus, ArrowLeftRight, Search, Database as DatabaseIcon, User } from 'lucide-react'
+import { Plus, UserPlus, ArrowLeftRight, Search, Database as DatabaseIcon, User, KeyRound } from 'lucide-react'
 import { type Engine, type DbInfo, type DbUser, DANGER, errorText } from './shared'
-import { CreateDbModal, CreateUserModal, GrantModal, PasswordModal, TransferModal } from './modals'
+import {
+  CreateDbModal,
+  CreateUserModal,
+  GrantModal,
+  PasswordModal,
+  TransferModal,
+  RootPasswordModal,
+  MaintainModal,
+} from './modals'
+import { ManageModal } from './ManageModal'
 
 type Modal =
   | { kind: 'create-db' }
   | { kind: 'create-user' }
   | { kind: 'transfer' }
+  | { kind: 'manage'; db: string }
+  | { kind: 'maintain'; db: string }
+  | { kind: 'root-password' }
   | { kind: 'grant'; user: DbUser }
   | { kind: 'password'; user: DbUser }
   | null
@@ -146,12 +158,15 @@ export function SqlEnginePanel({
       {
         key: 'actions',
         header: '操作',
-        width: '150px',
+        width: '210px',
         align: 'right',
         cell: (d) => (
           <ActionLinks>
-            <ActionLink onClick={() => setModal({ kind: 'transfer' })} disabled={busy}>
+            <ActionLink onClick={() => setModal({ kind: 'manage', db: d.name })} disabled={busy}>
               管理
+            </ActionLink>
+            <ActionLink onClick={() => setModal({ kind: 'maintain', db: d.name })} disabled={busy}>
+              工具
             </ActionLink>
             <ActionLink onClick={() => backupDb(d.name)} disabled={busy}>
               备份
@@ -225,6 +240,10 @@ export function SqlEnginePanel({
             <ArrowLeftRight size={15} />
             导入导出
           </Button>
+          <Button size="md" variant="ghost" onClick={() => setModal({ kind: 'root-password' })} disabled={busy}>
+            <KeyRound size={15} />
+            root 密码
+          </Button>
         </div>
         <div className="relative w-56">
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
@@ -296,6 +315,19 @@ export function SqlEnginePanel({
         )}
       </div>
 
+      {modal?.kind === 'manage' && (
+        <ManageModal engine={engine} database={modal.db} onClose={() => setModal(null)} />
+      )}
+      {modal?.kind === 'maintain' && (
+        <MaintainModal engine={engine} database={modal.db} onClose={() => setModal(null)} />
+      )}
+      {modal?.kind === 'root-password' && (
+        <RootPasswordModal
+          engine={engine}
+          onClose={() => setModal(null)}
+          onDone={(text) => setFeedback({ kind: 'ok', text })}
+        />
+      )}
       {modal?.kind === 'create-db' && (
         <CreateDbModal engine={engine} onClose={() => setModal(null)} onCreated={() => afterModalChange('创建数据库')} />
       )}

@@ -281,19 +281,6 @@ export default function Java() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            Java 项目
-          </h1>
-          <p className="text-xs text-muted">
-            {projects.length > 0
-              ? `共 ${projects.length} 个项目`
-              : '管理 jar / war / tomcat 部署,支持启停重启与日志'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="md"

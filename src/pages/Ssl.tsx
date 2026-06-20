@@ -272,19 +272,6 @@ export default function Ssl() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            SSL证书
-          </h1>
-          <p className="text-xs text-muted">
-            {certs.length > 0
-              ? `共 ${certs.length} 张证书`
-              : '签发 Let’s Encrypt 证书或上传自定义证书,监控到期与自动续期'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button size="md" disabled={!canWrite} onClick={() => setFormOpen(true)}>
