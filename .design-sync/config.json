@@ -1,0 +1,39 @@
+{
+  "pkg": "xpanel-web",
+  "globalName": "XPanel",
+  "shape": "package",
+  "projectId": "e438d911-93d8-4e05-84c0-f837c2890898",
+  "entry": ".design-sync/entry.tsx",
+  "srcDir": "src/components",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": "dist/assets/index.ds.css",
+  "readmeHeader": ".design-sync/conventions.md",
+  "overrides": {
+    "Modal": { "cardMode": "single", "viewport": "700x540" },
+    "TabModal": { "cardMode": "single", "viewport": "920x640" },
+    "SearchBar": { "cardMode": "single", "viewport": "900x240" },
+    "FileTreeSidebar": { "cardMode": "single", "viewport": "340x480" },
+    "CodeEditor": { "cardMode": "single", "viewport": "800x420" },
+    "Card": { "cardMode": "column" },
+    "Sparkline": { "cardMode": "column" },
+    "Stat": { "cardMode": "column" }
+  },
+  "componentSrcMap": {
+    "Badge": "src/components/Badge.tsx",
+    "Button": "src/components/Button.tsx",
+    "Card": "src/components/Card.tsx",
+    "IconButton": "src/components/IconButton.tsx",
+    "Input": "src/components/Input.tsx",
+    "Logo": "src/components/Logo.tsx",
+    "Modal": "src/components/Modal.tsx",
+    "Sparkline": "src/components/Sparkline.tsx",
+    "Spinner": "src/components/Spinner.tsx",
+    "Stat": "src/components/Stat.tsx",
+    "Switch": "src/components/Switch.tsx",
+    "TabModal": "src/components/TabModal.tsx",
+    "Table": "src/components/Table.tsx",
+    "FileTreeSidebar": "src/components/editor/FileTreeSidebar.tsx",
+    "SearchBar": "src/components/editor/SearchBar.tsx",
+    "CodeEditor": "src/components/CodeEditor.tsx"
+  }
+}
