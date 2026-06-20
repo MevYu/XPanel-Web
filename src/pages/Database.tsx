@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
+import { Tabs } from '../components/Tabs'
 import { SqlEnginePanel } from './database/SqlEnginePanel'
 import { RedisPanel } from './database/RedisPanel'
 import { BackupsPanel } from './database/BackupsPanel'
@@ -35,19 +36,11 @@ export default function Database() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-1 rounded-(--radius-card) border border-border bg-surface p-1">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => (t.key === 'settings' ? setSettingsOpen(true) : setTab(t.key))}
-            className={`h-8 rounded-(--radius-card) px-3 text-sm font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-              tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={TABS}
+        active={tab}
+        onChange={(k) => (k === 'settings' ? setSettingsOpen(true) : setTab(k))}
+      />
 
       {tab === 'mysql' && (
         <SqlEnginePanel engine="mysql" refreshKey={refreshKey} onBackupDone={() => setBackupsKey((k) => k + 1)} />

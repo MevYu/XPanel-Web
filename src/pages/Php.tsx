@@ -7,6 +7,7 @@ import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { CodeEditor } from '../components/CodeEditor'
+import { Tabs } from '../components/Tabs'
 import { RefreshCw, X } from 'lucide-react'
 
 function errorText(e: unknown): string {
@@ -775,19 +776,7 @@ function VersionDetail({ version, canWrite }: { version: string; canWrite: boole
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`h-9 rounded-sm px-3 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-              tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={TABS} active={tab} onChange={setTab} />
       {/* version 作 key:切版本时重置各 tab 内部状态,避免串数据。 */}
       <div key={`${version}-${tab}`}>{body}</div>
     </div>

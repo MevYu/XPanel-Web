@@ -9,6 +9,7 @@ import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Tabs } from '../components/Tabs'
 import {
   Plus,
   RefreshCw,
@@ -274,19 +275,7 @@ export default function Waf() {
         </p>
       )}
 
-      <div className="flex gap-0.5 self-start rounded-(--radius-sm) border border-border bg-surface p-0.5">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`h-9 rounded-sm px-4 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-              tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
       {tab === 'guard' && <GuardSettings isAdmin={isAdmin} cc={cc} onCc={setCc} />}
       {tab === 'rules' && <Rules isAdmin={isAdmin} />}
