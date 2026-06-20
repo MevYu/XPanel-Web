@@ -119,3 +119,27 @@ button:disabled,
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ── 主题口重色(对标设计稿 data-accent;覆盖 brand 令活动态/主按钮跟随)── */
+[data-accent='emerald'] { --color-brand: #3FB57F; --color-brand-bright: #5FC99A; --color-brand-dim: #2E9466; --color-brand-soft: rgba(63,181,127,0.14); }
+[data-accent='cyan']    { --color-brand: #2BB6C4; --color-brand-bright: #54CDD9; --color-brand-dim: #1F8E9A; --color-brand-soft: rgba(43,182,196,0.14); }
+[data-accent='violet']  { --color-brand: #9A7BFF; --color-brand-bright: #B29BFF; --color-brand-dim: #7A5BE0; --color-brand-soft: rgba(154,123,255,0.14); }
+
+/* ── 活动导航项:光泽渐变 + 发光左条 + 图标辉光(对标设计稿) ── */
+.nav-active {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--color-brand) 16%, var(--color-surface-2)),
+    color-mix(in srgb, var(--color-brand) 4%, var(--color-surface)));
+  border-color: color-mix(in srgb, var(--color-brand) 32%, transparent);
+  box-shadow: 0 8px 22px -8px color-mix(in srgb, var(--color-brand) 60%, transparent),
+              inset 0 1px 0 rgba(255,255,255,.06);
+}
+.nav-active svg { filter: drop-shadow(0 0 7px color-mix(in srgb, var(--color-brand) 75%, transparent)); }
+.nav-active::before {
+  content: ""; position: absolute; left: -6px; top: 9px; bottom: 9px; width: 4px;
+  border-radius: 0 4px 4px 0; background: var(--color-brand); box-shadow: 0 0 12px var(--color-brand);
+}
+
+/* ── 中英双语:data-lang 切换 .zh / .en 可见性(基础设施,逐页填充) ── */
+[data-lang='en'] .zh { display: none; }
+[data-lang='zh'] .en { display: none; }

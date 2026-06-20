@@ -50,6 +50,27 @@ export function AppShell() {
             <Outlet />
           </ErrorBoundary>
         </main>
+        {/* 页脚:版权 + 社区链接(对标设计稿;开源面板,去掉升级 chrome) */}
+        <footer className="hidden h-[42px] shrink-0 items-center gap-4 border-t border-border bg-surface px-6 text-xs text-muted lg:flex">
+          <span>© 2026 XPanel · 开源 Linux 运维面板</span>
+          <a
+            href="https://github.com/MevYu/XPanel-Go"
+            target="_blank"
+            rel="noreferrer"
+            className="transition hover:text-text"
+          >
+            GitHub
+          </a>
+          <a
+            href="https://github.com/MevYu/XPanel-Go/blob/main/README.md"
+            target="_blank"
+            rel="noreferrer"
+            className="transition hover:text-text"
+          >
+            文档
+          </a>
+          <span className="ml-auto font-[family-name:var(--font-mono)] text-faint">v0.0.1</span>
+        </footer>
       </div>
     </div>
   )

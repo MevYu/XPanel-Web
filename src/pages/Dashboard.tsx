@@ -5,10 +5,13 @@ import { Card } from '../components/Card'
 import { Stat } from '../components/Stat'
 import { Spinner } from '../components/Spinner'
 import { Sparkline } from '../components/Sparkline'
-import { formatBytes, formatRate, formatDuration } from '../lib/format'
+import { Badge } from '../components/Badge'
+import { formatBytes, formatRate } from '../lib/format'
 import type { Metrics, DetailMetrics, ProcessInfo } from '../api/types'
 import { GaugeRow } from './dashboard/GaugeRow'
 import { OverviewStats } from './dashboard/OverviewStats'
+import { SystemInfoCard } from './dashboard/SystemInfoCard'
+import { QuickActionsCard } from './dashboard/QuickActionsCard'
 import { levelFor, levelText, levelStroke, clampPct } from './dashboard/Gauge'
 
 // recharts 懒加载,移出首屏主包(首次渲染图表时才拉取该 vendor chunk)。
@@ -150,9 +153,13 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-4">
-      <OverviewBar detail={detail.data} online={!error} />
-
-      <OverviewStats />
+      <header className="flex flex-wrap items-center gap-3">
+        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">系统总览</h1>
+        {detail.data && (
+          <Badge status="online">运行 {Math.floor(detail.data.uptime_sec / 86400)} 天</Badge>
+        )}
+        <span className="ml-auto text-xs text-muted">每 2.5s 实时刷新</span>
+      </header>
 
       <section className="flex flex-col gap-3">
         <SectionHeading>系统状态</SectionHeading>
@@ -160,6 +167,13 @@ export default function Dashboard() {
           <GaugeRow m={m} detail={detail.data} />
         </Card>
       </section>
+
+      <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+        <SystemInfoCard detail={detail.data} net={rates.net} netHistory={netHistory} />
+        <QuickActionsCard />
+      </div>
+
+      <OverviewStats />
 
       <section className="flex flex-col gap-3">
         <SectionHeading>实时趋势</SectionHeading>
@@ -201,63 +215,6 @@ export default function Dashboard() {
         procs={procs.data}
         procsError={!!procs.error}
       />
-    </div>
-  )
-}
-
-// OverviewBar 顶部概览条:在线状态 + 运行时长 + 启动时间 + 核数 + 负载,一行紧凑信息。
-function OverviewBar({ detail, online }: { detail: DetailMetrics | null; online: boolean }) {
-  return (
-    <Card className="flex flex-wrap items-center gap-x-8 gap-y-4">
-      <div className="flex items-center gap-2.5">
-        <span
-          className={`h-2 w-2 rounded-full ${online ? 'bg-online animate-breathe' : 'bg-crit'}`}
-          aria-hidden
-        />
-        <span className="text-sm font-medium text-text">系统总览</span>
-        <span className="text-xs text-muted">{online ? '运行中' : '离线'}</span>
-      </div>
-
-      <div className="hidden h-8 w-px bg-border sm:block" aria-hidden />
-
-      <OverviewItem
-        label="运行时长"
-        value={detail ? formatDuration(detail.uptime_sec) : '—'}
-      />
-      <OverviewItem
-        label="启动时间"
-        value={
-          detail
-            ? new Date(detail.boot_time * 1000).toLocaleString('zh-CN', {
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-            : '—'
-        }
-      />
-      <OverviewItem label="CPU 核数" value={detail ? `${detail.cpu_per_core.length}` : '—'} />
-      <OverviewItem
-        label="负载 1 / 5 / 15"
-        value={
-          detail
-            ? `${detail.load.load1.toFixed(2)} / ${detail.load.load5.toFixed(2)} / ${detail.load.load15.toFixed(2)}`
-            : '—'
-        }
-      />
-    </Card>
-  )
-}
-
-// OverviewItem 概览条单项:小标签 + mono 读数。
-function OverviewItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-xs tracking-wide text-muted">{label}</span>
-      <span className="font-[family-name:var(--font-mono)] text-sm tabular-nums text-text">
-        {value}
-      </span>
     </div>
   )
 }

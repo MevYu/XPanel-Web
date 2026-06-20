@@ -5,6 +5,8 @@ import { AppShell } from './layout/AppShell'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Modules from './pages/Modules'
+import Domains from './pages/Domains'
+import Logs from './pages/Logs'
 import Service from './pages/Service'
 import Terminal from './pages/Terminal'
 import Files from './pages/Files'
@@ -88,6 +90,8 @@ export default function App() {
           <Route path="/memcached" element={<Memcached />} />
           <Route path="/mysqlrepl" element={<MysqlRepl />} />
           <Route path="/fleet" element={<Fleet />} />
+          <Route path="/domains" element={<Domains />} />
+          <Route path="/logs" element={<Logs />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
