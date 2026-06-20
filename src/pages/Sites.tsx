@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/Button'
+import { Segmented } from '../components/Segmented'
+import { EmptyState } from '../components/EmptyState'
 import { Badge } from '../components/Badge'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Plus, Settings2, Search, Globe, Code2, Boxes } from 'lucide-react'
@@ -213,19 +215,7 @@ export default function Sites() {
               className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             />
           </div>
-          <div className="flex gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">
-            {FILTERS.map((f) => (
-              <button
-                key={f.key}
-                onClick={() => setFilter(f.key)}
-                className={`h-9 rounded-sm px-3 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-                  filter === f.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          <Segmented items={FILTERS} active={filter} onChange={setFilter} />
         </div>
       </div>
 
@@ -246,16 +236,15 @@ export default function Sites() {
           rows={visible}
           rowKey={(s) => s.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {sites.length === 0 ? '还没有站点' : '没有匹配的站点'}
-              </span>
-              <span className="text-xs text-muted">
-                {sites.length === 0
+            <EmptyState
+              icon={<Globe />}
+              title={sites.length === 0 ? '还没有站点' : '没有匹配的站点'}
+              hint={
+                sites.length === 0
                   ? '点击「新建站点」开始托管你的域名。'
-                  : '换个关键词或筛选条件试试。'}
-              </span>
-            </span>
+                  : '换个关键词或筛选条件试试。'
+              }
+            />
           }
         />
       )}

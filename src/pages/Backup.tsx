@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { Plus, HardDriveDownload, ListPlus } from 'lucide-react'
 import {
   type Job,
@@ -374,10 +375,11 @@ export default function Backup() {
             rows={jobs}
             rowKey={(j) => j.id}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <span className="text-sm font-medium text-text">还没有备份任务</span>
-                <span className="text-xs text-muted">点击「新建任务」配置定时备份与保留策略。</span>
-              </span>
+              <EmptyState
+                icon={<ListPlus />}
+                title="还没有备份任务"
+                hint="点击「新建任务」配置定时备份与保留策略。"
+              />
             }
           />
         )}
@@ -393,10 +395,11 @@ export default function Backup() {
             rows={records}
             rowKey={(rec) => rec.id}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <span className="text-sm font-medium text-text">暂无备份记录</span>
-                <span className="text-xs text-muted">点击「新建备份」立即执行一次备份。</span>
-              </span>
+              <EmptyState
+                icon={<HardDriveDownload />}
+                title="暂无备份记录"
+                hint="点击「新建备份」立即执行一次备份。"
+              />
             }
           />
         )}

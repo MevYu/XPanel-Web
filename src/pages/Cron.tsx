@@ -8,6 +8,7 @@ import { Spinner } from '../components/Spinner'
 import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { Plus, Clock } from 'lucide-react'
 import type {
   CronJob,
@@ -403,10 +404,11 @@ export default function Cron() {
           rows={jobs}
           rowKey={(job) => job.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">还没有定时任务</span>
-              <span className="text-xs text-muted">点击「添加任务」创建你的第一个计划任务。</span>
-            </span>
+            <EmptyState
+              icon={<Clock />}
+              title="还没有定时任务"
+              hint="点击「添加任务」创建你的第一个计划任务。"
+            />
           }
         />
       )}

@@ -8,6 +8,7 @@ import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Badge } from '../components/Badge'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { Plus, Settings2, RefreshCw, Boxes } from 'lucide-react'
 
 function errorText(e: unknown): string {
@@ -785,10 +786,11 @@ export default function Supervisor() {
           rows={programs}
           rowKey={(p) => p.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">还没有守护程序</span>
-              <span className="text-xs text-muted">点击「添加程序」托管你的第一个常驻进程。</span>
-            </span>
+            <EmptyState
+              icon={<Boxes />}
+              title="还没有守护程序"
+              hint="点击「添加程序」托管你的第一个常驻进程。"
+            />
           }
         />
       )}

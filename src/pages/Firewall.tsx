@@ -10,6 +10,7 @@ import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { uid } from '../lib/uid'
 
 const DANGER = { 'X-Confirm-Danger': '1' }
@@ -482,14 +483,11 @@ export default function Firewall() {
           rows={visiblePorts}
           rowKey={(r) => `${r.action}-${r.proto}-${r.port}-${r.source}`}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {rules.length === 0 ? '还没有端口规则' : '没有匹配的规则'}
-              </span>
-              <span className="text-xs text-muted">
-                {rules.length === 0 ? '点击「放行端口」添加第一条规则。' : '换个关键词试试。'}
-              </span>
-            </span>
+            <EmptyState
+              icon={<ShieldCheck />}
+              title={rules.length === 0 ? '还没有端口规则' : '没有匹配的规则'}
+              hint={rules.length === 0 ? '点击「放行端口」添加第一条规则。' : '换个关键词试试。'}
+            />
           }
         />
       ) : (
@@ -498,16 +496,15 @@ export default function Firewall() {
           rows={visibleIPs}
           rowKey={(r) => r.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {ipRows.length === 0 ? '本会话还没有 IP 规则' : '没有匹配的规则'}
-              </span>
-              <span className="text-xs text-muted">
-                {ipRows.length === 0
+            <EmptyState
+              icon={<ShieldCheck />}
+              title={ipRows.length === 0 ? '本会话还没有 IP 规则' : '没有匹配的规则'}
+              hint={
+                ipRows.length === 0
                   ? '后端不提供 IP 规则列表,此处仅展示本次添加的条目。'
-                  : '换个关键词试试。'}
-              </span>
-            </span>
+                  : '换个关键词试试。'
+              }
+            />
           }
         />
       )}

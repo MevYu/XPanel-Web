@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../../api/client'
 import { Button } from '../../components/Button'
 import { Table, ActionLink, ActionLinks, type Column } from '../../components/Table'
+import { EmptyState } from '../../components/EmptyState'
 import { Plus, UserPlus, ArrowLeftRight, Search, Database as DatabaseIcon, User, KeyRound } from 'lucide-react'
 import { type Engine, type DbInfo, type DbUser, DANGER, errorText } from './shared'
 import {
@@ -279,14 +280,11 @@ export function SqlEnginePanel({
             rows={visibleDbs}
             rowKey={(d) => d.name}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <span className="text-sm font-medium text-text">
-                  {databases.length === 0 ? '还没有数据库' : '没有匹配的数据库'}
-                </span>
-                <span className="text-xs text-muted">
-                  {databases.length === 0 ? '点击「新建库」创建第一个数据库。' : '换个关键词试试。'}
-                </span>
-              </span>
+              <EmptyState
+                icon={<DatabaseIcon />}
+                title={databases.length === 0 ? '还没有数据库' : '没有匹配的数据库'}
+                hint={databases.length === 0 ? '点击「新建库」创建第一个数据库。' : '换个关键词试试。'}
+              />
             }
           />
         )}
@@ -302,14 +300,11 @@ export function SqlEnginePanel({
             rows={visibleUsers}
             rowKey={(u) => `${u.user}@${u.host}`}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <span className="text-sm font-medium text-text">
-                  {users.length === 0 ? '还没有用户' : '没有匹配的用户'}
-                </span>
-                <span className="text-xs text-muted">
-                  {users.length === 0 ? '点击「新建用户」创建数据库账号。' : '换个关键词试试。'}
-                </span>
-              </span>
+              <EmptyState
+                icon={<User />}
+                title={users.length === 0 ? '还没有用户' : '没有匹配的用户'}
+                hint={users.length === 0 ? '点击「新建用户」创建数据库账号。' : '换个关键词试试。'}
+              />
             }
           />
         )}

@@ -8,7 +8,8 @@ import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
-import { Plus, ShieldCheck, KeyRound } from 'lucide-react'
+import { EmptyState } from '../components/EmptyState'
+import { Plus, ShieldCheck, KeyRound, Users as UsersIcon } from 'lucide-react'
 import { formatTime } from '../lib/formatTime'
 
 const DANGER = { 'X-Confirm-Danger': '1' }
@@ -213,10 +214,11 @@ function UserTable() {
           rows={users}
           rowKey={(u) => u.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">还没有面板用户</span>
-              <span className="text-xs text-muted">点击「添加用户」创建第一个账号。</span>
-            </span>
+            <EmptyState
+              icon={<UsersIcon />}
+              title="还没有面板用户"
+              hint="点击「添加用户」创建第一个账号。"
+            />
           }
         />
       )}
