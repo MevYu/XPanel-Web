@@ -26,7 +26,7 @@ export function SettingsTab({
   onChanged: (s: Site) => void
 }) {
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       {site.kind !== 'proxy' && (
         <RootSection site={site} isAdmin={isAdmin} onChanged={onChanged} />
       )}

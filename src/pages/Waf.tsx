@@ -201,22 +201,6 @@ export default function Waf() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2.5">
-            <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-              网站防火墙
-            </h1>
-            <Badge status={wafOn ? 'online' : 'neutral'}>{wafOn ? '防护中' : '已关闭'}</Badge>
-          </div>
-          <p className="text-xs text-muted">
-            {stats
-              ? `扫描 ${stats.total.toLocaleString()} 行 · 拦截 ${stats.blocked.toLocaleString()} · 限流 ${stats.limited.toLocaleString()}`
-              : '基于 nginx 的 IP / URL / UA 规则与 CC 防御'}
-          </p>
-        </div>
-      </header>
-
       <Card className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Switch
@@ -717,7 +701,7 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
   )
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       {feedback && (
         <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>{feedback.text}</p>
       )}

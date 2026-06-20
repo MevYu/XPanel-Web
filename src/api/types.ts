@@ -45,7 +45,14 @@ export interface ProcessInfo {
 }
 
 // ---- cron ----
-export type CronJobType = 'command' | 'shell' | 'release_mem' | 'log_cut' | 'url'
+export type CronJobType =
+  | 'command'
+  | 'shell'
+  | 'release_mem'
+  | 'log_cut'
+  | 'url'
+  | 'backup_site'
+  | 'backup_db'
 
 export type CronScheduleKind =
   | 'every_n_minutes'

@@ -83,7 +83,7 @@ export function ProxyTab({
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <TabSection title="后端地址" desc="主上游目标。配置多个上游时在其之间做负载均衡。">
         <Input
           label="目标 (upstream)"

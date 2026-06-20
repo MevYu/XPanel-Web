@@ -44,8 +44,8 @@ interface GaugeProps {
   detail?: ReactNode
 }
 
-const SIZE = 168
-const STROKE = 12
+const SIZE = 128
+const STROKE = 10
 
 /** Gauge 圆形状态球:SVG 环按百分比填充 + 阈值染色 + 柔和辉光,hover/focus 放大并显出细节面板。 */
 export function Gauge({ pct, reading, unit, label, detail }: GaugeProps) {
@@ -121,9 +121,9 @@ export function Gauge({ pct, reading, unit, label, detail }: GaugeProps) {
           </svg>
           {/* 中心读数 */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="font-[family-name:var(--font-mono)] text-4xl font-medium tabular-nums tracking-tight">
+            <span className="font-[family-name:var(--font-mono)] text-3xl font-medium tabular-nums tracking-tight">
               <span className={levelText[level]}>{reading}</span>
-              {unit && <span className="text-xl text-muted">{unit}</span>}
+              {unit && <span className="text-lg text-muted">{unit}</span>}
             </span>
           </div>
         </div>

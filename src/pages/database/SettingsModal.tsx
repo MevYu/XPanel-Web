@@ -65,7 +65,7 @@ export function SettingsModal({ onClose, onSaved }: { onClose: () => void; onSav
           <Spinner size={24} />
         </div>
       ) : (
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-4">
           <section className="flex flex-col gap-3">
             <span className="text-xs font-medium uppercase tracking-wide text-muted">MySQL / MariaDB</span>
             <div className="grid gap-4 sm:grid-cols-3">

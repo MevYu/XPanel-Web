@@ -417,12 +417,7 @@ export default function AppStore() {
   }, [apps, query, category])
 
   return (
-    <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">应用商店</h1>
-        <p className="text-xs text-muted">一键部署常用应用与数据库,基于 Docker Compose。</p>
-      </header>
-
+    <div className="flex flex-col gap-4">
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">

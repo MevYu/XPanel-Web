@@ -68,7 +68,7 @@ export function DirProtectTab({
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <TabSection title="已保护目录" desc="匹配前缀的路径要求 HTTP Basic 认证。">
         {rules.length === 0 ? (
           <p className="text-xs text-muted">暂无受保护目录。</p>

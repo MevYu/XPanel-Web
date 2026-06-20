@@ -1311,11 +1311,6 @@ export default function Docker() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">Docker</h1>
-        <p className="text-xs text-muted">容器 / 镜像 / 编排 / 网络 / 存储卷 / 仓库,危险操作走二次确认。</p>
-      </header>
-
       <div className="flex flex-wrap gap-1 rounded-(--radius-card) border border-border bg-surface p-1">
         {TABS.map((t) => {
           const Icon = t.icon

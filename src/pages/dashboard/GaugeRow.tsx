@@ -15,7 +15,7 @@ export function GaugeRow({ m, detail }: { m: Metrics; detail: DetailMetrics | nu
   const diskPct = clampPct(pct(m.disk_used, m.disk_total))
 
   return (
-    <div className="grid grid-cols-2 justify-items-center gap-y-8 sm:gap-y-10 lg:grid-cols-4">
+    <div className="grid grid-cols-2 justify-items-center gap-y-6 lg:grid-cols-4">
       <Gauge
         pct={loadPct}
         reading={load1.toFixed(2)}

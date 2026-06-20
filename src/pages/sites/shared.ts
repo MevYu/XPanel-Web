@@ -91,6 +91,8 @@ export interface Site {
   dir_protect: DirProtectView[]
   redirects: Redirect[]
   anti_leech: AntiLeech
+  limits: Limits
+  error_pages: ErrorPage[]
   access_log: string
   error_log: string
   custom_config: string

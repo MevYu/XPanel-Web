@@ -241,13 +241,6 @@ export default function MysqlRepl() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-          MySQL 主从
-        </h1>
-        <p className="text-xs text-muted">配置主从连接、建复制用户、搭建并监控复制状态</p>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Button size="md" onClick={() => setDialog('configure')}>

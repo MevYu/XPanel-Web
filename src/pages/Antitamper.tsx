@@ -77,14 +77,6 @@ export default function Antitamper() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-          防篡改
-        </h1>
-        <p className="text-xs text-muted">
-          对受保护目录建立 SHA-256 基线,后台周期扫描检出新增 / 删除 / 修改。
-        </p>
-      </header>
       {isAdmin ? (
         <Control />
       ) : (

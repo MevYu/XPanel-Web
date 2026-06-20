@@ -354,13 +354,6 @@ export default function Firewall() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">防火墙</h1>
-        <p className="text-xs text-muted">
-          管理端口与 IP 规则,{backend ? `基于 ${backend} 后端` : '基于系统防火墙后端'}。
-        </p>
-      </header>
-
       {/* 顶部状态条 */}
       <Card className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="flex items-center gap-2">

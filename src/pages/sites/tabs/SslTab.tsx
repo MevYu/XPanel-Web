@@ -99,7 +99,7 @@ export function SslTab({
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       {(hasCert || ssl.expires_at > 0) && (
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-(--radius-card) border border-online/30 bg-online/10 px-4 py-3 text-xs text-online">
           <span>已安装证书</span>

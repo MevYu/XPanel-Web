@@ -256,19 +256,6 @@ export default function LoadBalancer() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            负载均衡
-          </h1>
-          <p className="text-xs text-muted">
-            {groups.length > 0
-              ? `共 ${groups.length} 个均衡组`
-              : '管理 nginx upstream 均衡组,生成配置经 nginx -t 校验后生效'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button size="md" disabled={!canWrite} onClick={() => setCreating(true)}>

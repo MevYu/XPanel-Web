@@ -174,7 +174,6 @@ export default function Settings() {
   if (loadErr && !form) {
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader />
         <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
           {loadErr}
           <Button size="sm" variant="ghost" onClick={() => void load()}>
@@ -188,7 +187,6 @@ export default function Settings() {
   if (!form || !loaded) {
     return (
       <div className="flex flex-col gap-4">
-        <PageHeader />
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       </div>
     )
@@ -199,8 +197,6 @@ export default function Settings() {
 
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader />
-
       {!isAdmin && (
         <p className="rounded-(--radius-card) border border-border bg-surface px-3 py-2 text-xs text-muted">
           面板设置为只读;修改需要 admin 角色。
@@ -324,17 +320,6 @@ export default function Settings() {
         />
       )}
     </div>
-  )
-}
-
-function PageHeader() {
-  return (
-    <header className="flex flex-col gap-1">
-      <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-        面板设置
-      </h1>
-      <p className="text-xs text-muted">登录安全、网络与入口监听等面板级配置。</p>
-    </header>
   )
 }
 
@@ -505,7 +490,7 @@ function ConfirmDanger({
       onClick={onCancel}
     >
       <Card
-        className="flex w-full max-w-md flex-col gap-5 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.8)]"
+        className="flex w-full max-w-md flex-col gap-4 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.8)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">
