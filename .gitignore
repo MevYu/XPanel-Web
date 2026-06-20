@@ -1,2 +1,11 @@
 node_modules
 dist
+
+# design-sync (claude.ai/design) converter artifacts — durable inputs under
+# .design-sync/ (config.json, NOTES.md, conventions.md, previews/, overrides/)
+# ARE committed; everything below is regenerated machine state.
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
