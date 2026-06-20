@@ -4,7 +4,6 @@ import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
-import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, type Column } from '../components/Table'
@@ -124,7 +123,6 @@ export default function Memcached() {
   const [slabs, setSlabs] = useState<Slabs>({})
   const [settings, setSettings] = useState<Settings | null>(null)
   const [loading, setLoading] = useState(true)
-  const [connected, setConnected] = useState(false)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -144,11 +142,9 @@ export default function Memcached() {
         ])
         setStats(st)
         setSlabs(sl ?? {})
-        setConnected(true)
       } catch (e) {
         setStats(null)
         setSlabs({})
-        setConnected(false)
         setLoadErr(errorText(e))
       }
     } catch (e) {
@@ -219,22 +215,6 @@ export default function Memcached() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2.5">
-            <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-              Memcached
-            </h1>
-            <Badge status={connected ? 'online' : 'crit'}>{connected ? '已连接' : '未连接'}</Badge>
-          </div>
-          <p className="text-xs text-muted">
-            {stats
-              ? `版本 ${stats.version || '—'} · PID ${stats.pid}${settings?.addr ? ` · ${settings.addr}` : ''}`
-              : `无法连接到 ${settings?.addr || 'memcached'},检查服务与连接设置`}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Button size="md" disabled={busy || !isAdmin} onClick={() => void action('start')}>

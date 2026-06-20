@@ -351,11 +351,6 @@ export default function Migration() {
   if (!isAdmin) {
     return (
       <div className="flex flex-col gap-4">
-        <header className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            一键迁移
-          </h1>
-        </header>
         <p className="rounded-(--radius-card) border border-border bg-surface px-4 py-6 text-sm text-muted">
           一键迁移需要 admin 角色。
         </p>
@@ -365,19 +360,6 @@ export default function Migration() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            一键迁移
-          </h1>
-          <p className="text-xs text-muted">
-            {packages.length > 0
-              ? `共 ${packages.length} 个迁移包`
-              : '打包站点目录 + 数据库 + 元信息,跨机一键还原'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button size="md" onClick={() => setExporting(true)}>

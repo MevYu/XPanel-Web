@@ -5,7 +5,9 @@ import { useAuth } from '../auth/AuthContext'
 import { useModules } from '../hooks/useModules'
 import { IconButton } from '../components/IconButton'
 import { Logo } from '../components/Logo'
-import { iconFor, colorFor } from './icons'
+import { TelemetryRail } from './TelemetryRail'
+import { AccentControl } from './AccentControl'
+import { iconFor } from './icons'
 import type { NavItem } from '../api/types'
 
 interface Group {
@@ -39,7 +41,7 @@ export function Sidebar() {
   return (
     <nav
       className={`flex h-full flex-col border-r border-border bg-gradient-to-b from-surface to-bg transition-[width] duration-(--dur-base) ease-(--ease-out) ${
-        collapsed ? 'w-16' : 'w-60'
+        collapsed ? 'w-[68px]' : 'w-[238px]'
       }`}
     >
       <div className={`flex h-14 items-center border-b border-border/60 px-3 ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
@@ -69,20 +71,36 @@ export function Sidebar() {
           {!collapsed && (
             <p className="px-1.5 pb-1.5 text-[0.6875rem] font-medium uppercase tracking-wider text-faint">管理</p>
           )}
+          <NavRow item={{ label: '域名', icon: 'globe', path: '/domains' }} collapsed={collapsed} />
           <NavRow
             item={{ label: '模块管理', icon: 'boxes', path: '/modules' }}
             collapsed={collapsed}
           />
           {role === 'admin' && (
-            <NavRow
-              item={{ label: '设置', icon: 'settings', path: '/settings' }}
-              collapsed={collapsed}
-            />
+            <>
+              <NavRow item={{ label: '日志', icon: 'scroll-text', path: '/logs' }} collapsed={collapsed} />
+              <NavRow
+                item={{ label: '设置', icon: 'settings', path: '/settings' }}
+                collapsed={collapsed}
+              />
+            </>
           )}
         </div>
       </div>
 
+      {!collapsed && (
+        <div className="border-t border-border/60 p-1.5">
+          <TelemetryRail />
+        </div>
+      )}
+
       <div className="border-t border-border/60 p-1.5">
+        {!collapsed && (
+          <div className="mb-2 flex items-center justify-between px-1.5">
+            <span className="text-xs text-faint">主题色</span>
+            <AccentControl />
+          </div>
+        )}
         <div
           className={`flex items-center ${collapsed ? 'flex-col gap-2' : 'justify-between'}`}
         >
@@ -111,21 +129,20 @@ export function Sidebar() {
 
 function NavRow({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const Icon = iconFor(item.icon)
-  const iconColor = colorFor(item.icon)
   return (
     <NavLink
       to={item.path}
       title={collapsed ? item.label : undefined}
       className={({ isActive }) =>
-        // 图标常驻语义彩色;活动项加品牌底 + 左侧高亮条强化,非活动项静息半透明、hover 提亮。
-        `relative flex items-center gap-2.5 rounded-(--radius-sm) px-1.5 py-2 text-sm transition-[background-color,color,opacity] duration-(--dur-micro) ease-(--ease-out) outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${
+        // 对标设计稿:单色描边图标随状态变色,活动项=光泽渐变底 + 发光左条 + 图标品牌辉光(见 global.css .nav-active)。
+        `relative flex h-[42px] items-center gap-3 rounded-xl border border-transparent px-3 text-[13.5px] font-medium transition-[background-color,color,box-shadow] duration-(--dur-micro) ease-(--ease-out) outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg ${
           isActive
-            ? 'bg-brand-soft font-medium text-text [&_svg]:opacity-100 before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-0.5 before:rounded-full before:bg-brand before:shadow-[0_0_8px_rgba(110,139,255,0.6)]'
-            : 'text-muted [&_svg]:opacity-80 hover:bg-surface-2/70 hover:text-text hover:[&_svg]:opacity-100'
-        } ${collapsed ? 'justify-center' : ''}`
+            ? 'nav-active text-text [&_svg]:text-brand'
+            : 'text-muted hover:bg-surface-2 hover:text-text'
+        } ${collapsed ? 'justify-center gap-0 px-0' : ''}`
       }
     >
-      <Icon size={18} className={`shrink-0 ${iconColor}`} />
+      <Icon size={19} className="shrink-0" />
       {!collapsed && <span className="truncate">{item.label}</span>}
     </NavLink>
   )

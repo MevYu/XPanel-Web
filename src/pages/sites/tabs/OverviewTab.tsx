@@ -47,7 +47,7 @@ export function OverviewTab({
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       <section className="rounded-(--radius-card) border border-border bg-surface p-5">
         <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col gap-1">

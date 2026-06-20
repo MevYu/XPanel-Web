@@ -2,14 +2,27 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../../api/client'
 import { Button } from '../../components/Button'
 import { Table, ActionLink, ActionLinks, type Column } from '../../components/Table'
-import { Plus, UserPlus, ArrowLeftRight, Search, Database as DatabaseIcon, User } from 'lucide-react'
+import { EmptyState } from '../../components/EmptyState'
+import { Plus, UserPlus, ArrowLeftRight, Search, Database as DatabaseIcon, User, KeyRound } from 'lucide-react'
 import { type Engine, type DbInfo, type DbUser, DANGER, errorText } from './shared'
-import { CreateDbModal, CreateUserModal, GrantModal, PasswordModal, TransferModal } from './modals'
+import {
+  CreateDbModal,
+  CreateUserModal,
+  GrantModal,
+  PasswordModal,
+  TransferModal,
+  RootPasswordModal,
+  MaintainModal,
+} from './modals'
+import { ManageModal } from './ManageModal'
 
 type Modal =
   | { kind: 'create-db' }
   | { kind: 'create-user' }
   | { kind: 'transfer' }
+  | { kind: 'manage'; db: string }
+  | { kind: 'maintain'; db: string }
+  | { kind: 'root-password' }
   | { kind: 'grant'; user: DbUser }
   | { kind: 'password'; user: DbUser }
   | null
@@ -146,12 +159,15 @@ export function SqlEnginePanel({
       {
         key: 'actions',
         header: '操作',
-        width: '150px',
+        width: '210px',
         align: 'right',
         cell: (d) => (
           <ActionLinks>
-            <ActionLink onClick={() => setModal({ kind: 'transfer' })} disabled={busy}>
+            <ActionLink onClick={() => setModal({ kind: 'manage', db: d.name })} disabled={busy}>
               管理
+            </ActionLink>
+            <ActionLink onClick={() => setModal({ kind: 'maintain', db: d.name })} disabled={busy}>
+              工具
             </ActionLink>
             <ActionLink onClick={() => backupDb(d.name)} disabled={busy}>
               备份
@@ -225,6 +241,10 @@ export function SqlEnginePanel({
             <ArrowLeftRight size={15} />
             导入导出
           </Button>
+          <Button size="md" variant="ghost" onClick={() => setModal({ kind: 'root-password' })} disabled={busy}>
+            <KeyRound size={15} />
+            root 密码
+          </Button>
         </div>
         <div className="relative w-56">
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
@@ -260,14 +280,11 @@ export function SqlEnginePanel({
             rows={visibleDbs}
             rowKey={(d) => d.name}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <span className="text-sm font-medium text-text">
-                  {databases.length === 0 ? '还没有数据库' : '没有匹配的数据库'}
-                </span>
-                <span className="text-xs text-muted">
-                  {databases.length === 0 ? '点击「新建库」创建第一个数据库。' : '换个关键词试试。'}
-                </span>
-              </span>
+              <EmptyState
+                icon={<DatabaseIcon />}
+                title={databases.length === 0 ? '还没有数据库' : '没有匹配的数据库'}
+                hint={databases.length === 0 ? '点击「新建库」创建第一个数据库。' : '换个关键词试试。'}
+              />
             }
           />
         )}
@@ -283,19 +300,29 @@ export function SqlEnginePanel({
             rows={visibleUsers}
             rowKey={(u) => `${u.user}@${u.host}`}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <span className="text-sm font-medium text-text">
-                  {users.length === 0 ? '还没有用户' : '没有匹配的用户'}
-                </span>
-                <span className="text-xs text-muted">
-                  {users.length === 0 ? '点击「新建用户」创建数据库账号。' : '换个关键词试试。'}
-                </span>
-              </span>
+              <EmptyState
+                icon={<User />}
+                title={users.length === 0 ? '还没有用户' : '没有匹配的用户'}
+                hint={users.length === 0 ? '点击「新建用户」创建数据库账号。' : '换个关键词试试。'}
+              />
             }
           />
         )}
       </div>
 
+      {modal?.kind === 'manage' && (
+        <ManageModal engine={engine} database={modal.db} onClose={() => setModal(null)} />
+      )}
+      {modal?.kind === 'maintain' && (
+        <MaintainModal engine={engine} database={modal.db} onClose={() => setModal(null)} />
+      )}
+      {modal?.kind === 'root-password' && (
+        <RootPasswordModal
+          engine={engine}
+          onClose={() => setModal(null)}
+          onDone={(text) => setFeedback({ kind: 'ok', text })}
+        />
+      )}
       {modal?.kind === 'create-db' && (
         <CreateDbModal engine={engine} onClose={() => setModal(null)} onCreated={() => afterModalChange('创建数据库')} />
       )}

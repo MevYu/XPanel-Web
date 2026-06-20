@@ -286,16 +286,7 @@ export default function SiteMonitor() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            网站监控
-          </h1>
-          <p className="text-xs text-muted">
-            主动探测被监控目标的 HTTP 健康状态,实时展示在线状态、响应时延与可用率。
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             size="md"
             disabled={!canWrite}
@@ -312,8 +303,7 @@ export default function SiteMonitor() {
             <RefreshCw size={15} className={loading ? 'animate-spin' : undefined} />
             刷新
           </Button>
-        </div>
-      </header>
+      </div>
 
       {loadErr && targets.length === 0 && !loading && (
         <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
@@ -586,7 +576,7 @@ function TrafficSection({ target }: { target: Target }) {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <Stat value={report.total_requests.toLocaleString()} label="请求数" />
         <Stat value={fmtBytes(report.total_bytes)} label="带宽" />

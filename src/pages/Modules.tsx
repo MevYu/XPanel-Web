@@ -5,7 +5,6 @@ import { Card } from '../components/Card'
 import { Switch } from '../components/Switch'
 import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
-import { PageHeader } from '../components/PageHeader'
 import type { ModuleView } from '../api/types'
 
 interface Group {
@@ -56,14 +55,9 @@ export default function Modules() {
   }
 
   const groups = groupByCategory(all)
-  const enabledCount = all.filter((m) => m.enabled).length
 
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader
-        title="模块管理"
-        subtitle={`共 ${all.length} 个模块,${enabledCount} 个已启用`}
-      />
+    <div className="flex flex-col gap-4">
       {groups.map((g) => (
         <section key={g.category} className="flex flex-col gap-2">
           <h2 className="text-xs uppercase tracking-wider text-muted">{g.category}</h2>

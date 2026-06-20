@@ -5,11 +5,13 @@ import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
+import { Tabs } from '../components/Tabs'
 import { Badge } from '../components/Badge'
 import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { uid } from '../lib/uid'
 
 const DANGER = { 'X-Confirm-Danger': '1' }
@@ -354,13 +356,6 @@ export default function Firewall() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">防火墙</h1>
-        <p className="text-xs text-muted">
-          管理端口与 IP 规则,{backend ? `基于 ${backend} 后端` : '基于系统防火墙后端'}。
-        </p>
-      </header>
-
       {/* 顶部状态条 */}
       <Card className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="flex items-center gap-2">
@@ -414,22 +409,14 @@ export default function Firewall() {
       </Card>
 
       {/* tab 栏 */}
-      <div className="flex gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5 self-start">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => {
-              setTab(t.key)
-              setQuery('')
-            }}
-            className={`h-9 rounded-sm px-4 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-              tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={TABS}
+        active={tab}
+        onChange={(k) => {
+          setTab(k)
+          setQuery('')
+        }}
+      />
 
       {/* 工具栏:主操作左上,搜索/刷新右上 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -489,14 +476,11 @@ export default function Firewall() {
           rows={visiblePorts}
           rowKey={(r) => `${r.action}-${r.proto}-${r.port}-${r.source}`}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {rules.length === 0 ? '还没有端口规则' : '没有匹配的规则'}
-              </span>
-              <span className="text-xs text-muted">
-                {rules.length === 0 ? '点击「放行端口」添加第一条规则。' : '换个关键词试试。'}
-              </span>
-            </span>
+            <EmptyState
+              icon={<ShieldCheck />}
+              title={rules.length === 0 ? '还没有端口规则' : '没有匹配的规则'}
+              hint={rules.length === 0 ? '点击「放行端口」添加第一条规则。' : '换个关键词试试。'}
+            />
           }
         />
       ) : (
@@ -505,16 +489,15 @@ export default function Firewall() {
           rows={visibleIPs}
           rowKey={(r) => r.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {ipRows.length === 0 ? '本会话还没有 IP 规则' : '没有匹配的规则'}
-              </span>
-              <span className="text-xs text-muted">
-                {ipRows.length === 0
+            <EmptyState
+              icon={<ShieldCheck />}
+              title={ipRows.length === 0 ? '本会话还没有 IP 规则' : '没有匹配的规则'}
+              hint={
+                ipRows.length === 0
                   ? '后端不提供 IP 规则列表,此处仅展示本次添加的条目。'
-                  : '换个关键词试试。'}
-              </span>
-            </span>
+                  : '换个关键词试试。'
+              }
+            />
           }
         />
       )}

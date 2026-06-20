@@ -57,7 +57,7 @@ export function SettingsModal({ isAdmin, onClose }: { isAdmin: boolean; onClose:
       onClick={onClose}
     >
       <Card
-        className="flex w-full max-w-lg flex-col gap-5 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.8)]"
+        className="flex w-full max-w-lg flex-col gap-4 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.8)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">

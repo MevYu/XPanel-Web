@@ -7,6 +7,7 @@ import { Badge } from '../components/Badge'
 import { Switch } from '../components/Switch'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { Plus, Settings2, Search, ShieldCheck, RefreshCw } from 'lucide-react'
 
 function errorText(e: unknown): string {
@@ -272,19 +273,6 @@ export default function Ssl() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            SSL证书
-          </h1>
-          <p className="text-xs text-muted">
-            {certs.length > 0
-              ? `共 ${certs.length} 张证书`
-              : '签发 Let’s Encrypt 证书或上传自定义证书,监控到期与自动续期'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button size="md" disabled={!canWrite} onClick={() => setFormOpen(true)}>
@@ -349,17 +337,15 @@ export default function Ssl() {
           rows={visible}
           rowKey={(c) => c.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1.5 py-6">
-              <ShieldCheck size={28} className="text-muted/60" />
-              <span className="text-sm font-medium text-text">
-                {certs.length === 0 ? '还没有证书' : '没有匹配的证书'}
-              </span>
-              <span className="text-xs text-muted">
-                {certs.length === 0
+            <EmptyState
+              icon={<ShieldCheck />}
+              title={certs.length === 0 ? '还没有证书' : '没有匹配的证书'}
+              hint={
+                certs.length === 0
                   ? '点击「申请/上传证书」签发 Let’s Encrypt 或导入已有证书。'
-                  : '换个关键词试试。'}
-              </span>
-            </span>
+                  : '换个关键词试试。'
+              }
+            />
           }
         />
       )}

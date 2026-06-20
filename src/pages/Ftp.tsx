@@ -24,6 +24,7 @@ interface Account {
   home: string
   readonly: boolean
   enabled: boolean
+  quota_mb: number
 }
 
 interface Settings {
@@ -38,9 +39,10 @@ interface CreateForm {
   password: string
   home: string
   readonly: boolean
+  quota_mb: string
 }
 
-const emptyCreate: CreateForm = { user: '', password: '', home: '', readonly: false }
+const emptyCreate: CreateForm = { user: '', password: '', home: '', readonly: false, quota_mb: '0' }
 
 const fieldClass =
   'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
@@ -67,6 +69,8 @@ export default function Ftp() {
   const [form, setForm] = useState<CreateForm>(emptyCreate)
   const [pwUser, setPwUser] = useState<string | null>(null)
   const [pwValue, setPwValue] = useState('')
+  const [quotaUser, setQuotaUser] = useState<string | null>(null)
+  const [quotaValue, setQuotaValue] = useState('0')
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -109,6 +113,7 @@ export default function Ftp() {
           password: form.password,
           home: form.home.trim(),
           readonly: form.readonly,
+          quota_mb: Number(form.quota_mb) || 0,
         }),
       })
       setAdding(false)
@@ -134,6 +139,25 @@ export default function Ftp() {
       setFeedback({ kind: 'ok', text: `账户 ${pwUser} 密码已更新` })
       setPwUser(null)
       setPwValue('')
+    } catch (e) {
+      setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function changeQuota() {
+    if (!quotaUser || busy) return
+    setBusy(true)
+    setFeedback(null)
+    try {
+      await apiFetch(`/api/m/ftp/accounts/${encodeURIComponent(quotaUser)}/quota`, {
+        method: 'POST',
+        body: JSON.stringify({ quota_mb: Number(quotaValue) || 0 }),
+      })
+      setFeedback({ kind: 'ok', text: `账户 ${quotaUser} 配额已更新` })
+      setQuotaUser(null)
+      await load()
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
     } finally {
@@ -248,9 +272,18 @@ export default function Ftp() {
         ),
       },
       {
+        key: 'quota',
+        header: '配额',
+        width: '90px',
+        align: 'right',
+        cell: (a) => (
+          <span className="text-xs text-muted tabular-nums">{a.quota_mb > 0 ? `${a.quota_mb} MB` : '不限'}</span>
+        ),
+      },
+      {
         key: 'actions',
         header: '操作',
-        width: '120px',
+        width: '170px',
         align: 'right',
         cell: (a) => (
           <ActionLinks>
@@ -264,6 +297,17 @@ export default function Ftp() {
               }}
             >
               改密
+            </ActionLink>
+            <ActionLink
+              disabled={!isAdmin}
+              title={isAdmin ? '设置配额' : '需要 admin 角色'}
+              onClick={() => {
+                setQuotaUser(a.user)
+                setQuotaValue(String(a.quota_mb ?? 0))
+                setFeedback(null)
+              }}
+            >
+              配额
             </ActionLink>
             <ActionLink
               danger
@@ -283,19 +327,6 @@ export default function Ftp() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            FTP
-          </h1>
-          <p className="text-xs text-muted">
-            {accounts.length > 0
-              ? `共 ${accounts.length} 个账户`
-              : '管理 pure-ftpd 虚拟账户,支持只读 / 读写与启停'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button size="md" disabled={!isAdmin} onClick={openAdd}>
@@ -464,6 +495,13 @@ export default function Ftp() {
               />
               <span className="text-sm text-muted">只读账户(不允许写入)</span>
             </label>
+            <Input
+              label="磁盘配额 (MB,0 = 不限)"
+              inputMode="numeric"
+              placeholder="0"
+              value={form.quota_mb}
+              onChange={(e) => setForm((f) => ({ ...f, quota_mb: e.target.value }))}
+            />
             {feedback?.kind === 'err' && (
               <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
                 {feedback.text}
@@ -512,6 +550,34 @@ export default function Ftp() {
               <Button onClick={() => void changePassword()} disabled={pwValue.length === 0 || busy}>
                 {busy && <Spinner size={14} />}
                 保存密码
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {quotaUser && (
+        <Modal title={`磁盘配额 · ${quotaUser}`} size="sm" onClose={() => setQuotaUser(null)}>
+          <div className="flex flex-col gap-4">
+            <Input
+              label="配额 (MB,0 = 不限)"
+              inputMode="numeric"
+              autoFocus
+              value={quotaValue}
+              onChange={(e) => setQuotaValue(e.target.value)}
+            />
+            {feedback?.kind === 'err' && (
+              <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+                {feedback.text}
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={() => setQuotaUser(null)} disabled={busy}>
+                取消
+              </Button>
+              <Button onClick={() => void changeQuota()} disabled={busy}>
+                {busy && <Spinner size={14} />}
+                保存配额
               </Button>
             </div>
           </div>

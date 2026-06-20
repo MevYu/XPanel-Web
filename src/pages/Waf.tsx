@@ -9,6 +9,7 @@ import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Tabs } from '../components/Tabs'
 import {
   Plus,
   RefreshCw,
@@ -201,22 +202,6 @@ export default function Waf() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2.5">
-            <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-              网站防火墙
-            </h1>
-            <Badge status={wafOn ? 'online' : 'neutral'}>{wafOn ? '防护中' : '已关闭'}</Badge>
-          </div>
-          <p className="text-xs text-muted">
-            {stats
-              ? `扫描 ${stats.total.toLocaleString()} 行 · 拦截 ${stats.blocked.toLocaleString()} · 限流 ${stats.limited.toLocaleString()}`
-              : '基于 nginx 的 IP / URL / UA 规则与 CC 防御'}
-          </p>
-        </div>
-      </header>
-
       <Card className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Switch
@@ -290,19 +275,7 @@ export default function Waf() {
         </p>
       )}
 
-      <div className="flex gap-0.5 self-start rounded-(--radius-sm) border border-border bg-surface p-0.5">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`h-9 rounded-sm px-4 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-              tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
       {tab === 'guard' && <GuardSettings isAdmin={isAdmin} cc={cc} onCc={setCc} />}
       {tab === 'rules' && <Rules isAdmin={isAdmin} />}
@@ -717,7 +690,7 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
   )
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       {feedback && (
         <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>{feedback.text}</p>
       )}

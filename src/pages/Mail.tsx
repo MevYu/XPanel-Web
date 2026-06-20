@@ -7,6 +7,7 @@ import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Tabs } from '../components/Tabs'
 import { Plus, Globe, Mailbox as MailboxIcon, Forward, Settings2 } from 'lucide-react'
 
 function errorText(e: unknown): string {
@@ -277,32 +278,19 @@ export default function Mail() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-          邮局
-        </h1>
-        <p className="text-xs text-muted">
-          管理 postfix / dovecot 邮件域、邮箱账户、别名转发与服务设置。
-        </p>
-      </header>
-
-      <div className="flex gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">
-        {SECTIONS.map((s) => {
-          const active = section === s.key
-          return (
-            <button
-              key={s.key}
-              onClick={() => setSection(s.key)}
-              className={`inline-flex h-9 items-center gap-1.5 rounded-sm px-3 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-                active ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-              }`}
-            >
-              <s.Icon size={14} className={active ? 'text-brand' : ''} />
+      <Tabs
+        tabs={SECTIONS.map((s) => ({
+          key: s.key,
+          label: (
+            <span className="flex items-center gap-2">
+              <s.Icon size={15} />
               {s.label}
-            </button>
-          )
-        })}
-      </div>
+            </span>
+          ),
+        }))}
+        active={section}
+        onChange={setSection}
+      />
 
       {loadErr && (
         <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">

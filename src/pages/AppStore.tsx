@@ -8,6 +8,7 @@ import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
 import { Spinner } from '../components/Spinner'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Segmented } from '../components/Segmented'
 import { Search, Boxes, Database, Wrench } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -417,27 +418,14 @@ export default function AppStore() {
   }, [apps, query, category])
 
   return (
-    <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">应用商店</h1>
-        <p className="text-xs text-muted">一键部署常用应用与数据库,基于 Docker Compose。</p>
-      </header>
-
+    <div className="flex flex-col gap-4">
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">
-            {categories.map((c) => (
-              <button
-                key={c}
-                onClick={() => setCategory(c)}
-                className={`h-9 rounded-sm px-3 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-                  category === c ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-                }`}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            items={categories.map((c) => ({ key: c, label: c }))}
+            active={category}
+            onChange={setCategory}
+          />
           <div className="relative w-56">
             <Search
               size={15}

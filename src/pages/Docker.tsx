@@ -8,6 +8,7 @@ import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
 import { Spinner } from '../components/Spinner'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Tabs } from '../components/Tabs'
 import { uid } from '../lib/uid'
 import { Container, Layers, GitBranch, Network, HardDrive, KeyRound, Plus, Download, Trash2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -1311,28 +1312,19 @@ export default function Docker() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">Docker</h1>
-        <p className="text-xs text-muted">容器 / 镜像 / 编排 / 网络 / 存储卷 / 仓库,危险操作走二次确认。</p>
-      </header>
-
-      <div className="flex flex-wrap gap-1 rounded-(--radius-card) border border-border bg-surface p-1">
-        {TABS.map((t) => {
-          const Icon = t.icon
-          return (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`inline-flex h-8 items-center gap-1.5 rounded-(--radius-card) px-3 text-sm font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-                tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-              }`}
-            >
-              <Icon size={14} className={tab === t.key ? 'text-warn' : ''} />
+      <Tabs
+        tabs={TABS.map((t) => ({
+          key: t.key,
+          label: (
+            <span className="flex items-center gap-2">
+              <t.icon size={15} />
               {t.label}
-            </button>
-          )
-        })}
-      </div>
+            </span>
+          ),
+        }))}
+        active={tab}
+        onChange={setTab}
+      />
       {tabBody}
     </div>
   )

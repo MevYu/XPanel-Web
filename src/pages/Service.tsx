@@ -216,19 +216,6 @@ export default function Service() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            服务管理
-          </h1>
-          <p className="text-xs text-muted">
-            {services.length > 0
-              ? `共 ${services.length} 个 systemd 服务`
-              : '统一管理系统 systemd 服务的启停与状态'}
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="relative w-64">
           <Search

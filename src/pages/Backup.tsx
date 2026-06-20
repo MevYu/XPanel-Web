@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { apiFetch } from '../api/client'
+import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { Plus, HardDriveDownload, ListPlus } from 'lucide-react'
 import {
   type Job,
@@ -86,6 +87,32 @@ export default function Backup() {
         body: JSON.stringify({ dest: dest.trim() }),
       })
       setFeedback({ kind: 'ok', text: '恢复已完成' })
+    } catch (e) {
+      setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function downloadRecord(rec: Record) {
+    // 流式下载需带 Bearer,普通 <a> 不行;raw fetch → blob → 触发下载。
+    setBusy(true)
+    setFeedback(null)
+    try {
+      const t = tokenStore.get()
+      const res = await fetch(`/api/m/backup/records/${rec.id}/download`, {
+        headers: t ? { Authorization: `Bearer ${t.access}` } : undefined,
+      })
+      if (!res.ok) throw new Error((await res.text()).trim() || '下载失败')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = rec.filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
     } finally {
@@ -255,10 +282,17 @@ export default function Backup() {
       {
         key: 'actions',
         header: '操作',
-        width: '150px',
+        width: '200px',
         align: 'right',
         cell: (rec) => (
           <ActionLinks>
+            <ActionLink
+              disabled={busy || rec.location !== 'local'}
+              title={rec.location !== 'local' ? '仅本地备份可下载' : undefined}
+              onClick={() => void downloadRecord(rec)}
+            >
+              下载
+            </ActionLink>
             <ActionLink
               disabled={!isAdmin || busy || rec.target_kind !== 'path'}
               title={rec.target_kind !== 'path' ? '仅目录备份可恢复' : undefined}
@@ -290,17 +324,6 @@ export default function Backup() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            备份
-          </h1>
-          <p className="text-xs text-muted">
-            目录 / 数据库定时备份与保留策略,支持本地与 rclone 远端存储。
-          </p>
-        </div>
-      </header>
-
       <div className="flex flex-wrap items-center gap-2">
         <Button size="md" disabled={!isAdmin} onClick={() => setModal('run')}>
           <Plus size={15} />
@@ -352,10 +375,11 @@ export default function Backup() {
             rows={jobs}
             rowKey={(j) => j.id}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <span className="text-sm font-medium text-text">还没有备份任务</span>
-                <span className="text-xs text-muted">点击「新建任务」配置定时备份与保留策略。</span>
-              </span>
+              <EmptyState
+                icon={<ListPlus />}
+                title="还没有备份任务"
+                hint="点击「新建任务」配置定时备份与保留策略。"
+              />
             }
           />
         )}
@@ -371,10 +395,11 @@ export default function Backup() {
             rows={records}
             rowKey={(rec) => rec.id}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <span className="text-sm font-medium text-text">暂无备份记录</span>
-                <span className="text-xs text-muted">点击「新建备份」立即执行一次备份。</span>
-              </span>
+              <EmptyState
+                icon={<HardDriveDownload />}
+                title="暂无备份记录"
+                hint="点击「新建备份」立即执行一次备份。"
+              />
             }
           />
         )}

@@ -7,7 +7,8 @@ import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { CodeEditor } from '../components/CodeEditor'
-import { FileCode2, RefreshCw } from 'lucide-react'
+import { Tabs } from '../components/Tabs'
+import { RefreshCw, X } from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -490,6 +491,25 @@ function FpmTab({ version, canWrite }: { version: string; canWrite: boolean }) {
     }
   }
 
+  async function fpmAction(verb: 'start' | 'stop' | 'restart') {
+    if (!canWrite || busy) return
+    if (verb === 'stop' && !window.confirm('确认停止 php-fpm?依赖此版本的站点将中断。')) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      await apiFetch(`/api/m/php/versions/${version}/fpm/${verb}`, { method: 'POST', headers: DANGER })
+      setMsg({
+        kind: 'ok',
+        text: `php-fpm 已${verb === 'start' ? '启动' : verb === 'stop' ? '停止' : '重启'}`,
+      })
+      await load()
+    } catch (e) {
+      setMsg({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (loading) return <Loading />
   if (err) return <ErrorLine text={err} />
 
@@ -514,6 +534,19 @@ function FpmTab({ version, canWrite }: { version: string; canWrite: boolean }) {
             <pre className="max-h-48 overflow-auto rounded-(--radius-sm) bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
               {status.status.trim()}
             </pre>
+          )}
+          {canWrite && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="ghost" onClick={() => void fpmAction('start')} disabled={busy}>
+                启动
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => void fpmAction('stop')} disabled={busy}>
+                停止
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => void fpmAction('restart')} disabled={busy}>
+                重启
+              </Button>
+            </div>
           )}
         </Section>
       )}
@@ -607,13 +640,108 @@ function LogTab({ version, kind }: { version: string; kind: 'slow' | 'error' }) 
   )
 }
 
-type TabKey = 'ini' | 'raw' | 'disabled' | 'fpm' | 'slow' | 'error'
+// ── 扩展管理(列已加载扩展 + 启用/禁用)─────────────────────
+function ExtensionsTab({ version, canWrite }: { version: string; canWrite: boolean }) {
+  const [exts, setExts] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [newExt, setNewExt] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setErr(null)
+    try {
+      setExts(await apiFetch<string[]>(`/api/m/php/versions/${version}/extensions`))
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [version])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  async function toggle(ext: string, op: 'enable' | 'disable') {
+    if (!ext || !canWrite || busy) return
+    if (op === 'disable' && !window.confirm(`确认禁用扩展 ${ext}?需重启 php-fpm 生效,可能影响依赖站点。`)) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      await apiFetch(`/api/m/php/versions/${version}/extensions/${encodeURIComponent(ext)}/${op}`, {
+        method: 'POST',
+        headers: DANGER,
+      })
+      setMsg({ kind: 'ok', text: `已${op === 'enable' ? '启用' : '禁用'} ${ext}(重启 php-fpm 后生效)` })
+      if (op === 'enable') setNewExt('')
+      await load()
+    } catch (e) {
+      setMsg({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (loading) return <Loading />
+  if (err) return <ErrorLine text={err} />
+
+  return (
+    <div className="flex flex-col gap-3">
+      <FeedbackLine msg={msg} />
+      {canWrite && (
+        <Section title="启用扩展">
+          <div className="flex items-end gap-2">
+            <input
+              className={`${fieldClass} flex-1`}
+              placeholder="扩展名,如 redis / gd / opcache"
+              spellCheck={false}
+              value={newExt}
+              onChange={(e) => setNewExt(e.target.value)}
+            />
+            <Button size="sm" onClick={() => void toggle(newExt.trim(), 'enable')} disabled={!newExt.trim() || busy}>
+              启用
+            </Button>
+          </div>
+        </Section>
+      )}
+      <Section title={`已加载扩展 (${exts.length})`}>
+        <div className="flex flex-wrap gap-2">
+          {exts.map((ext) => (
+            <span
+              key={ext}
+              className="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-border bg-surface-2 px-2.5 py-1 text-xs"
+            >
+              <span className="font-[family-name:var(--font-mono)] text-text">{ext}</span>
+              {canWrite && (
+                <button
+                  onClick={() => void toggle(ext, 'disable')}
+                  disabled={busy}
+                  className="text-faint transition hover:text-crit"
+                  aria-label={`禁用 ${ext}`}
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </span>
+          ))}
+          {exts.length === 0 && <p className="text-sm text-muted">无已加载扩展。</p>}
+        </div>
+      </Section>
+    </div>
+  )
+}
+
+type TabKey = 'ini' | 'raw' | 'disabled' | 'fpm' | 'extensions' | 'slow' | 'error'
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'ini', label: '配置' },
   { key: 'raw', label: '原始 php.ini' },
   { key: 'disabled', label: '禁用函数' },
   { key: 'fpm', label: 'FPM 参数' },
+  { key: 'extensions', label: '扩展' },
   { key: 'slow', label: '慢日志' },
   { key: 'error', label: '错误日志' },
 ]
@@ -635,6 +763,9 @@ function VersionDetail({ version, canWrite }: { version: string; canWrite: boole
     case 'fpm':
       body = <FpmTab version={version} canWrite={canWrite} />
       break
+    case 'extensions':
+      body = <ExtensionsTab version={version} canWrite={canWrite} />
+      break
     case 'slow':
       body = <LogTab version={version} kind="slow" />
       break
@@ -645,19 +776,7 @@ function VersionDetail({ version, canWrite }: { version: string; canWrite: boole
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`h-9 rounded-sm px-3 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-              tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={TABS} active={tab} onChange={setTab} />
       {/* version 作 key:切版本时重置各 tab 内部状态,避免串数据。 */}
       <div key={`${version}-${tab}`}>{body}</div>
     </div>
@@ -702,23 +821,12 @@ export default function Php() {
   }, [load])
 
   const header = (
-    <header className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-col gap-1">
-        <h1 className="flex items-center gap-2 font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-          <FileCode2 size={18} className="text-warn" />
-          PHP
-        </h1>
-        <p className="text-xs text-muted">
-          {versions.length > 0
-            ? `共 ${versions.length} 个版本`
-            : '管理已安装 PHP 的 ini 配置、禁用函数、FPM 参数与日志'}
-        </p>
-      </div>
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
         <RefreshCw size={15} />
         刷新
       </Button>
-    </header>
+    </div>
   )
 
   if (loading) {

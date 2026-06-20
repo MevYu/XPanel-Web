@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   KeyRound,
   ShieldAlert,
@@ -18,6 +18,8 @@ import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Segmented } from '../components/Segmented'
+import { Tabs } from '../components/Tabs'
 import { uid } from '../lib/uid'
 
 function errorText(e: unknown): string {
@@ -70,10 +72,6 @@ export default function Security() {
   if (!isAdmin) {
     return (
       <div className="flex flex-col gap-4">
-        <header className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">主机安全</h1>
-          <p className="text-xs text-muted">SSH 加固、公钥、防爆破与登录审阅。</p>
-        </header>
         <Card>
           <p className="text-sm text-muted">主机安全管理需要 admin 角色。</p>
         </Card>
@@ -83,24 +81,7 @@ export default function Security() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">主机安全</h1>
-        <p className="text-xs text-muted">SSH 加固、公钥管理、防爆破封禁与登录日志审阅。</p>
-      </header>
-
-      <div className="flex gap-0.5 self-start rounded-(--radius-sm) border border-border bg-surface p-0.5">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`h-9 rounded-sm px-4 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-              tab === t.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
       {tab === 'sshd' && <SSHHardening />}
       {tab === 'keys' && <SSHKeys />}
@@ -774,9 +755,9 @@ function LoginLog() {
     },
   ]
 
-  const filters: { key: boolean; label: ReactNode }[] = [
-    { key: false, label: '成功' },
-    { key: true, label: '失败' },
+  const filters: { key: 'ok' | 'failed'; label: string }[] = [
+    { key: 'ok', label: '成功' },
+    { key: 'failed', label: '失败' },
   ]
 
   return (
@@ -787,19 +768,11 @@ function LoginLog() {
           最近 50 条{failed ? '失败' : '成功'}登录
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex gap-0.5 rounded-(--radius-sm) border border-border bg-surface p-0.5">
-            {filters.map((f) => (
-              <button
-                key={String(f.key)}
-                onClick={() => setFailed(f.key)}
-                className={`h-9 rounded-sm px-4 text-[13px] font-medium transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-                  failed === f.key ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text'
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            items={filters}
+            active={failed ? 'failed' : 'ok'}
+            onChange={(k) => setFailed(k === 'failed')}
+          />
           <Button size="sm" variant="ghost" onClick={() => void load(failed)} disabled={loading}>
             <RefreshCw size={14} />
             刷新

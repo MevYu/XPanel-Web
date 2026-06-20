@@ -8,6 +8,7 @@ import { Spinner } from '../components/Spinner'
 import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { Plus, Clock } from 'lucide-react'
 import type {
   CronJob,
@@ -38,13 +39,14 @@ const selectClass =
 const textareaClass =
   'rounded-(--radius-card) border border-border bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60'
 
-// url 暂留(后端支持);backup_site/backup_db 不进 UI。
 const TYPE_OPTIONS: { value: CronJobType; label: string }[] = [
   { value: 'command', label: '执行命令' },
   { value: 'shell', label: 'shell 脚本' },
   { value: 'release_mem', label: '释放内存' },
   { value: 'log_cut', label: '日志切割' },
   { value: 'url', label: '访问 URL' },
+  { value: 'backup_site', label: '备份站点' },
+  { value: 'backup_db', label: '备份数据库' },
 ]
 
 const TYPE_LABEL: Record<CronJobType, string> = {
@@ -53,6 +55,8 @@ const TYPE_LABEL: Record<CronJobType, string> = {
   release_mem: '释放内存',
   log_cut: '日志切割',
   url: '访问 URL',
+  backup_site: '备份站点',
+  backup_db: '备份数据库',
 }
 
 const SCHEDULE_OPTIONS: { value: CronScheduleKind; label: string }[] = [
@@ -163,6 +167,11 @@ function payloadReady(type: CronJobType, p: CronPayload): boolean {
       return !!p.path && p.path.trim().length > 0
     case 'release_mem':
       return true
+    case 'backup_site':
+      return !!p.target && p.target.trim().length > 0
+    case 'backup_db':
+      // target 形如 "engine:database",两段都需非空
+      return !!p.target && /^[^:]+:[^:]+$/.test(p.target.trim())
   }
 }
 
@@ -371,22 +380,12 @@ export default function Cron() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            定时任务
-          </h1>
-          <p className="text-xs text-muted">
-            {jobs.length > 0
-              ? `共 ${jobs.length} 个任务`
-              : '按计划执行命令 / 脚本 / 日志切割等,支持友好调度'}
-          </p>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Button size="md" disabled={readonly} onClick={() => setEditing(emptyForm)}>
           <Plus size={15} />
           添加任务
         </Button>
-      </header>
+      </div>
 
       {loadErr && jobs.length === 0 && !loading && (
         <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
@@ -405,10 +404,11 @@ export default function Cron() {
           rows={jobs}
           rowKey={(job) => job.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">还没有定时任务</span>
-              <span className="text-xs text-muted">点击「添加任务」创建你的第一个计划任务。</span>
-            </span>
+            <EmptyState
+              icon={<Clock />}
+              title="还没有定时任务"
+              hint="点击「添加任务」创建你的第一个计划任务。"
+            />
           }
         />
       )}
@@ -649,7 +649,72 @@ function TypeFields({
       />
     )
   }
+  if (type === 'backup_site') {
+    return <BackupSiteField target={payload.target ?? ''} onChange={(t) => onChange({ target: t })} />
+  }
+  if (type === 'backup_db') {
+    return <BackupDbField target={payload.target ?? ''} onChange={(t) => onChange({ target: t })} />
+  }
   return <p className="text-xs text-muted">释放系统缓存内存,无需额外参数。</p>
+}
+
+/** BackupSiteField 备份站点:从「网站」模块拉站点列表,target = 站点名。 */
+function BackupSiteField({ target, onChange }: { target: string; onChange: (t: string) => void }) {
+  const [sites, setSites] = useState<{ name: string }[]>([])
+  useEffect(() => {
+    apiFetch<{ name: string }[]>('/api/m/sites/sites')
+      .then(setSites)
+      .catch(() => setSites([]))
+  }, [])
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted">站点</span>
+      <select className={selectClass} value={target} onChange={(e) => onChange(e.target.value)}>
+        <option value="">选择站点…</option>
+        {sites.map((s) => (
+          <option key={s.name} value={s.name}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+      {sites.length === 0 && <span className="text-xs text-faint">需启用「网站」模块且已有站点。</span>}
+    </label>
+  )
+}
+
+/** BackupDbField 备份数据库:引擎 + 库下拉,target = "engine:database"。 */
+function BackupDbField({ target, onChange }: { target: string; onChange: (t: string) => void }) {
+  const [engine, db] = target.includes(':') ? target.split(':') : ['mysql', '']
+  const eng = engine || 'mysql'
+  const [dbs, setDbs] = useState<{ name: string }[]>([])
+  useEffect(() => {
+    apiFetch<{ name: string }[]>(`/api/m/database/${eng}/databases`)
+      .then(setDbs)
+      .catch(() => setDbs([]))
+  }, [eng])
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted">引擎</span>
+        <select className={selectClass} value={eng} onChange={(e) => onChange(`${e.target.value}:`)}>
+          <option value="mysql">MySQL</option>
+          <option value="postgres">PostgreSQL</option>
+        </select>
+      </label>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted">数据库</span>
+        <select className={selectClass} value={db} onChange={(e) => onChange(`${eng}:${e.target.value}`)}>
+          <option value="">选择数据库…</option>
+          {dbs.map((d) => (
+            <option key={d.name} value={d.name}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+        {dbs.length === 0 && <span className="text-xs text-faint">需启用「数据库」模块。</span>}
+      </label>
+    </div>
+  )
 }
 
 function NumField({

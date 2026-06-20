@@ -149,15 +149,6 @@ export default function Malscan() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
-            木马查杀
-          </h1>
-          <p className="text-xs text-muted">只读静态扫描可疑文件,隔离需 admin 二次确认。</p>
-        </div>
-      </header>
-
       <ScanBar
         dir={dir}
         setDir={setDir}
