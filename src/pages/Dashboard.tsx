@@ -12,6 +12,11 @@ import { GaugeRow } from './dashboard/GaugeRow'
 import { OverviewStats } from './dashboard/OverviewStats'
 import { SystemInfoCard } from './dashboard/SystemInfoCard'
 import { QuickActionsCard } from './dashboard/QuickActionsCard'
+import { ServicesCard } from './dashboard/ServicesCard'
+import { AlertBar } from './dashboard/AlertBar'
+import { SecurityCard } from './dashboard/SecurityCard'
+import { IoCard } from './dashboard/IoCard'
+import { TasksCard } from './dashboard/TasksCard'
 import { levelFor, levelText, levelStroke, clampPct } from './dashboard/Gauge'
 
 // recharts 懒加载,移出首屏主包(首次渲染图表时才拉取该 vendor chunk)。
@@ -46,11 +51,13 @@ interface NetRate {
   tx: number
 }
 
-// 每磁盘设备的读/写字节速率(B/s)。
+// 每磁盘设备的读/写字节速率(B/s)与每秒读/写次数(IOPS)。
 interface DiskRate {
   name: string
   read: number
   write: number
+  readOps: number
+  writeOps: number
 }
 
 interface Rates {
@@ -86,6 +93,8 @@ function diffRates(
       name: d.name,
       read: p ? Math.max(0, d.read_bytes - p.read_bytes) / dt : 0,
       write: p ? Math.max(0, d.write_bytes - p.write_bytes) / dt : 0,
+      readOps: p ? Math.max(0, d.read_count - p.read_count) / dt : 0,
+      writeOps: p ? Math.max(0, d.write_count - p.write_count) / dt : 0,
     }
   })
 
@@ -161,19 +170,31 @@ export default function Dashboard() {
         <span className="ml-auto text-xs text-muted">每 2.5s 实时刷新</span>
       </header>
 
+      <AlertBar />
+
       <section className="flex flex-col gap-3">
         <SectionHeading>系统状态</SectionHeading>
-        <Card className="px-4 py-5 sm:px-6">
+        <Card className="p-4">
           <GaugeRow m={m} detail={detail.data} />
         </Card>
       </section>
 
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         <SystemInfoCard detail={detail.data} net={rates.net} netHistory={netHistory} />
-        <QuickActionsCard />
+        <div className="flex flex-col gap-4">
+          <QuickActionsCard />
+          <ServicesCard />
+        </div>
       </div>
 
       <OverviewStats />
+
+      <IoCard detail={detail.data} disk={rates.disk} net={rates.net} error={!!detail.error} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SecurityCard />
+        <TasksCard />
+      </div>
 
       <section className="flex flex-col gap-3">
         <SectionHeading>实时趋势</SectionHeading>

@@ -1,28 +1,52 @@
+import { apiFetch } from '../../api/client'
+import { usePoll } from '../../hooks/usePoll'
 import { formatBytes } from '../../lib/format'
-import type { Metrics, DetailMetrics } from '../../api/types'
+import type { Metrics, DetailMetrics, DiskPartition } from '../../api/types'
 import { Gauge, GaugeDetailRow, MiniBar, clampPct, levelFor } from './Gauge'
 
 const pct = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0)
 
-/** GaugeRow 顶部一排状态球:负载 / CPU / 内存 / 磁盘,hover 显出各自细节。 */
+// 紧凑环直径,对齐 aaPanel 高密度仪表盘(一排放得下 6–8 个)。
+const COMPACT = 104
+const PART_POLL_MS = 5000
+
+function fetchPartitions() {
+  return apiFetch<DiskPartition[]>('/api/m/dashboard/disk-partitions')
+}
+
+// 分区盘符标签:优先挂载点,根用 /,其余取末段目录名。
+function partLabel(p: DiskPartition): string {
+  if (p.mountpoint === '/') return '/'
+  const seg = p.mountpoint.split('/').filter(Boolean).pop()
+  return seg ? `/${seg}` : p.device
+}
+
+/** GaugeRow 顶部一排紧凑状态球:负载 / CPU / 内存 + 每个磁盘分区一个环,hover 显出各自细节。 */
 export function GaugeRow({ m, detail }: { m: Metrics; detail: DetailMetrics | null }) {
+  // 分区数据失败降级为空,不影响其余环。
+  const { data: partsData } = usePoll(fetchPartitions, PART_POLL_MS)
+  const parts = partsData ?? []
+
   const cores = detail?.cpu_per_core.length ?? 0
   const load1 = detail?.load.load1 ?? 0
   // 负载相对核数的饱和度:load1 == 核数 ≈ 满载(100%)。
   const loadPct = cores > 0 ? (load1 / cores) * 100 : 0
 
   const memPct = clampPct(pct(m.mem_used, m.mem_total))
-  const diskPct = clampPct(pct(m.disk_used, m.disk_total))
+  // 分区端点为空时(旧后端/无数据)退回聚合磁盘单环,保证总有磁盘信息。
+  const aggDiskPct = clampPct(pct(m.disk_used, m.disk_total))
 
   return (
-    <div className="grid grid-cols-2 justify-items-center gap-y-6 lg:grid-cols-4">
+    <div className="flex flex-wrap justify-center gap-x-2 gap-y-5 sm:justify-start">
       <Gauge
+        size={COMPACT}
         pct={loadPct}
         reading={load1.toFixed(2)}
         label="负载"
         detail={detail && <LoadDetail detail={detail} cores={cores} />}
       />
       <Gauge
+        size={COMPACT}
         pct={m.cpu_percent}
         reading={m.cpu_percent.toFixed(1)}
         unit="%"
@@ -30,19 +54,54 @@ export function GaugeRow({ m, detail }: { m: Metrics; detail: DetailMetrics | nu
         detail={detail && <CpuDetail detail={detail} />}
       />
       <Gauge
+        size={COMPACT}
         pct={memPct}
         reading={memPct.toFixed(0)}
         unit="%"
         label="内存"
         detail={detail && <MemDetail m={m} detail={detail} />}
       />
-      <Gauge
-        pct={diskPct}
-        reading={diskPct.toFixed(0)}
-        unit="%"
-        label="磁盘"
-        detail={<DiskDetail m={m} detail={detail} />}
+      {parts.length > 0 ? (
+        parts.map((p) => (
+          <Gauge
+            key={p.mountpoint || p.device}
+            size={COMPACT}
+            pct={clampPct(p.used_percent)}
+            reading={clampPct(p.used_percent).toFixed(0)}
+            unit="%"
+            label={partLabel(p)}
+            detail={<PartitionDetail p={p} />}
+          />
+        ))
+      ) : (
+        <Gauge
+          size={COMPACT}
+          pct={aggDiskPct}
+          reading={aggDiskPct.toFixed(0)}
+          unit="%"
+          label="磁盘"
+          detail={<DiskDetail m={m} detail={detail} />}
+        />
+      )}
+    </div>
+  )
+}
+
+// PartitionDetail 单分区细节:设备 / 挂载点 / 容量,hover 展开。
+function PartitionDetail({ p }: { p: DiskPartition }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <GaugeDetailRow label="设备" value={p.device} />
+      <GaugeDetailRow label="挂载点" value={p.mountpoint} />
+      {p.fstype && <GaugeDetailRow label="类型" value={p.fstype} />}
+      <div className="my-1 h-px bg-border" aria-hidden />
+      <GaugeDetailRow label="总量" value={formatBytes(p.total)} />
+      <GaugeDetailRow
+        label="已用"
+        value={formatBytes(p.used)}
+        tone={levelFor(p.used_percent)}
       />
+      <GaugeDetailRow label="可用" value={formatBytes(p.free)} />
     </div>
   )
 }

@@ -7,6 +7,27 @@ vi.mock('../api/client', () => ({
   tokenStore: { get: () => null },
 }))
 vi.mock('../auth/AuthContext', () => ({ useAuth: () => ({ role: 'admin' }) }))
+// InstallGate 经 useModules 取 health;mock 成已就绪,让遮罩透传出功能内容。
+vi.mock('../hooks/useModules', () => ({
+  useModules: () => ({
+    all: [
+      {
+        id: 'sites',
+        name: 'Sites',
+        category: 'web',
+        requires: [],
+        always_on: false,
+        enabled: true,
+        nav: [],
+        health: { ok: true, reason: '' },
+      },
+    ],
+    enabled: [],
+    loading: false,
+    error: null,
+    reload: () => {},
+  }),
+}))
 
 import Sites from './Sites'
 

@@ -9,6 +9,7 @@ import { Spinner } from '../components/Spinner'
 import { Badge } from '../components/Badge'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
+import { InstallGate } from '../components/InstallGate'
 import { Plus, Settings2, RefreshCw, Boxes } from 'lucide-react'
 
 function errorText(e: unknown): string {
@@ -749,6 +750,7 @@ export default function Supervisor() {
   )
 
   return (
+    <InstallGate moduleId="supervisor">
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -816,5 +818,6 @@ export default function Supervisor() {
       )}
       {modal && <OutputModal title={modal.title} text={modal.text} onClose={() => setModal(null)} />}
     </div>
+    </InstallGate>
   )
 }

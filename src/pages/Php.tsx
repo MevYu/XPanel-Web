@@ -8,6 +8,7 @@ import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { CodeEditor } from '../components/CodeEditor'
 import { Tabs } from '../components/Tabs'
+import { InstallGate } from '../components/InstallGate'
 import { RefreshCw, X } from 'lucide-react'
 
 function errorText(e: unknown): string {
@@ -865,6 +866,7 @@ export default function Php() {
   }
 
   return (
+    <InstallGate moduleId="php">
     <div className="flex flex-col gap-4">
       {header}
 
@@ -906,5 +908,6 @@ export default function Php() {
         <p className="text-xs text-muted">配置、禁用函数与 FPM 参数等写操作需要 admin 角色。</p>
       )}
     </div>
+    </InstallGate>
   )
 }

@@ -12,6 +12,7 @@ import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
+import { InstallGate } from '../components/InstallGate'
 import { uid } from '../lib/uid'
 
 const DANGER = { 'X-Confirm-Danger': '1' }
@@ -355,6 +356,7 @@ export default function Firewall() {
   )
 
   return (
+    <InstallGate moduleId="firewall">
     <div className="flex flex-col gap-4">
       {/* 顶部状态条 */}
       <Card className="flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -507,6 +509,7 @@ export default function Firewall() {
       )}
       {ipModal && <IPModal busy={busy} onClose={() => setIPModal(false)} onSubmit={addIP} />}
     </div>
+    </InstallGate>
   )
 }
 

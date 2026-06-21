@@ -3,6 +3,7 @@ import { apiFetch } from '../../api/client'
 import { Card } from '../../components/Card'
 import { Sparkline } from '../../components/Sparkline'
 import { formatDuration, formatRate } from '../../lib/format'
+import { formatTime } from '../../lib/formatTime'
 import type { DetailMetrics } from '../../api/types'
 
 interface SysInfo {
@@ -13,6 +14,7 @@ interface SysInfo {
   private_ip: string
   public_ip: string
   panel_version: string
+  server_time: number
 }
 
 interface NetRate {
@@ -58,15 +60,16 @@ export function SystemInfoCard({
   }, [])
 
   return (
-    <Card className="flex flex-col gap-4">
+    <Card className="flex flex-col gap-3">
       <h3 className="text-sm font-medium text-text">系统信息</h3>
-      <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2.5 sm:grid-cols-[auto_1fr_auto_1fr]">
+      <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 sm:grid-cols-[auto_1fr_auto_1fr]">
         <Row k="主机名" v={info?.hostname ?? ''} />
         <Row k="面板" v={info?.panel_version ? `XPanel ${info.panel_version}` : ''} />
         <Row k="系统" v={info?.os ?? ''} />
         <Row k="内核" v={info?.kernel ?? ''} />
         <Row k="运行时长" v={detail ? formatDuration(detail.uptime_sec) : ''} />
         <Row k="架构" v={info?.arch ?? ''} />
+        <Row k="服务器时间" v={info?.server_time ? formatTime(info.server_time) : ''} />
         <Row k="公网 IP" v={info?.public_ip ?? ''} />
         <Row k="内网 IP" v={info?.private_ip ?? ''} />
       </div>
