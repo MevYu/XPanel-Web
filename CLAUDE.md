@@ -30,6 +30,8 @@ npm test           # vitest run
 - 一个模块 = `src/pages/<Name>.tsx`,在 `src/App.tsx` 注册路由。
 - 侧栏导航由 `/api/modules` 返回的每模块 `nav` 数组动态渲染(`Sidebar` + `useModules`),只显示 `enabled` 模块,按 `category` 分组;路由本身始终可达,导航才是动态的。
 - 导航图标:后端给 kebab-case icon 名,`layout/icons.tsx` 的 `iconFor` 映射到 lucide 组件,未命中兜底 `Boxes`。
+- 依赖宿主软件的功能页(sites/docker/php/ftp/memcached/supervisor/firewall/mail/waf 等)用 `<InstallGate moduleId>` 包裹主体(放在权限门之后):后端 `/api/modules` 该模块 `health.ok=false` 时盖遮罩提示安装,`health.ok=true` 透传。模块 id → 依赖软件 + 安装命令的映射在 `src/lib/appDeps.ts`。
+- dashboard 聚合卡(安全 / IO / 任务 / 概览计数)不靠后端聚合端点,而是前端分别调各模块现有端点拼装(见 `src/pages/dashboard/`),每卡对"模块未启用 / 403"独立降级,不整页崩。
 - 数据请求一律走 `apiFetch`(经 vite 代理打后端 `/api`),它强制 JSON 头并自动 `JSON.parse`。
 - 危险操作(删库、重置等)请求带 `X-Confirm-Danger: 1` 头(各页定义 `const DANGER = { 'X-Confirm-Danger': '1' }`)。
 - 角色仅用于 UI 门(如 `role === 'admin'`),真正鉴权在后端。
@@ -37,7 +39,7 @@ npm test           # vitest run
 ## 注意事项
 
 - 不用重组件库:UI 全自研。样式只在 `global.css` + Tailwind utility class,暗色 token 来自 `@theme`(color-bg/surface/border/text/muted/brand/online/warn/crit、radius-card、font-display/sans/mono)。
-- `text/plain` 端点(如 redis info)、二进制下载、multipart 上传用裸 `fetch`(自己加 Bearer),不走 `apiFetch`——否则强制 JSON 解析会抛错。
+- `text/plain` 端点(如 redis info、`/api/m/service/<verb>?unit=` 服务启停)、二进制下载、multipart 上传用裸 `fetch`(自己加 Bearer),不走 `apiFetch`——否则强制 JSON 解析会抛错。
 - 凭证类字段(密码、API Key、2FA secret)只写不回显:后端不返回明文,前端也不显示已存值。
 - recharts 与 xterm 懒加载,不进首屏主包:`Dashboard` 的图表、`SiteMonitor` 整页、`Terminal` 的 xterm 视图均 `lazy(() => import(...))`;`vite.config.ts` 把 recharts 与 react 拆成独立 chunk。
 - 401 单飞刷新:并发 401 共享同一刷新 promise,避免旋转 refresh token 被多次消费(见 `api/client.ts`)。
