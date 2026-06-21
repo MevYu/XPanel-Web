@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Globe, ShieldCheck, FolderInput, Clock, type LucideIcon } from 'lucide-react'
+import { Globe, ShieldCheck, FolderInput, Clock, Database, type LucideIcon } from 'lucide-react'
 import { apiFetch } from '../../api/client'
 import { Card } from '../../components/Card'
 import { useModules } from '../../hooks/useModules'
@@ -22,6 +22,7 @@ const SOURCES: Source[] = [
   { id: 'sites', label: '网站', path: '/sites', icon: Globe, count: () => apiFetch<unknown[]>('/api/m/sites/sites').then(len) },
   { id: 'ssl', label: '证书', path: '/ssl', icon: ShieldCheck, count: () => apiFetch<unknown[]>('/api/m/ssl/certs').then(len) },
   { id: 'ftp', label: 'FTP', path: '/ftp', icon: FolderInput, count: () => apiFetch<{ accounts: unknown[] }>('/api/m/ftp/accounts').then((d) => len(d.accounts)) },
+  { id: 'database', label: '数据库', path: '/database', icon: Database, count: () => apiFetch<unknown[]>('/api/m/database/mysql/databases').then(len) },
   { id: 'cron', label: '定时任务', path: '/cron', icon: Clock, count: () => apiFetch<unknown[]>('/api/m/cron/jobs').then(len) },
 ]
 
@@ -48,7 +49,7 @@ export function OverviewStats() {
   if (active.length === 0) return null
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
       {active.map((s) => {
         const Icon = s.icon
         const n = counts[s.id]

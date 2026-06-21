@@ -15,6 +15,8 @@ export interface Metrics {
 
 export interface DetailMetrics {
   cpu_per_core: number[]
+  // CPU iowait 百分比;旧后端可能不返回,缺失按 0 处理。
+  cpu_iowait_percent?: number
   load: { load1: number; load5: number; load15: number }
   memory: {
     total: number; used: number; available: number; free: number
