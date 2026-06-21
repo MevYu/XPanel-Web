@@ -36,6 +36,16 @@ export interface DetailMetrics {
   boot_time: number
 }
 
+export interface DiskPartition {
+  device: string
+  mountpoint: string
+  fstype: string
+  total: number
+  used: number
+  free: number
+  used_percent: number
+}
+
 export interface ProcessInfo {
   pid: number
   name: string

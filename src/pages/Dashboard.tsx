@@ -12,6 +12,7 @@ import { GaugeRow } from './dashboard/GaugeRow'
 import { OverviewStats } from './dashboard/OverviewStats'
 import { SystemInfoCard } from './dashboard/SystemInfoCard'
 import { QuickActionsCard } from './dashboard/QuickActionsCard'
+import { ServicesCard } from './dashboard/ServicesCard'
 import { levelFor, levelText, levelStroke, clampPct } from './dashboard/Gauge'
 
 // recharts 懒加载,移出首屏主包(首次渲染图表时才拉取该 vendor chunk)。
@@ -163,14 +164,17 @@ export default function Dashboard() {
 
       <section className="flex flex-col gap-3">
         <SectionHeading>系统状态</SectionHeading>
-        <Card className="px-4 py-5 sm:px-6">
+        <Card className="p-4">
           <GaugeRow m={m} detail={detail.data} />
         </Card>
       </section>
 
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         <SystemInfoCard detail={detail.data} net={rates.net} netHistory={netHistory} />
-        <QuickActionsCard />
+        <div className="flex flex-col gap-4">
+          <QuickActionsCard />
+          <ServicesCard />
+        </div>
       </div>
 
       <OverviewStats />

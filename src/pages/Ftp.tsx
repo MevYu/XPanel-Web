@@ -9,6 +9,7 @@ import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { InstallGate } from '../components/InstallGate'
 import { Plus, Search, FolderSymlink } from 'lucide-react'
 import { uid } from '../lib/uid'
 
@@ -326,6 +327,7 @@ export default function Ftp() {
   )
 
   return (
+    <InstallGate moduleId="ftp">
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -584,5 +586,6 @@ export default function Ftp() {
         </Modal>
       )}
     </div>
+    </InstallGate>
   )
 }

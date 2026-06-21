@@ -10,6 +10,7 @@ import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Tabs } from '../components/Tabs'
+import { InstallGate } from '../components/InstallGate'
 import {
   Plus,
   RefreshCw,
@@ -201,6 +202,7 @@ export default function Waf() {
   const wafOn = settings?.waf_enabled ?? false
 
   return (
+    <InstallGate moduleId="waf">
     <div className="flex flex-col gap-4">
       <Card className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -333,6 +335,7 @@ export default function Waf() {
         </Modal>
       )}
     </div>
+    </InstallGate>
   )
 }
 

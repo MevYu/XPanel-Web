@@ -9,6 +9,7 @@ import { Modal } from '../components/Modal'
 import { Spinner } from '../components/Spinner'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Tabs } from '../components/Tabs'
+import { InstallGate } from '../components/InstallGate'
 import { uid } from '../lib/uid'
 import { Container, Layers, GitBranch, Network, HardDrive, KeyRound, Plus, Download, Trash2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -1311,6 +1312,7 @@ export default function Docker() {
   }, [tab, isOperator, isAdmin])
 
   return (
+    <InstallGate moduleId="docker">
     <div className="flex flex-col gap-4">
       <Tabs
         tabs={TABS.map((t) => ({
@@ -1327,5 +1329,6 @@ export default function Docker() {
       />
       {tabBody}
     </div>
+    </InstallGate>
   )
 }

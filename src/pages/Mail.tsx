@@ -8,6 +8,7 @@ import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Tabs } from '../components/Tabs'
+import { InstallGate } from '../components/InstallGate'
 import { Plus, Globe, Mailbox as MailboxIcon, Forward, Settings2 } from 'lucide-react'
 
 function errorText(e: unknown): string {
@@ -277,6 +278,7 @@ export default function Mail() {
   }
 
   return (
+    <InstallGate moduleId="mail">
     <div className="flex flex-col gap-4">
       <Tabs
         tabs={SECTIONS.map((s) => ({
@@ -483,6 +485,7 @@ export default function Mail() {
         />
       )}
     </div>
+    </InstallGate>
   )
 }
 

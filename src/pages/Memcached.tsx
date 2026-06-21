@@ -7,6 +7,7 @@ import { Button } from '../components/Button'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, type Column } from '../components/Table'
+import { InstallGate } from '../components/InstallGate'
 import {
   Play,
   RotateCcw,
@@ -214,6 +215,7 @@ export default function Memcached() {
   }
 
   return (
+    <InstallGate moduleId="memcached">
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -342,6 +344,7 @@ export default function Memcached() {
         />
       )}
     </div>
+    </InstallGate>
   )
 }
 

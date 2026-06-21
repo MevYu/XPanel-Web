@@ -40,6 +40,21 @@ async function fetchStatus(unit: string): Promise<string> {
   return body
 }
 
+// verb 端点返回 text/plain(命令输出),不能走强制 JSON 的 apiFetch;需 admin + 危险头。
+async function callVerb(verb: Verb, unit: string): Promise<string> {
+  const t = tokenStore.get()
+  const headers: Record<string, string> = t
+    ? { ...DANGER, Authorization: `Bearer ${t.access}` }
+    : { ...DANGER }
+  const res = await fetch(`/api/m/service/${verb}?unit=${encodeURIComponent(unit)}`, {
+    method: 'POST',
+    headers,
+  })
+  const body = await res.text()
+  if (!res.ok) throw new Error(body.trim() || `操作失败 (${res.status})`)
+  return body
+}
+
 function statusBadge(s: ServiceItem) {
   if (s.active === 'active') return <Badge status="online">运行中</Badge>
   if (s.active === 'failed') return <Badge status="crit">失败</Badge>
@@ -53,8 +68,8 @@ const verbLabel: Record<Verb, string> = { start: '启动', stop: '停止', resta
 /** Service 服务管理:aaPanel 风格统一服务表,按行 start/stop/restart/查状态(写操作需 operator,停止额外需 admin+确认)。 */
 export default function Service() {
   const { role } = useAuth()
+  // 所有 verb 操作均需 admin(后端要求 admin + X-Confirm-Danger,UI 仅作角色门)。
   const isAdmin = role === 'admin'
-  const canWrite = role === 'admin' || role === 'operator'
 
   const [services, setServices] = useState<ServiceItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -104,20 +119,14 @@ export default function Service() {
 
   const act = useCallback(
     async (unit: string, verb: Verb) => {
-      if (!canWrite) return
-      // 停止为危险操作:需 admin + 确认 + 危险头(与后端权威校验对齐)。
-      const danger = verb === 'stop'
-      if (danger) {
-        if (!isAdmin) return
-        if (!window.confirm(`确认停止服务「${unit}」?此操作危险。`)) return
-      }
+      if (!isAdmin) return
+      // 停止为危险操作,额外二次确认;后端权威校验为准。
+      if (verb === 'stop' && !window.confirm(`确认停止服务「${unit}」?此操作危险。`)) return
       setBusyUnit(unit)
       setFeedback(null)
       try {
-        await apiFetch(`/api/m/service/${verb}?unit=${encodeURIComponent(unit)}`, {
-          method: 'POST',
-          ...(danger ? { headers: DANGER } : {}),
-        })
+        const out = await callVerb(verb, unit)
+        setOutput({ unit, text: out.trim() || `已对 ${unit} 执行${verbLabel[verb]}` })
         setFeedback({ kind: 'ok', text: `已对 ${unit} 执行${verbLabel[verb]}` })
         await load()
       } catch (e) {
@@ -126,7 +135,7 @@ export default function Service() {
         setBusyUnit(null)
       }
     },
-    [canWrite, isAdmin, load],
+    [isAdmin, load],
   )
 
   const columns: Column<ServiceItem>[] = useMemo(
@@ -182,36 +191,27 @@ export default function Service() {
           return (
             <span className="inline-flex items-center justify-end gap-2">
               {busy && <Spinner size={14} />}
-              <ActionLinks>
-                <ActionLink
-                  disabled={busy || !canWrite}
-                  title={canWrite ? '启动' : '需要 operator 角色'}
-                  onClick={() => void act(s.name, 'start')}
-                >
-                  启动
-                </ActionLink>
-                <ActionLink
-                  danger
-                  disabled={busy || !isAdmin}
-                  title={isAdmin ? '停止(危险)' : '需要 admin 角色'}
-                  onClick={() => void act(s.name, 'stop')}
-                >
-                  停止
-                </ActionLink>
-                <ActionLink
-                  disabled={busy || !canWrite}
-                  title={canWrite ? '重启' : '需要 operator 角色'}
-                  onClick={() => void act(s.name, 'restart')}
-                >
-                  重启
-                </ActionLink>
-              </ActionLinks>
+              {isAdmin ? (
+                <ActionLinks>
+                  <ActionLink disabled={busy} onClick={() => void act(s.name, 'start')}>
+                    启动
+                  </ActionLink>
+                  <ActionLink danger disabled={busy} onClick={() => void act(s.name, 'stop')}>
+                    停止
+                  </ActionLink>
+                  <ActionLink disabled={busy} onClick={() => void act(s.name, 'restart')}>
+                    重启
+                  </ActionLink>
+                </ActionLinks>
+              ) : (
+                <span className="text-xs text-muted">需要 admin</span>
+              )}
             </span>
           )
         },
       },
     ],
-    [busyUnit, canWrite, isAdmin, act, queryStatus],
+    [busyUnit, isAdmin, act, queryStatus],
   )
 
   return (
@@ -275,11 +275,11 @@ export default function Service() {
         />
       )}
 
-      {!canWrite && (
-        <p className="text-xs text-muted">启动 / 重启需要 operator 角色,停止需要 admin。</p>
+      {!isAdmin && (
+        <p className="text-xs text-muted">服务操作(启动 / 停止 / 重启)需要 admin 角色。</p>
       )}
 
-      <ManualPanel canWrite={canWrite} isAdmin={isAdmin} onActed={() => void load()} />
+      <ManualPanel isAdmin={isAdmin} onActed={() => void load()} />
 
       {output !== null && (
         <Modal title={output.unit} size="lg" onClose={() => setOutput(null)}>
@@ -294,11 +294,9 @@ export default function Service() {
 
 /** ManualPanel 按名手动管理:列表外的次要入口(覆盖未列出的单元),默认折叠。 */
 function ManualPanel({
-  canWrite,
   isAdmin,
   onActed,
 }: {
-  canWrite: boolean
   isAdmin: boolean
   onActed: () => void
 }) {
@@ -330,19 +328,13 @@ function ManualPanel({
   }
 
   async function act(verb: Verb) {
-    if (!canAct || !canWrite) return
-    const danger = verb === 'stop'
-    if (danger) {
-      if (!isAdmin) return
-      if (!window.confirm(`确认停止服务「${trimmed}」?此操作危险。`)) return
-    }
+    if (!canAct || !isAdmin) return
+    if (verb === 'stop' && !window.confirm(`确认停止服务「${trimmed}」?此操作危险。`)) return
     setBusy(true)
     setFeedback(null)
     try {
-      await apiFetch(`/api/m/service/${verb}?unit=${encodeURIComponent(trimmed)}`, {
-        method: 'POST',
-        ...(danger ? { headers: DANGER } : {}),
-      })
+      const out = await callVerb(verb, trimmed)
+      setOutput(out.trim() || `已对 ${trimmed} 执行${verbLabel[verb]}`)
       setFeedback({ kind: 'ok', text: `已对 ${trimmed} 执行${verbLabel[verb]}` })
       onActed()
     } catch (e) {
@@ -395,15 +387,15 @@ function ManualPanel({
             <Button
               variant="ghost"
               onClick={() => void act('start')}
-              disabled={!canAct || !canWrite}
-              title={canWrite ? '启动' : '需要 operator 角色'}
+              disabled={!canAct || !isAdmin}
+              title={isAdmin ? '启动' : '需要 admin 角色'}
             >
               启动
             </Button>
             <Button
               onClick={() => void act('restart')}
-              disabled={!canAct || !canWrite}
-              title={canWrite ? '重启' : '需要 operator 角色'}
+              disabled={!canAct || !isAdmin}
+              title={isAdmin ? '重启' : '需要 admin 角色'}
             >
               重启
             </Button>
