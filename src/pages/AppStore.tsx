@@ -8,8 +8,9 @@ import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
 import { Spinner } from '../components/Spinner'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
-import { Segmented } from '../components/Segmented'
-import { Search, Boxes, Database, Wrench } from 'lucide-react'
+import { Tabs } from '../components/Tabs'
+import { EmptyState } from '../components/EmptyState'
+import { Search, Boxes, Database, Wrench, PackageSearch } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 function errorText(e: unknown): string {
@@ -201,41 +202,47 @@ function ManageModal({ inst, isOperator, onClose, onChanged }: {
 }
 
 const ALL = '全部'
+const INSTALLED = '已安装'
 
+// aaPanel 风格紧凑应用行:小图标 + 名称/简介 + 版本 + 安装按钮,密度高、单行 56px 量级。
 function Catalog({ apps, canInstall, onPick }: { apps: App[]; canInstall: boolean; onPick: (app: App) => void }) {
   if (apps.length === 0) {
     return (
-      <Card className="flex flex-col items-center gap-1 py-10">
-        <span className="text-sm font-medium text-text">没有匹配的应用</span>
-        <span className="text-xs text-muted">换个关键词或分类试试。</span>
+      <Card className="p-0">
+        <EmptyState icon={<PackageSearch />} title="没有匹配的应用" hint="换个关键词或分类试试。" />
       </Card>
     )
   }
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {apps.map((app) => {
-        const accent = accentFor(app.category)
-        const Icon = accent.icon
-        return (
-          <Card key={app.id} hoverable className="flex flex-col gap-3">
-            <div className="flex items-center gap-3">
+    <Card className="overflow-hidden p-0">
+      <ul className="divide-y divide-border">
+        {apps.map((app) => {
+          const accent = accentFor(app.category)
+          const Icon = accent.icon
+          return (
+            <li
+              key={app.id}
+              className="flex items-center gap-3 px-3 py-2.5 transition-colors row-hover sm:px-4"
+            >
               <div
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-(--radius-card)"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-sm)"
                 style={{ backgroundColor: accent.soft, color: accent.color }}
               >
-                <Icon size={20} />
+                <Icon size={18} />
               </div>
-              <div className="flex min-w-0 flex-col">
-                <span className="truncate text-sm font-medium text-text">{app.name}</span>
-                <span className="text-xs text-muted">{app.category} · v{app.version}</span>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex items-baseline gap-2">
+                  <span className="truncate text-sm font-medium text-text">{app.name}</span>
+                  <span className="shrink-0 font-[family-name:var(--font-mono)] text-xs text-faint">v{app.version}</span>
+                </div>
+                <span className="truncate text-xs text-muted">{app.description}</span>
               </div>
-            </div>
-            <p className="min-h-8 text-xs leading-relaxed text-muted">{app.description}</p>
-            <Button size="sm" onClick={() => onPick(app)} disabled={!canInstall}>安装</Button>
-          </Card>
-        )
-      })}
-    </div>
+              <Button size="sm" variant="ghost" onClick={() => onPick(app)} disabled={!canInstall}>安装</Button>
+            </li>
+          )
+        })}
+      </ul>
+    </Card>
   )
 }
 
@@ -373,7 +380,7 @@ function Instances({ isOperator, isAdmin, refreshKey }: { isOperator: boolean; i
   )
 }
 
-/** AppStore 应用商店:应用目录卡片网格(分类筛选 + 搜索)、固定尺寸安装弹窗、已装实例紧凑表(管理｜卸载)。 */
+/** AppStore 应用商店:对齐 aaPanel —— 顶部分类 tab(全部/已安装/各分类)+ 搜索,主体为紧凑应用列表;已安装 tab 切到实例表(管理｜卸载),固定尺寸安装弹窗。 */
 export default function AppStore() {
   const { role } = useAuth()
   const isOperator = role === 'admin' || role === 'operator'
@@ -402,55 +409,56 @@ export default function AppStore() {
     return () => { active = false }
   }, [])
 
-  const categories = useMemo(() => {
+  // 分类 tab:全部 + 已安装(实例视图)+ 各应用分类,对齐 aaPanel 顶部分类条。
+  const tabs = useMemo(() => {
     const seen: string[] = []
     for (const a of apps) if (!seen.includes(a.category)) seen.push(a.category)
-    return [ALL, ...seen]
+    return [
+      { key: ALL, label: ALL },
+      { key: INSTALLED, label: INSTALLED },
+      ...seen.map((c) => ({ key: c, label: c })),
+    ]
   }, [apps])
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase()
     return apps.filter((a) => {
-      if (category !== ALL && a.category !== category) return false
+      if (category !== ALL && category !== INSTALLED && a.category !== category) return false
       if (!q) return true
       return a.name.toLowerCase().includes(q) || a.description.toLowerCase().includes(q)
     })
   }, [apps, query, category])
 
+  const onInstalled = category === INSTALLED
+
   return (
     <div className="flex flex-col gap-4">
-      <section className="flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <Segmented
-            items={categories.map((c) => ({ key: c, label: c }))}
-            active={category}
-            onChange={setCategory}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Tabs tabs={tabs} active={category} onChange={setCategory} className="flex-1" />
+        <div className="relative w-56 pb-2">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-[calc(50%-4px)] -translate-y-1/2 text-muted"
           />
-          <div className="relative w-56">
-            <Search
-              size={15}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-            />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="搜索应用名或描述"
-              spellCheck={false}
-              className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-            />
-          </div>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索应用名或描述"
+            spellCheck={false}
+            className="h-9 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          />
         </div>
+      </div>
 
-        {loading ? (
-          <Card className="flex h-32 items-center justify-center"><Spinner size={24} /></Card>
-        ) : error ? (
-          <Card><p className="text-sm text-muted">{error}</p></Card>
-        ) : (
-          <Catalog apps={visible} canInstall={isAdmin} onPick={setPicked} />
-        )}
-      </section>
-
-      <Instances isOperator={isOperator} isAdmin={isAdmin} refreshKey={refreshKey} />
+      {onInstalled ? (
+        <Instances isOperator={isOperator} isAdmin={isAdmin} refreshKey={refreshKey} />
+      ) : loading ? (
+        <Card className="flex h-32 items-center justify-center"><Spinner size={24} /></Card>
+      ) : error ? (
+        <Card><p className="text-sm text-muted">{error}</p></Card>
+      ) : (
+        <Catalog apps={visible} canInstall={isAdmin} onPick={setPicked} />
+      )}
 
       {picked && (
         <InstallModal
