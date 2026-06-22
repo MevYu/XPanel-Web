@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { Card } from '../components/Card'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
+import { Tabs } from '../components/Tabs'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Plus, HardDriveDownload, ListPlus } from 'lucide-react'
+import { Plus, HardDriveDownload, ListPlus, Cloud } from 'lucide-react'
 import {
   type Job,
   type Record,
@@ -21,11 +23,21 @@ import { RunBackupModal } from './backup/RunBackupModal'
 import { JobModal } from './backup/JobModal'
 import { TargetSettingsModal } from './backup/TargetSettingsModal'
 
-/** 备份:aaPanel 布局——工具栏(新建备份/新建任务/目标设置)+ 备份任务表 + 备份记录表。全部需 admin。 */
+type Tab = 'records' | 'jobs' | 'remotes'
+
+// 类别切换对齐 aaPanel 顶部 tab;新建/添加是工具栏动作,不进 tab。
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'records', label: '备份记录' },
+  { key: 'jobs', label: '备份任务' },
+  { key: 'remotes', label: '远程存储' },
+]
+
+/** 备份:aaPanel 风格——Tabs(记录/任务/远程存储)+ 工具栏(新建备份/新建任务/添加远程)+ 紧凑表 + 文字操作。全部需 admin。 */
 export default function Backup() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
 
+  const [tab, setTab] = useState<Tab>('records')
   const [records, setRecords] = useState<Record[]>([])
   const [remotes, setRemotes] = useState<Remote[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
@@ -161,6 +173,22 @@ export default function Backup() {
         method: 'POST',
       })
       setFeedback({ kind: 'ok', text: `任务 ${j.name} 已清理 ${res.removed} 个过期备份` })
+      await load()
+    } catch (e) {
+      setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function deleteRemote(r: Remote) {
+    if (!isAdmin) return
+    if (!window.confirm(`确认删除远端 ${r.name}?`)) return
+    setBusy(true)
+    setFeedback(null)
+    try {
+      await apiFetch(`/api/m/backup/remotes/${r.id}`, { method: 'DELETE', headers: DANGER })
+      setFeedback({ kind: 'ok', text: `远端 ${r.name} 已删除` })
       await load()
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
@@ -310,6 +338,71 @@ export default function Backup() {
     [isAdmin, busy, remoteName],
   )
 
+  const remoteColumns: Column<Remote>[] = useMemo(
+    () => [
+      {
+        key: 'name',
+        header: '名称',
+        cell: (r) => <span className="font-medium text-text">{r.name}</span>,
+      },
+      {
+        key: 'type',
+        header: '类型',
+        width: '90px',
+        cell: (r) => <Badge status="neutral">{r.type}</Badge>,
+      },
+      {
+        key: 'bucket',
+        header: '桶',
+        cell: (r) => (
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+            {r.bucket || '—'}
+          </span>
+        ),
+      },
+      {
+        key: 'endpoint',
+        header: '端点',
+        cell: (r) => (
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+            {r.endpoint || '—'}
+          </span>
+        ),
+      },
+      {
+        key: 'secret',
+        header: '凭证',
+        width: '110px',
+        cell: (r) =>
+          r.secret_set ? (
+            <Badge status="online">已配置</Badge>
+          ) : (
+            <span className="text-xs text-muted">未配置</span>
+          ),
+      },
+      {
+        key: 'created',
+        header: '时间',
+        width: '150px',
+        cell: (r) => <span className="text-xs text-muted">{fmtTime(r.created_at)}</span>,
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '80px',
+        align: 'right',
+        cell: (r) => (
+          <ActionLinks>
+            <ActionLink danger disabled={!isAdmin || busy} onClick={() => void deleteRemote(r)}>
+              删除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    [isAdmin, busy],
+  )
+
   const closeModal = () => setModal(null)
   const afterRun = () => {
     closeModal()
@@ -322,8 +415,14 @@ export default function Backup() {
     void load()
   }
 
+  const loadingTable = (
+    <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+  )
+
   return (
     <div className="flex flex-col gap-4">
+      <Tabs tabs={TABS} active={tab} onChange={setTab} />
+
       <div className="flex flex-wrap items-center gap-2">
         <Button size="md" disabled={!isAdmin} onClick={() => setModal('run')}>
           <Plus size={15} />
@@ -334,8 +433,8 @@ export default function Backup() {
           新建任务
         </Button>
         <Button variant="ghost" size="md" disabled={!isAdmin} onClick={() => setModal('target')}>
-          <HardDriveDownload size={15} />
-          备份目标设置
+          <Cloud size={15} />
+          添加远程
         </Button>
         <Button variant="ghost" size="md" className="ml-auto" onClick={() => void load()} disabled={busy}>
           刷新
@@ -356,7 +455,7 @@ export default function Backup() {
         </p>
       )}
 
-      {loadErr && records.length === 0 && jobs.length === 0 && !loading && (
+      {loadErr && records.length === 0 && jobs.length === 0 && remotes.length === 0 && !loading && (
         <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
           {loadErr}
           <Button size="sm" variant="ghost" onClick={() => void load()}>
@@ -365,30 +464,9 @@ export default function Backup() {
         </p>
       )}
 
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium text-text">备份任务</h2>
-        {loading ? (
-          <div className="h-32 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
-        ) : (
-          <Table
-            columns={jobColumns}
-            rows={jobs}
-            rowKey={(j) => j.id}
-            emptyText={
-              <EmptyState
-                icon={<ListPlus />}
-                title="还没有备份任务"
-                hint="点击「新建任务」配置定时备份与保留策略。"
-              />
-            }
-          />
-        )}
-      </section>
-
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium text-text">备份记录</h2>
-        {loading ? (
-          <div className="h-32 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      {tab === 'records' &&
+        (loading ? (
+          loadingTable
         ) : (
           <Table
             columns={recordColumns}
@@ -402,8 +480,51 @@ export default function Backup() {
               />
             }
           />
-        )}
-      </section>
+        ))}
+
+      {tab === 'jobs' &&
+        (loading ? (
+          loadingTable
+        ) : (
+          <Table
+            columns={jobColumns}
+            rows={jobs}
+            rowKey={(j) => j.id}
+            emptyText={
+              <EmptyState
+                icon={<ListPlus />}
+                title="还没有备份任务"
+                hint="点击「新建任务」配置定时备份与保留策略。"
+              />
+            }
+          />
+        ))}
+
+      {tab === 'remotes' &&
+        (loading ? (
+          loadingTable
+        ) : (
+          <Table
+            columns={remoteColumns}
+            rows={remotes}
+            rowKey={(r) => r.id}
+            emptyText={
+              <EmptyState
+                icon={<Cloud />}
+                title="还没有远程存储"
+                hint="点击「添加远程」配置 rclone 后端与本地路径。"
+              />
+            }
+          />
+        ))}
+
+      {tab === 'remotes' && (
+        <Card>
+          <p className="text-xs text-muted">
+            「添加远程」弹窗同时管理远端凭证与本地备份目录、mysqldump / pg_dump 工具路径。
+          </p>
+        </Card>
+      )}
 
       {modal === 'run' && (
         <RunBackupModal remotes={remotes} onClose={closeModal} onDone={afterRun} />

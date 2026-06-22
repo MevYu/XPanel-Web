@@ -10,12 +10,16 @@ import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Tabs } from '../components/Tabs'
+import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
 import {
   Plus,
   RefreshCw,
   Rocket,
+  Search,
   ShieldAlert,
+  ShieldCheck,
+  ShieldOff,
   ShieldX,
   Gauge,
   Ban,
@@ -86,6 +90,16 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'rules', label: '规则' },
   { key: 'log', label: '拦截统计' },
 ]
+
+// tab 标签带计数,对齐 aaPanel「端口规则: N / IP 规则: N」。
+function tabLabel(text: string, count: number) {
+  return (
+    <span className="flex items-center gap-1.5">
+      {text}
+      <span className="font-[family-name:var(--font-mono)] text-xs text-faint">{count}</span>
+    </span>
+  )
+}
 
 /** Waf 网站防火墙(aaPanel 布局):顶部 CC 防护总开关 + 应用,tab 切换 防护设置/规则/拦截统计;规则走紧凑表 + 固定尺寸弹窗表单。 */
 export default function Waf() {
@@ -204,8 +218,15 @@ export default function Waf() {
   return (
     <InstallGate moduleId="waf">
     <div className="flex flex-col gap-4">
-      <Card className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      {/* 顶部状态开关条:对齐 aaPanel —— 左侧 WAF/CC 开关,右侧刷新 + 生成并应用 */}
+      <Card className="flex flex-wrap items-center gap-x-8 gap-y-3 py-3">
+        <label className="flex items-center gap-2.5">
+          {wafOn ? (
+            <ShieldCheck size={16} className="text-online" />
+          ) : (
+            <ShieldOff size={16} className="text-muted" />
+          )}
+          <span className="text-sm text-text">开启 WAF</span>
           <Switch
             checked={wafOn}
             onChange={(next) => {
@@ -215,34 +236,18 @@ export default function Waf() {
             disabled={!isAdmin || busy || !settings}
             aria-label="全局 WAF 总开关"
           />
-          <div className="flex flex-col">
-            <span className="text-sm font-medium text-text">全局 WAF 总开关</span>
-            <span className="text-xs text-muted">
-              {wafOn
-                ? 'IP / URL / UA / CC 规则按各自启停下发,应用后生效'
-                : '已关闭全局防护:即便有启用的规则也不拦任何请求'}
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">{busy && <Spinner size={16} />}</div>
-      </Card>
-
-      <Card className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        </label>
+        <label className="flex items-center gap-2.5">
+          <ShieldAlert size={16} className="text-warn" />
+          <span className="text-sm text-text">CC 防护</span>
           <Switch
             checked={guarded}
             onChange={(next) => void toggleMaster(next)}
             disabled={!isAdmin || busy}
             aria-label="CC 防护总开关"
           />
-          <div className="flex flex-col">
-            <span className="text-sm font-medium text-text">CC 防护总开关</span>
-            <span className="text-xs text-muted">
-              {guarded ? 'CC 限速 / 限连已启用,应用后随规则一并下发' : 'CC 限速 / 限连未启用'}
-            </span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+        </label>
+        <div className="ml-auto flex items-center gap-x-6 gap-y-2">
           {busy && <Spinner size={16} />}
           <Button variant="ghost" size="md" disabled={busy} onClick={() => void load()}>
             <RefreshCw size={15} />
@@ -491,6 +496,8 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [ipOpen, setIpOpen] = useState(false)
   const [matchOpen, setMatchOpen] = useState(false)
+  const [sub, setSub] = useState<'ip' | 'match'>('ip')
+  const [query, setQuery] = useState('')
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -692,6 +699,28 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
     [isAdmin, busy],
   )
 
+  const visibleIP = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return ip
+    return ip.filter(
+      (r) =>
+        r.cidr.toLowerCase().includes(q) ||
+        r.action.toLowerCase().includes(q) ||
+        r.comment.toLowerCase().includes(q),
+    )
+  }, [ip, query])
+
+  const visibleMatch = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return match
+    return match.filter(
+      (r) =>
+        r.pattern.toLowerCase().includes(q) ||
+        r.action.toLowerCase().includes(q) ||
+        r.comment.toLowerCase().includes(q),
+    )
+  }, [match, query])
+
   return (
     <div className="flex flex-col gap-4">
       {feedback && (
@@ -706,55 +735,90 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
         </p>
       )}
 
-      <section className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-medium text-text">IP 黑白名单</h2>
-          <Button size="sm" disabled={!isAdmin} onClick={() => setIpOpen(true)}>
-            <Plus size={14} />
-            添加 IP 规则
-          </Button>
-        </div>
-        {loading ? (
-          <div className="h-24 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
-        ) : (
-          <Table
-            columns={ipColumns}
-            rows={ip}
-            rowKey={(r) => r.id}
-            emptyText={
-              <span className="flex flex-col items-center gap-1 py-4">
-                <span className="text-sm font-medium text-text">还没有 IP 规则</span>
-                <span className="text-xs text-muted">添加允许 / 拒绝的 IP 或 CIDR 网段。</span>
-              </span>
-            }
-          />
-        )}
-      </section>
+      {/* 规则面板:计数 tab + 内嵌工具栏 + 紧凑规则表,对齐 aaPanel */}
+      <Card className="flex flex-col gap-0 p-0">
+        <Tabs
+          className="px-2"
+          tabs={[
+            { key: 'ip' as const, label: tabLabel('IP 规则', ip.length) },
+            { key: 'match' as const, label: tabLabel('URL / UA 规则', match.length) },
+          ]}
+          active={sub}
+          onChange={(k) => {
+            setSub(k)
+            setQuery('')
+          }}
+        />
 
-      <section className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-medium text-text">URL / UA 规则</h2>
-          <Button size="sm" disabled={!isAdmin} onClick={() => setMatchOpen(true)}>
-            <Plus size={14} />
-            添加匹配规则
-          </Button>
+        {/* 工具栏:左添加规则,右搜索/刷新 */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2.5">
+          {sub === 'ip' ? (
+            <Button size="sm" disabled={!isAdmin} onClick={() => setIpOpen(true)}>
+              <Plus size={15} />
+              添加 IP 规则
+            </Button>
+          ) : (
+            <Button size="sm" disabled={!isAdmin} onClick={() => setMatchOpen(true)}>
+              <Plus size={15} />
+              添加匹配规则
+            </Button>
+          )}
+          <div className="flex items-center gap-2">
+            <div className="relative w-56">
+              <Search
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+              />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={sub === 'ip' ? '搜索 IP / 备注' : '搜索规则 / 备注'}
+                spellCheck={false}
+                className="h-9 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              />
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => void load()} disabled={busy}>
+              <RefreshCw size={15} />
+              刷新
+            </Button>
+          </div>
         </div>
+
+        {/* 紧凑规则表(去外框,贴合面板) */}
         {loading ? (
-          <div className="h-24 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
-        ) : (
+          <div className="h-48 animate-pulse" />
+        ) : sub === 'ip' ? (
           <Table
-            columns={matchColumns}
-            rows={match}
+            bare
+            columns={ipColumns}
+            rows={visibleIP}
             rowKey={(r) => r.id}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-4">
-                <span className="text-sm font-medium text-text">还没有匹配规则</span>
-                <span className="text-xs text-muted">按请求 URI 或 User-Agent 的正则拦截 / 放行。</span>
-              </span>
+              <EmptyState
+                icon={<ShieldCheck />}
+                title={ip.length === 0 ? '还没有 IP 规则' : '没有匹配的规则'}
+                hint={ip.length === 0 ? '添加允许 / 拒绝的 IP 或 CIDR 网段。' : '换个关键词试试。'}
+              />
+            }
+          />
+        ) : (
+          <Table
+            bare
+            columns={matchColumns}
+            rows={visibleMatch}
+            rowKey={(r) => r.id}
+            emptyText={
+              <EmptyState
+                icon={<ShieldAlert />}
+                title={match.length === 0 ? '还没有匹配规则' : '没有匹配的规则'}
+                hint={
+                  match.length === 0 ? '按请求 URI 或 User-Agent 的正则拦截 / 放行。' : '换个关键词试试。'
+                }
+              />
             }
           />
         )}
-      </section>
+      </Card>
 
       {ipOpen && (
         <IPRuleModal
