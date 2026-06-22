@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { GaugeRow } from './GaugeRow'
+import { SysStatusCard } from './SysStatusCard'
 import type { Metrics, DetailMetrics } from '../../api/types'
 
 const M: Metrics = {
@@ -8,7 +8,7 @@ const M: Metrics = {
   mem_total: 16_000_000_000,
   mem_used: 8_000_000_000,
   disk_total: 500_000_000_000,
-  disk_used: 480_000_000_000, // 96% → crit
+  disk_used: 480_000_000_000,
 }
 
 const DETAIL: DetailMetrics = {
@@ -31,54 +31,40 @@ const DETAIL: DetailMetrics = {
   boot_time: 0,
 }
 
-describe('GaugeRow', () => {
-  it('renders the four status gauges with readings and labels', () => {
-    render(<GaugeRow m={M} detail={DETAIL} />)
+describe('SysStatusCard', () => {
+  it('renders the three status rings with readings and labels', () => {
+    render(<SysStatusCard m={M} detail={DETAIL} />)
     expect(screen.getByText('负载')).toBeInTheDocument()
     expect(screen.getByText('cpu')).toBeInTheDocument()
     expect(screen.getByText('内存')).toBeInTheDocument()
-    expect(screen.getByText('磁盘')).toBeInTheDocument()
-    // readings surface via the gauges' accessible names
     expect(screen.getByRole('button', { name: /负载 2.00/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /cpu 42.5%/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /内存 50%/ })).toBeInTheDocument()
   })
 
-  it('exposes each gauge as a button with an accessible label', () => {
-    render(<GaugeRow m={M} detail={DETAIL} />)
-    expect(screen.getByRole('button', { name: /内存 50%/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /磁盘 96%/ })).toBeInTheDocument()
+  it('shows aaPanel-style subtitles under each ring', () => {
+    render(<SysStatusCard m={M} detail={DETAIL} />)
+    // 负载比 0.5 < 0.7 → 平稳
+    expect(screen.getByText('运行平稳')).toBeInTheDocument()
+    expect(screen.getByText('2.00 / 1.50 / 1.00')).toBeInTheDocument()
+    expect(screen.getByText('4 核')).toBeInTheDocument()
   })
 
   it('reveals CPU per-core detail on hover', () => {
-    const { container } = render(<GaugeRow m={M} detail={DETAIL} />)
+    render(<SysStatusCard m={M} detail={DETAIL} />)
     const cpuButton = screen.getByRole('button', { name: /cpu 42.5%/ })
     const group = cpuButton.closest('.group') as HTMLElement
     const tip = within(group).getByRole('tooltip', { hidden: true })
-
     expect(tip).toHaveAttribute('aria-hidden', 'true')
     fireEvent.mouseEnter(group)
     expect(tip).toHaveAttribute('aria-hidden', 'false')
-    // per-core rows present
     expect(within(tip).getByText('核0')).toBeInTheDocument()
     expect(within(tip).getByText('核3')).toBeInTheDocument()
-    expect(container).toBeTruthy()
-  })
-
-  it('shows memory used/total/swap detail on hover', () => {
-    render(<GaugeRow m={M} detail={DETAIL} />)
-    const memButton = screen.getByRole('button', { name: /内存 50%/ })
-    const group = memButton.closest('.group') as HTMLElement
-    fireEvent.mouseEnter(group)
-    const tip = within(group).getByRole('tooltip', { hidden: true })
-    expect(within(tip).getByText('已用')).toBeInTheDocument()
-    expect(within(tip).getByText('swap')).toBeInTheDocument()
   })
 
   it('renders without detail panels when detail is null', () => {
-    render(<GaugeRow m={M} detail={null} />)
-    // cpu/mem gauges have no detail when detail missing; load reading falls back to 0
+    render(<SysStatusCard m={M} detail={null} />)
     expect(screen.getByText('0.00')).toBeInTheDocument()
-    // disk detail still available (derived from m only)
-    expect(screen.getByRole('button', { name: /磁盘 96%/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /cpu 42.5%/ })).toBeInTheDocument()
   })
 })

@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../../api/client'
 import { Button } from '../../components/Button'
+import { Switch } from '../../components/Switch'
 import { Table, ActionLink, ActionLinks, type Column } from '../../components/Table'
 import { EmptyState } from '../../components/EmptyState'
-import { Plus, UserPlus, ArrowLeftRight, Search, Database as DatabaseIcon, User, KeyRound } from 'lucide-react'
+import {
+  Plus,
+  UserPlus,
+  ArrowLeftRight,
+  Search,
+  Database as DatabaseIcon,
+  User,
+  KeyRound,
+  Settings2,
+  Info,
+} from 'lucide-react'
 import { type Engine, type DbInfo, type DbUser, DANGER, errorText } from './shared'
 import {
   CreateDbModal,
@@ -32,10 +43,12 @@ export function SqlEnginePanel({
   engine,
   refreshKey,
   onBackupDone,
+  onOpenSettings,
 }: {
   engine: Engine
   refreshKey: number
   onBackupDone: () => void
+  onOpenSettings: () => void
 }) {
   const base = `/api/m/database/${engine}`
   const [databases, setDatabases] = useState<DbInfo[]>([])
@@ -45,6 +58,8 @@ export function SqlEnginePanel({
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<'all' | 'db' | 'user'>('all')
+  const [autoBackup, setAutoBackup] = useState(false)
   const [modal, setModal] = useState<Modal>(null)
 
   const load = useCallback(async () => {
@@ -225,10 +240,22 @@ export function SqlEnginePanel({
     [busy],
   )
 
+  const showDbs = filter !== 'user'
+  const showUsers = filter !== 'db'
+
   return (
     <div className="flex flex-col gap-4">
+      {/* aaPanel 顶部信息条:自动备份开关 + 说明 */}
+      <div className="flex flex-wrap items-center gap-3 rounded-(--radius-card) border border-border bg-surface px-4 py-3 shadow-[var(--inset-hl)]">
+        <Info size={16} className="shrink-0 text-brand" />
+        <span className="text-sm font-medium text-text">自动备份</span>
+        <Switch checked={autoBackup} onChange={setAutoBackup} aria-label="自动备份数据库" />
+        <span className="text-xs text-muted">创建数据库后,可在「备份」列手动备份,或在此开启自动备份策略以保障数据安全。</span>
+      </div>
+
+      {/* aaPanel 工具栏:左侧动作组 + 右侧筛选 / 搜索 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="md" onClick={() => setModal({ kind: 'create-db' })} disabled={busy}>
             <Plus size={15} />
             新建库
@@ -245,16 +272,32 @@ export function SqlEnginePanel({
             <KeyRound size={15} />
             root 密码
           </Button>
+          <Button size="md" variant="ghost" onClick={onOpenSettings} disabled={busy}>
+            <Settings2 size={15} />
+            连接设置
+          </Button>
         </div>
-        <div className="relative w-56">
-          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索库名或用户"
-            spellCheck={false}
-            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-          />
+        <div className="flex items-center gap-2">
+          <select
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as 'all' | 'db' | 'user')}
+            className="h-10 rounded-(--radius-sm) border border-border bg-surface-2 px-3 text-sm text-text outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            aria-label="筛选类型"
+          >
+            <option value="all">全部</option>
+            <option value="db">仅数据库</option>
+            <option value="user">仅用户</option>
+          </select>
+          <div className="relative w-56">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索库名或用户"
+              spellCheck={false}
+              className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            />
+          </div>
         </div>
       </div>
 
@@ -270,45 +313,49 @@ export function SqlEnginePanel({
         </p>
       )}
 
-      <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium text-text">数据库</h3>
-        {loading ? (
-          <div className="h-40 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
-        ) : (
-          <Table
-            columns={dbColumns}
-            rows={visibleDbs}
-            rowKey={(d) => d.name}
-            emptyText={
-              <EmptyState
-                icon={<DatabaseIcon />}
-                title={databases.length === 0 ? '还没有数据库' : '没有匹配的数据库'}
-                hint={databases.length === 0 ? '点击「新建库」创建第一个数据库。' : '换个关键词试试。'}
-              />
-            }
-          />
-        )}
-      </div>
+      {showDbs && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-sm font-medium text-text">数据库</h3>
+          {loading ? (
+            <div className="h-40 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+          ) : (
+            <Table
+              columns={dbColumns}
+              rows={visibleDbs}
+              rowKey={(d) => d.name}
+              emptyText={
+                <EmptyState
+                  icon={<DatabaseIcon />}
+                  title={databases.length === 0 ? '还没有数据库' : '没有匹配的数据库'}
+                  hint={databases.length === 0 ? '点击「新建库」创建第一个数据库。' : '换个关键词试试。'}
+                />
+              }
+            />
+          )}
+        </div>
+      )}
 
-      <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-medium text-text">用户</h3>
-        {loading ? (
-          <div className="h-28 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
-        ) : (
-          <Table
-            columns={userColumns}
-            rows={visibleUsers}
-            rowKey={(u) => `${u.user}@${u.host}`}
-            emptyText={
-              <EmptyState
-                icon={<User />}
-                title={users.length === 0 ? '还没有用户' : '没有匹配的用户'}
-                hint={users.length === 0 ? '点击「新建用户」创建数据库账号。' : '换个关键词试试。'}
-              />
-            }
-          />
-        )}
-      </div>
+      {showUsers && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-sm font-medium text-text">用户</h3>
+          {loading ? (
+            <div className="h-28 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+          ) : (
+            <Table
+              columns={userColumns}
+              rows={visibleUsers}
+              rowKey={(u) => `${u.user}@${u.host}`}
+              emptyText={
+                <EmptyState
+                  icon={<User />}
+                  title={users.length === 0 ? '还没有用户' : '没有匹配的用户'}
+                  hint={users.length === 0 ? '点击「新建用户」创建数据库账号。' : '换个关键词试试。'}
+                />
+              }
+            />
+          )}
+        </div>
+      )}
 
       {modal?.kind === 'manage' && (
         <ManageModal engine={engine} database={modal.db} onClose={() => setModal(null)} />

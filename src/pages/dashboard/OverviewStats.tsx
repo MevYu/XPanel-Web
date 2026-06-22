@@ -49,26 +49,29 @@ export function OverviewStats() {
   if (active.length === 0) return null
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      {active.map((s) => {
-        const Icon = s.icon
-        const n = counts[s.id]
-        return (
-          <Link key={s.id} to={s.path} className="group outline-none">
-            <Card hoverable className="flex items-center gap-3 py-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-sm) bg-surface-2 text-muted transition-colors group-hover:text-brand">
-                <Icon size={18} />
-              </span>
-              <div className="flex min-w-0 flex-col">
-                <span className="font-[family-name:var(--font-mono)] text-2xl font-medium leading-none tabular-nums text-text">
-                  {n == null ? '—' : n}
+    <Card className="flex flex-col gap-4">
+      <h3 className="text-sm font-medium text-text">概览</h3>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {active.map((s) => {
+          const Icon = s.icon
+          const n = counts[s.id]
+          return (
+            <Link key={s.id} to={s.path} className="group outline-none">
+              <div className="flex items-center gap-3 rounded-(--radius-card) border border-border/60 bg-surface-2/40 px-3 py-3 transition-colors group-hover:border-brand/40 group-hover:bg-surface-2">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-sm) bg-surface-2 text-muted transition-colors group-hover:text-brand">
+                  <Icon size={18} />
                 </span>
-                <span className="mt-1 truncate text-xs text-muted">{s.label}</span>
+                <div className="flex min-w-0 flex-col">
+                  <span className="font-[family-name:var(--font-mono)] text-2xl font-medium leading-none tabular-nums text-text">
+                    {n == null ? '—' : n}
+                  </span>
+                  <span className="mt-1 truncate text-xs text-muted">{s.label}</span>
+                </div>
               </div>
-            </Card>
-          </Link>
-        )
-      })}
-    </div>
+            </Link>
+          )
+        })}
+      </div>
+    </Card>
   )
 }

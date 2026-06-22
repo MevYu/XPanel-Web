@@ -6,9 +6,8 @@ import { Stat } from '../components/Stat'
 import { Spinner } from '../components/Spinner'
 import { Sparkline } from '../components/Sparkline'
 import { Badge } from '../components/Badge'
-import { formatBytes, formatRate } from '../lib/format'
+import { formatBytes, formatDuration, formatRate } from '../lib/format'
 import type { Metrics, DetailMetrics, ProcessInfo } from '../api/types'
-import { GaugeRow } from './dashboard/GaugeRow'
 import { OverviewStats } from './dashboard/OverviewStats'
 import { SystemInfoCard } from './dashboard/SystemInfoCard'
 import { QuickActionsCard } from './dashboard/QuickActionsCard'
@@ -17,6 +16,9 @@ import { AlertBar } from './dashboard/AlertBar'
 import { SecurityCard } from './dashboard/SecurityCard'
 import { IoCard } from './dashboard/IoCard'
 import { TasksCard } from './dashboard/TasksCard'
+import { SysStatusCard } from './dashboard/SysStatusCard'
+import { DiskCard } from './dashboard/DiskCard'
+import { TrafficCard } from './dashboard/TrafficCard'
 import { levelFor, levelText, levelStroke, clampPct } from './dashboard/Gauge'
 
 // recharts 懒加载,移出首屏主包(首次渲染图表时才拉取该 vendor chunk)。
@@ -162,32 +164,31 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center gap-3">
-        <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">系统总览</h1>
-        {detail.data && (
-          <Badge status="online">运行 {Math.floor(detail.data.uptime_sec / 86400)} 天</Badge>
-        )}
-        <span className="ml-auto text-xs text-muted">每 2.5s 实时刷新</span>
-      </header>
+      <TopBar uptimeSec={detail.data?.uptime_sec ?? null} />
 
       <AlertBar />
 
-      <section className="flex flex-col gap-3">
-        <SectionHeading>系统状态</SectionHeading>
-        <Card className="p-4">
-          <GaugeRow m={m} detail={detail.data} />
-        </Card>
-      </section>
+      {/* aaPanel 骨架第一行:Sys Status(三环) + Disk(分区列表) */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <SysStatusCard m={m} detail={detail.data} />
+        <DiskCard m={m} />
+      </div>
+
+      {/* aaPanel 骨架:Overview 计数小卡一排 */}
+      <OverviewStats />
+
+      {/* aaPanel 骨架底部:Software(服务) + Traffic(流量) */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ServicesCard />
+        <TrafficCard detail={detail.data} net={rates.net} error={!!detail.error} />
+      </div>
+
+      <div className="my-1 h-px bg-border" aria-hidden />
 
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
         <SystemInfoCard detail={detail.data} net={rates.net} netHistory={netHistory} />
-        <div className="flex flex-col gap-4">
-          <QuickActionsCard />
-          <ServicesCard />
-        </div>
+        <QuickActionsCard />
       </div>
-
-      <OverviewStats />
 
       <IoCard detail={detail.data} disk={rates.disk} net={rates.net} error={!!detail.error} />
 
@@ -237,6 +238,30 @@ export default function Dashboard() {
         procsError={!!procs.error}
       />
     </div>
+  )
+}
+
+// TopBar aaPanel 顶部操作行:主机名 + 版本徽标 + 运行时长 + 实时刷新指示。
+// 不放无后端能力的 Update/Fix/Restart 假按钮。
+function TopBar({ uptimeSec }: { uptimeSec: number | null }) {
+  const [info, setInfo] = useState<{ hostname: string; panel_version: string } | null>(null)
+  useEffect(() => {
+    apiFetch<{ hostname: string; panel_version: string }>('/api/m/dashboard/sysinfo')
+      .then(setInfo)
+      .catch(() => {})
+  }, [])
+  return (
+    <header className="flex flex-wrap items-center gap-3">
+      <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+        {info?.hostname || '系统总览'}
+      </h1>
+      {info?.panel_version && <Badge status="neutral">XPanel {info.panel_version}</Badge>}
+      {uptimeSec != null && <Badge status="online">运行 {formatDuration(uptimeSec)}</Badge>}
+      <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-online" aria-hidden />
+        每 2.5s 实时刷新
+      </span>
+    </header>
   )
 }
 
