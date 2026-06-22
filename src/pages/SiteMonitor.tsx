@@ -10,7 +10,8 @@ import { Spinner } from '../components/Spinner'
 import { Stat } from '../components/Stat'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
-import { Activity, Globe, Plus, RefreshCw, BarChart3 } from 'lucide-react'
+import { EmptyState } from '../components/EmptyState'
+import { Activity, Globe, Plus, RefreshCw, BarChart3, Search } from 'lucide-react'
 import { uid } from '../lib/uid'
 import { formatTime } from '../lib/formatTime'
 import type { StatusSlice, TrendPoint } from './SiteMonitorCharts'
@@ -50,7 +51,7 @@ interface TargetForm {
 }
 
 const fieldClass =
-  'h-10 rounded-(--radius-sm) border border-border bg-surface-2/70 px-3 text-sm text-text outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-[border-color,box-shadow,background-color] duration-(--dur-micro) ease-(--ease-out) hover:border-border-strong focus:border-brand focus:bg-surface-2 focus:shadow-[0_0_0_3px_var(--color-brand-soft),inset_0_1px_2px_rgba(0,0,0,0.25)]'
+  'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
 
 const STATUS_META: Record<ProbeStatus, { badge: 'online' | 'crit' | 'neutral'; text: string }> = {
   up: { badge: 'online', text: '在线' },
@@ -98,6 +99,7 @@ export default function SiteMonitor() {
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [query, setQuery] = useState('')
 
   // editing: null=关闭, {id:null}=新建, {id:number}=编辑
   const [editing, setEditing] = useState<{ id: number | null; form: TargetForm } | null>(null)
@@ -187,24 +189,28 @@ export default function SiteMonitor() {
     return { total, up, down, avg }
   }, [targets])
 
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return targets
+    return targets.filter(
+      (t) => t.name.toLowerCase().includes(q) || t.url.toLowerCase().includes(q),
+    )
+  }, [targets, query])
+
   const columns: Column<Target>[] = useMemo(
     () => [
       {
         key: 'name',
-        header: '名称',
+        header: '目标',
         cell: (t) => (
-          <span className="inline-flex items-center gap-2 font-medium text-text">
+          <span className="flex min-w-0 items-center gap-2">
             <Globe size={15} className="shrink-0 text-warn" />
-            <span className="truncate">{t.name}</span>
-          </span>
-        ),
-      },
-      {
-        key: 'url',
-        header: 'URL',
-        cell: (t) => (
-          <span className="block max-w-[280px] truncate font-[family-name:var(--font-mono)] text-xs text-muted">
-            {t.url}
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate font-medium text-text">{t.name}</span>
+              <span className="max-w-[320px] truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+                {t.url}
+              </span>
+            </span>
           </span>
         ),
       },
@@ -220,7 +226,7 @@ export default function SiteMonitor() {
       {
         key: 'latency',
         header: '响应时间',
-        width: '96px',
+        width: '110px',
         align: 'right',
         cell: (t) => (
           <span className="tabular-nums text-text">{fmtLatency(t.last_latency_ms, t.last_status)}</span>
@@ -229,15 +235,14 @@ export default function SiteMonitor() {
       {
         key: 'avail',
         header: '可用率',
-        width: '88px',
+        width: '110px',
         align: 'right',
-        cell: (t) => <span className="tabular-nums text-text">{fmtAvailability(t.availability)}</span>,
-      },
-      {
-        key: 'checked',
-        header: '最近检测',
-        width: '120px',
-        cell: (t) => <span className="text-xs text-muted">{fmtChecked(t.last_checked_at)}</span>,
+        cell: (t) => (
+          <span className="flex flex-col items-end">
+            <span className="tabular-nums text-text">{fmtAvailability(t.availability)}</span>
+            <span className="text-xs text-muted">{fmtChecked(t.last_checked_at)}</span>
+          </span>
+        ),
       },
       {
         key: 'actions',
@@ -286,7 +291,8 @@ export default function SiteMonitor() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="md"
             disabled={!canWrite}
@@ -303,7 +309,33 @@ export default function SiteMonitor() {
             <RefreshCw size={15} className={loading ? 'animate-spin' : undefined} />
             刷新
           </Button>
+        </div>
+        <div className="relative w-56">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索名称或 URL"
+            spellCheck={false}
+            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          />
+        </div>
       </div>
+
+      {feedback && (
+        <p
+          className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+            feedback.kind === 'ok'
+              ? 'border-online/40 bg-online/10 text-online'
+              : 'border-crit/40 bg-crit/10 text-crit'
+          }`}
+        >
+          {feedback.text}
+        </p>
+      )}
 
       {loadErr && targets.length === 0 && !loading && (
         <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
@@ -327,18 +359,20 @@ export default function SiteMonitor() {
 
           <Table
             columns={columns}
-            rows={targets}
+            rows={visible}
             rowKey={(t) => t.id}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <Activity size={22} className="text-warn" />
-                <span className="text-sm font-medium text-text">还没有监控目标</span>
-                <span className="text-xs text-muted">
-                  {canWrite
-                    ? '点击右上「添加监控」配置第一个探测目标。'
-                    : '尚无监控目标,添加需要 operator 角色。'}
-                </span>
-              </span>
+              <EmptyState
+                icon={<Activity />}
+                title={targets.length === 0 ? '还没有监控目标' : '没有匹配的目标'}
+                hint={
+                  targets.length === 0
+                    ? canWrite
+                      ? '点击「添加监控」配置第一个探测目标。'
+                      : '尚无监控目标,添加需要 operator 角色。'
+                    : '换个关键词试试。'
+                }
+              />
             }
           />
 
@@ -470,12 +504,6 @@ export default function SiteMonitor() {
         >
           <TrafficSection target={trafficTarget} />
         </Modal>
-      )}
-
-      {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
-          {feedback.text}
-        </p>
       )}
     </div>
   )

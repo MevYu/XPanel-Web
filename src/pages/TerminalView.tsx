@@ -5,6 +5,7 @@ import { RotateCw, Eraser, TerminalSquare } from 'lucide-react'
 import '@xterm/xterm/css/xterm.css'
 import { apiFetch } from '../api/client'
 import { Button } from '../components/Button'
+import { Badge } from '../components/Badge'
 
 type Status = 'connecting' | 'open' | 'closed' | 'error'
 
@@ -38,12 +39,13 @@ function wsURL(ticket: string): string {
   return `${base}/api/m/terminal/ws?ticket=${encodeURIComponent(ticket)}`
 }
 
-const STATUS_META: Record<Status, { label: string; dot: string; text: string }> = {
-  connecting: { label: '连接中', dot: 'bg-warn', text: 'text-warn' },
-  open: { label: '已连接', dot: 'bg-online', text: 'text-online' },
-  closed: { label: '已断开', dot: 'bg-muted', text: 'text-muted' },
-  error: { label: '连接错误', dot: 'bg-crit', text: 'text-crit' },
-}
+const STATUS_META: Record<Status, { label: string; badge: 'online' | 'warn' | 'crit' | 'neutral' }> =
+  {
+    connecting: { label: '连接中', badge: 'warn' },
+    open: { label: '已连接', badge: 'online' },
+    closed: { label: '已断开', badge: 'neutral' },
+    error: { label: '连接错误', badge: 'crit' },
+  }
 
 /**
  * TerminalView 懒加载组件:换票 → 连 WS → xterm ⇄ WS 双向桥接。
@@ -144,42 +146,31 @@ export default function TerminalView() {
   }, [attempt])
 
   const meta = STATUS_META[status]
-  const reconnectable = status === 'closed' || status === 'error'
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-(--radius-card) border border-border bg-[#0A0E13] shadow-[inset_0_1px_0_rgba(255,255,255,0.03),0_18px_40px_-24px_rgba(0,0,0,0.8)]">
-      {/* 顶部状态栏:标题 + 连接状态 + 操作 */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border bg-surface/60 px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          {/* macOS 风格灯位,纯装饰 */}
-          <span className="flex items-center gap-1.5 pr-1" aria-hidden>
-            <span className="h-3 w-3 rounded-full bg-crit/80" />
-            <span className="h-3 w-3 rounded-full bg-warn/80" />
-            <span className="h-3 w-3 rounded-full bg-online/80" />
-          </span>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-(--radius-card) border border-border bg-surface shadow-[var(--shadow-card),var(--inset-hl)]">
+      {/* 工具栏:标题 + 连接状态 Badge + 会话操作 */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-surface-2/40 px-3 py-2">
+        <span className="inline-flex min-w-0 items-center gap-2 font-medium text-text">
           <TerminalSquare size={15} className="shrink-0 text-muted" aria-hidden />
-          <span className="truncate font-[family-name:var(--font-mono)] text-sm text-text">
-            主机终端
-          </span>
-        </div>
+          <span className="truncate font-[family-name:var(--font-mono)] text-sm">主机终端</span>
+        </span>
 
-        <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-0.5 text-xs font-medium">
-          <span
-            className={`h-1.5 w-1.5 rounded-full ${meta.dot} ${
-              status === 'connecting' ? 'motion-safe:animate-pulse' : ''
-            }`}
-            aria-hidden
-          />
-          <span className={meta.text}>{meta.label}</span>
+        <span className="ml-auto">
+          <Badge status={meta.badge}>{meta.label}</Badge>
         </span>
 
         <div className="flex items-center gap-1.5">
-          {reconnectable && (
-            <Button size="sm" variant="ghost" onClick={() => setAttempt((n) => n + 1)}>
-              <RotateCw size={14} aria-hidden />
-              重连
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setAttempt((n) => n + 1)}
+            disabled={status === 'connecting'}
+            title="重新连接"
+          >
+            <RotateCw size={14} aria-hidden />
+            重连
+          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -199,8 +190,8 @@ export default function TerminalView() {
         </div>
       )}
 
-      {/* 终端主体:占满剩余高度,内边距给文字留呼吸空间 */}
-      <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden px-3 py-2" />
+      {/* 终端主体:深色背景在内层,占满剩余高度,内边距给文字留呼吸空间 */}
+      <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden bg-[#0A0E13] px-3 py-2" />
     </div>
   )
 }
