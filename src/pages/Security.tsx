@@ -8,6 +8,7 @@ import {
   Lock,
   ScrollText,
   Ban,
+  Search,
 } from 'lucide-react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
@@ -18,6 +19,7 @@ import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { Segmented } from '../components/Segmented'
 import { Tabs } from '../components/Tabs'
 import { uid } from '../lib/uid'
@@ -45,6 +47,36 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'fail2ban', label: '防爆破' },
   { key: 'logins', label: '登录日志' },
 ]
+
+// 工具栏内嵌搜索框样式,对齐 Firewall/Ftp。
+const searchInputClass =
+  'h-9 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
+
+function SearchBox({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder: string
+}) {
+  return (
+    <div className="relative w-56">
+      <Search
+        size={15}
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+      />
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        spellCheck={false}
+        className={searchInputClass}
+      />
+    </div>
+  )
+}
 
 interface SSHKey {
   id: number
@@ -254,10 +286,11 @@ function SSHHardening() {
           rows={rows}
           rowKey={(r) => r.key}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">未读到可改写指令</span>
-              <span className="text-xs text-muted">sshd 可能不可用,或配置无白名单内的指令。</span>
-            </span>
+            <EmptyState
+              icon={<Lock />}
+              title="未读到可改写指令"
+              hint="sshd 可能不可用,或配置无白名单内的指令。"
+            />
           }
         />
       )}
@@ -352,6 +385,7 @@ function SSHKeys() {
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [adding, setAdding] = useState(false)
+  const [query, setQuery] = useState('')
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -401,6 +435,14 @@ function SSHKeys() {
     }
   }
 
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return keys
+    return keys.filter(
+      (k) => k.comment.toLowerCase().includes(q) || k.public_key.toLowerCase().includes(q),
+    )
+  }, [keys, query])
+
   const columns: Column<SSHKey>[] = [
     {
       key: 'comment',
@@ -445,6 +487,7 @@ function SSHKeys() {
         </Button>
         <div className="flex items-center gap-2">
           {busy && <Spinner size={16} />}
+          <SearchBox value={query} onChange={setQuery} placeholder="搜索备注 / 公钥" />
           <Button size="sm" variant="ghost" onClick={() => void load()} disabled={busy}>
             <RefreshCw size={14} />
             刷新
@@ -466,13 +509,14 @@ function SSHKeys() {
       ) : (
         <Table
           columns={columns}
-          rows={keys}
+          rows={visible}
           rowKey={(k) => k.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">暂无已授权公钥</span>
-              <span className="text-xs text-muted">点击「添加公钥」授权一个 SSH 客户端。</span>
-            </span>
+            <EmptyState
+              icon={<KeyRound />}
+              title={keys.length === 0 ? '暂无已授权公钥' : '没有匹配的公钥'}
+              hint={keys.length === 0 ? '点击「添加公钥」授权一个 SSH 客户端。' : '换个关键词试试。'}
+            />
           }
         />
       )}
@@ -687,10 +731,11 @@ function Fail2ban() {
           rows={bannedRows}
           rowKey={(r) => r.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">该 jail 当前无封禁 IP</span>
-              <span className="text-xs text-muted">爆破触发封禁后会出现在这里,可逐条解封。</span>
-            </span>
+            <EmptyState
+              icon={<Ban />}
+              title="该 jail 当前无封禁 IP"
+              hint="爆破触发封禁后会出现在这里,可逐条解封。"
+            />
           }
         />
       </div>
@@ -795,12 +840,11 @@ function LoginLog() {
           rows={rows}
           rowKey={(e) => e.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">暂无记录</span>
-              <span className="text-xs text-muted">
-                {failed ? '近期没有失败登录尝试。' : '近期没有成功登录记录。'}
-              </span>
-            </span>
+            <EmptyState
+              icon={<ScrollText />}
+              title="暂无记录"
+              hint={failed ? '近期没有失败登录尝试。' : '近期没有成功登录记录。'}
+            />
           }
         />
       )}
