@@ -7,7 +7,20 @@ import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
-import { Plus, RefreshCw, Settings2, Coffee } from 'lucide-react'
+import { EmptyState } from '../components/EmptyState'
+import { InstallGate } from '../components/InstallGate'
+import { Tabs } from '../components/Tabs'
+import { Plus, RefreshCw, Settings2, Search, Coffee } from 'lucide-react'
+
+type Filter = 'all' | 'jar' | 'war' | 'tomcat'
+
+// 顶部页级 tab,对齐 aaPanel 分段:按部署类型切换列表。
+const TABS: { key: Filter; label: string }[] = [
+  { key: 'all', label: '全部' },
+  { key: 'jar', label: 'JAR' },
+  { key: 'war', label: 'WAR' },
+  { key: 'tomcat', label: 'Tomcat' },
+]
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -80,7 +93,7 @@ const emptyCreate: CreateForm = {
   port: '',
 }
 
-/** Java 项目:aaPanel 风格紧凑表(项目名/路径/端口/运行态/类型/JDK/操作)+ 添加/设置/日志弹窗。 */
+/** Java 项目:aaPanel 风格——类型 tab、工具栏(左添加/刷新/设置、右搜索)、紧凑表 + 文字行操作 + 添加/设置/日志弹窗。 */
 export default function Java() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
@@ -93,6 +106,8 @@ export default function Java() {
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<Filter>('all')
 
   const [creating, setCreating] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -181,25 +196,30 @@ export default function Java() {
     }
   }
 
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return projects.filter((p) => {
+      if (filter !== 'all' && p.type !== filter) return false
+      if (!q) return true
+      return p.name.toLowerCase().includes(q) || p.artifact_path.toLowerCase().includes(q)
+    })
+  }, [projects, query, filter])
+
   const columns: Column<Project>[] = useMemo(
     () => [
       {
         key: 'name',
         header: '项目名',
         cell: (p) => (
-          <span className="inline-flex items-center gap-2 font-medium text-text">
-            <Coffee size={15} className="shrink-0 text-warn" />
-            <span className="truncate">{p.name}</span>
-          </span>
-        ),
-      },
-      {
-        key: 'artifact',
-        header: '路径',
-        cell: (p) => (
-          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
-            {p.artifact_path}
-          </span>
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <span className="inline-flex items-center gap-2 font-medium text-text">
+              <Coffee size={15} className="shrink-0 text-warn" />
+              <span className="truncate">{p.name}</span>
+            </span>
+            <span className="truncate pl-[23px] font-[family-name:var(--font-mono)] text-[11px] text-faint">
+              {p.artifact_path || '—'}
+            </span>
+          </div>
         ),
       },
       {
@@ -280,30 +300,48 @@ export default function Java() {
   )
 
   return (
+    <InstallGate moduleId="java">
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          size="md"
-          disabled={!isAdmin}
-          title={isAdmin ? '添加项目' : '需要 admin 角色'}
-          onClick={() => {
-            setFeedback(null)
-            setCreating(true)
-          }}
-        >
-          <Plus size={15} />
-          添加项目
-        </Button>
-        <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
-          <RefreshCw size={15} />
-          刷新
-        </Button>
-        {isAdmin && (
-          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
-            <Settings2 size={15} />
-            设置
+      <Tabs tabs={TABS} active={filter} onChange={setFilter} />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="md"
+            disabled={!isAdmin}
+            title={isAdmin ? '添加项目' : '需要 admin 角色'}
+            onClick={() => {
+              setFeedback(null)
+              setCreating(true)
+            }}
+          >
+            <Plus size={15} />
+            添加项目
           </Button>
-        )}
+          <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
+            <RefreshCw size={15} />
+            刷新
+          </Button>
+          {isAdmin && (
+            <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+              <Settings2 size={15} />
+              设置
+            </Button>
+          )}
+        </div>
+        <div className="relative w-56">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索项目名或路径"
+            spellCheck={false}
+            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          />
+        </div>
       </div>
 
       {loadErr && projects.length === 0 && !loading && (
@@ -326,15 +364,20 @@ export default function Java() {
       ) : (
         <Table
           columns={columns}
-          rows={projects}
+          rows={visible}
           rowKey={(p) => p.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">还没有 Java 项目</span>
-              <span className="text-xs text-muted">
-                {isAdmin ? '点击「添加项目」部署你的第一个 jar / war。' : '创建项目需要 admin 角色。'}
-              </span>
-            </span>
+            <EmptyState
+              icon={<Coffee />}
+              title={projects.length === 0 ? '还没有 Java 项目' : '没有匹配的项目'}
+              hint={
+                projects.length === 0
+                  ? isAdmin
+                    ? '点击「添加项目」部署你的第一个 jar / war。'
+                    : '创建项目需要 admin 角色。'
+                  : '换个关键词或筛选条件试试。'
+              }
+            />
           }
         />
       )}
@@ -375,6 +418,7 @@ export default function Java() {
         />
       )}
     </div>
+    </InstallGate>
   )
 }
 

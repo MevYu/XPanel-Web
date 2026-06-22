@@ -7,6 +7,7 @@ import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { Plus, Settings2, Search, GitFork, Trash2 } from 'lucide-react'
 import { uid } from '../lib/uid'
 
@@ -292,7 +293,13 @@ export default function LoadBalancer() {
       )}
 
       {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
+        <p
+          className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+            feedback.kind === 'ok'
+              ? 'border-online/40 bg-online/10 text-online'
+              : 'border-crit/40 bg-crit/10 text-crit'
+          }`}
+        >
           {feedback.text}
         </p>
       )}
@@ -305,16 +312,15 @@ export default function LoadBalancer() {
           rows={visible}
           rowKey={(g) => g.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {groups.length === 0 ? '还没有均衡组' : '没有匹配的均衡组'}
-              </span>
-              <span className="text-xs text-muted">
-                {groups.length === 0
+            <EmptyState
+              icon={<GitFork />}
+              title={groups.length === 0 ? '还没有均衡组' : '没有匹配的均衡组'}
+              hint={
+                groups.length === 0
                   ? '点击「添加负载」把多台后端聚合成一个 upstream。'
-                  : '换个关键词试试。'}
-              </span>
-            </span>
+                  : '换个关键词试试。'
+              }
+            />
           }
         />
       )}

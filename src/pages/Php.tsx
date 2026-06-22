@@ -8,8 +8,10 @@ import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { CodeEditor } from '../components/CodeEditor'
 import { Tabs } from '../components/Tabs'
+import { Table, ActionLink, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
-import { RefreshCw, X } from 'lucide-react'
+import { RefreshCw, X, Boxes } from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -821,8 +823,10 @@ export default function Php() {
     void load()
   }, [load])
 
-  const header = (
-    <div className="flex flex-wrap items-center justify-end gap-2">
+  // aaPanel 工具栏:左侧标题,右侧刷新。
+  const toolbar = (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h3 className="text-sm font-medium text-text">PHP 版本</h3>
       <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
         <RefreshCw size={15} />
         刷新
@@ -830,70 +834,86 @@ export default function Php() {
     </div>
   )
 
-  if (loading) {
-    return (
-      <div className="flex flex-col gap-4">
-        {header}
-        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
-      </div>
-    )
-  }
-
-  if (loadErr && versions.length === 0) {
-    return (
-      <div className="flex flex-col gap-4">
-        {header}
-        <ErrorLine text={loadErr} />
-      </div>
-    )
-  }
-
-  if (versions.length === 0) {
-    return (
-      <div className="flex flex-col gap-4">
-        {header}
-        <div className="flex flex-col items-center gap-3 rounded-(--radius-card) border border-border bg-surface p-12 text-center">
-          <p className="text-sm font-medium text-text">未检测到 PHP</p>
-          <p className="max-w-md text-sm text-muted">
-            系统中没有可管理的 PHP 版本。请前往软件商店安装 PHP 后再回到本页配置。
-          </p>
-          <Button size="sm" variant="ghost" onClick={() => void load()}>
-            重新检测
-          </Button>
-        </div>
-      </div>
-    )
-  }
+  const columns: Column<VersionInfo>[] = [
+    {
+      key: 'version',
+      header: '版本',
+      cell: (v) => (
+        <button
+          type="button"
+          onClick={() => setSelected(v.version)}
+          className="inline-flex items-center gap-2 self-start rounded-sm font-medium text-text outline-none transition hover:text-brand focus-visible:ring-2 focus-visible:ring-brand/60"
+        >
+          <Boxes size={15} className="shrink-0 text-muted" />
+          <span>PHP {v.version}</span>
+        </button>
+      ),
+    },
+    {
+      key: 'fpm',
+      header: 'FPM 状态',
+      width: '120px',
+      cell: (v) => (
+        <Badge status={v.fpm_active ? 'online' : 'neutral'}>{v.fpm_active ? '运行中' : '已停止'}</Badge>
+      ),
+    },
+    {
+      key: 'cli',
+      header: 'CLI 默认',
+      width: '100px',
+      cell: (v) =>
+        v.cli_default ? <Badge status="online">默认</Badge> : <span className="text-xs text-faint">—</span>,
+    },
+    {
+      key: 'banner',
+      header: '横幅',
+      cell: (v) => (
+        <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">{v.banner || '—'}</span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '操作',
+      width: '72px',
+      align: 'right',
+      cell: (v) => (
+        <ActionLink onClick={() => setSelected(v.version)}>管理</ActionLink>
+      ),
+    },
+  ]
 
   return (
     <InstallGate moduleId="php">
     <div className="flex flex-col gap-4">
-      {header}
+      {toolbar}
 
-      <div className="flex flex-wrap items-center gap-2">
-        {versions.map((v) => {
-          const on = selected === v.version
-          return (
-            <button
-              key={v.version}
-              onClick={() => setSelected(v.version)}
-              className={`flex items-center gap-2 rounded-(--radius-sm) border px-3 py-1.5 text-left transition outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
-                on
-                  ? 'border-brand/50 bg-brand-soft'
-                  : 'border-border bg-surface-2 hover:border-border-strong'
-              }`}
-            >
-              <span className="text-sm font-medium text-text">PHP {v.version}</span>
-              <Badge status={v.fpm_active ? 'online' : 'neutral'}>
-                FPM {v.fpm_active ? '运行中' : '已停止'}
-              </Badge>
-              {v.cli_default && <Badge status="online">CLI 默认</Badge>}
-            </button>
-          )
-        })}
-      </div>
+      {loadErr && versions.length === 0 && !loading && (
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
+          </Button>
+        </p>
+      )}
 
-      {cli && (
+      {loading ? (
+        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      ) : (
+        <Table
+          columns={columns}
+          rows={versions}
+          rowKey={(v) => v.version}
+          emptyText={
+            <EmptyState
+              icon={<Boxes />}
+              title="未检测到 PHP"
+              hint="系统中没有可管理的 PHP 版本。请前往软件商店安装 PHP 后再回到本页配置。"
+            />
+          }
+        />
+      )}
+
+      {cli && versions.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-(--radius-sm) border border-border bg-surface-2 px-3 py-2">
           <span className="text-xs font-medium uppercase tracking-wide text-muted">命令行默认</span>
           <span className="truncate font-[family-name:var(--font-mono)] text-xs text-text">
@@ -902,9 +922,9 @@ export default function Php() {
         </div>
       )}
 
-      {selected && <VersionDetail version={selected} canWrite={canWrite} />}
+      {selected && versions.length > 0 && <VersionDetail version={selected} canWrite={canWrite} />}
 
-      {!canWrite && (
+      {!canWrite && versions.length > 0 && (
         <p className="text-xs text-muted">配置、禁用函数与 FPM 参数等写操作需要 admin 角色。</p>
       )}
     </div>
