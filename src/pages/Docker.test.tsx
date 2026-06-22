@@ -75,7 +75,7 @@ describe('Docker registries tab', () => {
     render(<Docker />)
     fireEvent.click(screen.getByRole('button', { name: '仓库' }))
 
-    await screen.findByText('暂无仓库凭证。')
+    await screen.findByText('还没有仓库凭证')
     fireEvent.click(screen.getByRole('button', { name: '添加仓库' }))
 
     fireEvent.change(screen.getByLabelText('名称'), { target: { value: 'hub' } })

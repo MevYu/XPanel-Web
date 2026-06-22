@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/Button'
@@ -8,8 +8,9 @@ import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Tabs } from '../components/Tabs'
+import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
-import { Plus, Globe, Mailbox as MailboxIcon, Forward, Settings2 } from 'lucide-react'
+import { Plus, Search, Globe, Mailbox as MailboxIcon, Forward, Settings2 } from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -68,6 +69,7 @@ export default function Mail() {
   const [busy, setBusy] = useState(false)
 
   const [section, setSection] = useState<Section>('domains')
+  const [query, setQuery] = useState('')
   const [domainModal, setDomainModal] = useState(false)
   const [boxModal, setBoxModal] = useState(false)
   const [aliasModal, setAliasModal] = useState(false)
@@ -265,6 +267,25 @@ export default function Mail() {
     },
   ]
 
+  const q = query.trim().toLowerCase()
+  const visibleDomains = useMemo(
+    () => (q ? domains.filter((d) => d.domain.toLowerCase().includes(q)) : domains),
+    [domains, q],
+  )
+  const visibleMailboxes = useMemo(
+    () => (q ? mailboxes.filter((b) => b.address.toLowerCase().includes(q)) : mailboxes),
+    [mailboxes, q],
+  )
+  const visibleAliases = useMemo(
+    () =>
+      q
+        ? aliases.filter(
+            (a) => a.source.toLowerCase().includes(q) || a.destination.toLowerCase().includes(q),
+          )
+        : aliases,
+    [aliases, q],
+  )
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -291,7 +312,10 @@ export default function Mail() {
           ),
         }))}
         active={section}
-        onChange={setSection}
+        onChange={(s) => {
+          setSection(s)
+          setQuery('')
+        }}
       />
 
       {loadErr && (
@@ -310,28 +334,27 @@ export default function Mail() {
 
       {section === 'domains' && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-muted">
-              {domains.length > 0
-                ? `共 ${domains.length} 个邮件域`
-                : '邮箱账户与别名必须挂在已存在的邮件域下'}
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <Button size="md" disabled={busy} onClick={() => setDomainModal(true)}>
               <Plus size={15} />
               添加域名
             </Button>
+            <SearchBox value={query} placeholder="搜索域名" onChange={setQuery} />
           </div>
           <Table
             columns={domainColumns}
-            rows={domains}
+            rows={visibleDomains}
             rowKey={(d) => d.domain}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <span className="text-sm font-medium text-text">还没有邮件域</span>
-                <span className="text-xs text-muted">
-                  点击「添加域名」录入第一个域,之后才能创建邮箱与别名。
-                </span>
-              </span>
+              <EmptyState
+                icon={<Globe />}
+                title={domains.length === 0 ? '还没有邮件域' : '没有匹配的邮件域'}
+                hint={
+                  domains.length === 0
+                    ? '点击「添加域名」录入第一个域,之后才能创建邮箱与别名。'
+                    : '换个关键词试试。'
+                }
+              />
             }
           />
         </div>
@@ -339,12 +362,7 @@ export default function Mail() {
 
       {section === 'mailboxes' && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-muted">
-              {mailboxes.length > 0
-                ? `共 ${mailboxes.length} 个邮箱`
-                : '邮箱地址的域名部分必须是已存在的邮件域'}
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <Button
               size="md"
               disabled={busy || domains.length === 0}
@@ -354,20 +372,24 @@ export default function Mail() {
               <Plus size={15} />
               添加邮箱
             </Button>
+            <SearchBox value={query} placeholder="搜索邮箱地址" onChange={setQuery} />
           </div>
           <Table
             columns={mailboxColumns}
-            rows={mailboxes}
+            rows={visibleMailboxes}
             rowKey={(b) => b.address}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <span className="text-sm font-medium text-text">还没有邮箱账户</span>
-                <span className="text-xs text-muted">
-                  {domains.length === 0
-                    ? '请先到「邮件域名」添加一个域,再回来创建邮箱。'
-                    : '点击「添加邮箱」创建带口令与配额的邮箱账户。'}
-                </span>
-              </span>
+              <EmptyState
+                icon={<MailboxIcon />}
+                title={mailboxes.length === 0 ? '还没有邮箱账户' : '没有匹配的邮箱'}
+                hint={
+                  mailboxes.length === 0
+                    ? domains.length === 0
+                      ? '请先到「邮件域名」添加一个域,再回来创建邮箱。'
+                      : '点击「添加邮箱」创建带口令与配额的邮箱账户。'
+                    : '换个关键词试试。'
+                }
+              />
             }
           />
         </div>
@@ -375,10 +397,7 @@ export default function Mail() {
 
       {section === 'aliases' && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs text-muted">
-              {aliases.length > 0 ? `共 ${aliases.length} 条别名` : '别名把一个地址的来信转发到另一个地址'}
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <Button
               size="md"
               disabled={busy || domains.length === 0}
@@ -388,20 +407,24 @@ export default function Mail() {
               <Plus size={15} />
               添加别名
             </Button>
+            <SearchBox value={query} placeholder="搜索源或目标地址" onChange={setQuery} />
           </div>
           <Table
             columns={aliasColumns}
-            rows={aliases}
+            rows={visibleAliases}
             rowKey={(a) => `${a.source}->${a.destination}`}
             emptyText={
-              <span className="flex flex-col items-center gap-1 py-6">
-                <span className="text-sm font-medium text-text">还没有别名</span>
-                <span className="text-xs text-muted">
-                  {domains.length === 0
-                    ? '请先到「邮件域名」添加一个域,再回来配置转发。'
-                    : '点击「添加别名」把来信转发到另一个邮箱。'}
-                </span>
-              </span>
+              <EmptyState
+                icon={<Forward />}
+                title={aliases.length === 0 ? '还没有别名' : '没有匹配的别名'}
+                hint={
+                  aliases.length === 0
+                    ? domains.length === 0
+                      ? '请先到「邮件域名」添加一个域,再回来配置转发。'
+                      : '点击「添加别名」把来信转发到另一个邮箱。'
+                    : '换个关键词试试。'
+                }
+              />
             }
           />
         </div>
@@ -486,6 +509,29 @@ export default function Mail() {
       )}
     </div>
     </InstallGate>
+  )
+}
+
+function SearchBox({
+  value,
+  placeholder,
+  onChange,
+}: {
+  value: string
+  placeholder: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <div className="relative w-56">
+      <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        spellCheck={false}
+        className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+      />
+    </div>
   )
 }
 

@@ -10,8 +10,9 @@ import { Spinner } from '../components/Spinner'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Tabs } from '../components/Tabs'
 import { InstallGate } from '../components/InstallGate'
+import { EmptyState } from '../components/EmptyState'
 import { uid } from '../lib/uid'
-import { Container, Layers, GitBranch, Network, HardDrive, KeyRound, Plus, Download, Trash2 } from 'lucide-react'
+import { Container, Layers, GitBranch, Network, HardDrive, KeyRound, Plus, Download, Trash2, Search } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 function errorText(e: unknown): string {
@@ -116,6 +117,7 @@ function Toolbar({
   count,
   onReload,
   busy,
+  search,
   children,
 }: {
   icon: LucideIcon
@@ -123,6 +125,7 @@ function Toolbar({
   count?: number
   onReload: () => void
   busy: boolean
+  search?: { value: string; onChange: (v: string) => void; placeholder: string }
   children?: ReactNode
 }) {
   return (
@@ -134,6 +137,18 @@ function Toolbar({
       </div>
       <div className="flex items-center gap-2">
         {children}
+        {search && (
+          <div className="relative w-56">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              value={search.value}
+              onChange={(e) => search.onChange(e.target.value)}
+              placeholder={search.placeholder}
+              spellCheck={false}
+              className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            />
+          </div>
+        )}
         <Button size="sm" variant="ghost" onClick={onReload} disabled={busy}>刷新</Button>
       </div>
     </div>
@@ -214,6 +229,7 @@ function Containers({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boo
   const [rename, setRename] = useState<{ ref: string; name: string } | null>(null)
   const [resize, setResize] = useState<{ ref: string; name: string } | null>(null)
   const [execBox, setExecBox] = useState<{ ref: string; name: string } | null>(null)
+  const [query, setQuery] = useState('')
 
   const loadStats = useCallback(async () => {
     if (!isOperator) return
@@ -287,6 +303,14 @@ function Containers({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boo
     () => rows.map((row) => ({ ...row, _key: s(row, 'ID') || uid() })),
     [rows],
   )
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return data
+    return data.filter(
+      (row) => `${s(row, 'Names', 'Name')} ${s(row, 'Image')}`.toLowerCase().includes(q),
+    )
+  }, [data, query])
 
   const columns: Column<ContainerView>[] = useMemo(
     () => [
@@ -386,10 +410,28 @@ function Containers({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boo
 
   return (
     <div className="flex flex-col gap-3">
-      <Toolbar icon={Container} title="容器" count={rows.length} onReload={() => void reloadAll()} busy={loading || busy} />
+      <Toolbar
+        icon={Container}
+        title="容器"
+        count={rows.length}
+        onReload={() => void reloadAll()}
+        busy={loading || busy}
+        search={{ value: query, onChange: setQuery, placeholder: '搜索容器名或镜像' }}
+      />
       <Feedback fb={fb} />
       <ListBody loading={loading} error={error}>
-        <Table columns={columns} rows={data} rowKey={(r) => r._key} emptyText="暂无容器。" />
+        <Table
+          columns={columns}
+          rows={filtered}
+          rowKey={(r) => r._key}
+          emptyText={
+            <EmptyState
+              icon={<Container />}
+              title={rows.length === 0 ? '还没有容器' : '没有匹配的容器'}
+              hint={rows.length === 0 ? '拉取镜像后即可创建并启动容器。' : '换个关键词试试。'}
+            />
+          }
+        />
       </ListBody>
       {!isOperator && <p className="text-xs text-muted">容器管理需要 operator 角色;删除与资源限制需要 admin。</p>}
       {modal && <OutputModal title={modal.title} text={modal.text} onClose={() => setModal(null)} />}
@@ -582,6 +624,7 @@ function Images({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolean
   const [modal, setModal] = useState<{ title: string; text: string } | null>(null)
   const [tagTarget, setTagTarget] = useState<{ ref: string } | null>(null)
   const [pulling, setPulling] = useState(false)
+  const [query, setQuery] = useState('')
 
   async function remove(ref: string) {
     if (!window.confirm(`确认删除镜像「${ref}」?`)) return
@@ -639,6 +682,12 @@ function Images({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolean
     [rows],
   )
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return data
+    return data.filter((row) => row._ref.toLowerCase().includes(q))
+  }, [data, query])
+
   const columns: Column<ImageView>[] = useMemo(
     () => [
       {
@@ -679,7 +728,14 @@ function Images({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolean
 
   return (
     <div className="flex flex-col gap-3">
-      <Toolbar icon={Layers} title="镜像" count={rows.length} onReload={() => void reload()} busy={loading || busy}>
+      <Toolbar
+        icon={Layers}
+        title="镜像"
+        count={rows.length}
+        onReload={() => void reload()}
+        busy={loading || busy}
+        search={{ value: query, onChange: setQuery, placeholder: '搜索镜像' }}
+      >
         <Button size="sm" disabled={!isOperator || busy} onClick={() => setPulling(true)}>
           <Download size={14} />
           拉取镜像
@@ -691,7 +747,18 @@ function Images({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolean
       </Toolbar>
       <Feedback fb={fb} />
       <ListBody loading={loading} error={error}>
-        <Table columns={columns} rows={data} rowKey={(r) => r._key} emptyText="暂无镜像。" />
+        <Table
+          columns={columns}
+          rows={filtered}
+          rowKey={(r) => r._key}
+          emptyText={
+            <EmptyState
+              icon={<Layers />}
+              title={rows.length === 0 ? '还没有镜像' : '没有匹配的镜像'}
+              hint={rows.length === 0 ? '点击「拉取镜像」从仓库获取第一个镜像。' : '换个关键词试试。'}
+            />
+          }
+        />
       </ListBody>
       {!isOperator && <p className="text-xs text-muted">拉取/tag 需要 operator 角色;删除与清理需要 admin。</p>}
       {modal && <OutputModal title={modal.title} text={modal.text} onClose={() => setModal(null)} />}
@@ -819,6 +886,7 @@ function Compose({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolea
   const [busy, setBusy] = useState(false)
   const [fb, setFb] = useState<FeedbackState>(null)
   const [modal, setModal] = useState<{ title: string; text: string } | null>(null)
+  const [query, setQuery] = useState('')
 
   async function op(project: string, verb: 'up' | 'restart' | 'down') {
     if (verb === 'down' && !window.confirm(`确认停止并移除编排项目「${project}」?这是危险操作。`)) return
@@ -856,6 +924,12 @@ function Compose({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolea
     [rows],
   )
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return data
+    return data.filter((row) => s(row, 'Name').toLowerCase().includes(q))
+  }, [data, query])
+
   const columns: Column<ComposeView>[] = useMemo(
     () => [
       {
@@ -892,10 +966,28 @@ function Compose({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolea
 
   return (
     <div className="flex flex-col gap-3">
-      <Toolbar icon={GitBranch} title="编排项目" count={rows.length} onReload={() => void reload()} busy={loading || busy} />
+      <Toolbar
+        icon={GitBranch}
+        title="编排项目"
+        count={rows.length}
+        onReload={() => void reload()}
+        busy={loading || busy}
+        search={{ value: query, onChange: setQuery, placeholder: '搜索项目' }}
+      />
       <Feedback fb={fb} />
       <ListBody loading={loading} error={error}>
-        <Table columns={columns} rows={data} rowKey={(r) => r._key} emptyText="暂无编排项目。" />
+        <Table
+          columns={columns}
+          rows={filtered}
+          rowKey={(r) => r._key}
+          emptyText={
+            <EmptyState
+              icon={<GitBranch />}
+              title={rows.length === 0 ? '还没有编排项目' : '没有匹配的项目'}
+              hint={rows.length === 0 ? '在主机上 docker compose up 后即可在此查看与管理。' : '换个关键词试试。'}
+            />
+          }
+        />
       </ListBody>
       {!isOperator && <p className="text-xs text-muted">up/重启 需要 operator 角色;down 需要 admin。</p>}
       {modal && <OutputModal title={modal.title} text={modal.text} onClose={() => setModal(null)} />}
@@ -928,11 +1020,13 @@ function ResourceList({
   isAdmin: boolean
   render: (row: DockerRow) => { ref: string; primary: string; secondary: string }
 }) {
+  const Icon = icon
   const { rows, loading, error, reload } = useDockerList(basePath, isOperator)
   const [busy, setBusy] = useState(false)
   const [fb, setFb] = useState<FeedbackState>(null)
   const [creating, setCreating] = useState(false)
   const [modal, setModal] = useState<{ title: string; text: string } | null>(null)
+  const [query, setQuery] = useState('')
 
   async function remove(ref: string) {
     if (!window.confirm(`确认删除「${ref}」?这是危险操作。`)) return
@@ -967,6 +1061,12 @@ function ResourceList({
     [rows, render],
   )
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return data
+    return data.filter((row) => `${row.primary} ${row.secondary}`.toLowerCase().includes(q))
+  }, [data, query])
+
   const columns: Column<ResourceView>[] = useMemo(
     () => [
       {
@@ -999,7 +1099,14 @@ function ResourceList({
 
   return (
     <div className="flex flex-col gap-3">
-      <Toolbar icon={icon} title={title} count={rows.length} onReload={() => void reload()} busy={loading || busy}>
+      <Toolbar
+        icon={icon}
+        title={title}
+        count={rows.length}
+        onReload={() => void reload()}
+        busy={loading || busy}
+        search={{ value: query, onChange: setQuery, placeholder: `搜索${title}` }}
+      >
         <Button size="sm" disabled={!isOperator || busy} onClick={() => setCreating(true)}>
           <Plus size={14} />
           新建
@@ -1007,7 +1114,18 @@ function ResourceList({
       </Toolbar>
       <Feedback fb={fb} />
       <ListBody loading={loading} error={error}>
-        <Table columns={columns} rows={data} rowKey={(r) => r._key} emptyText={emptyText} />
+        <Table
+          columns={columns}
+          rows={filtered}
+          rowKey={(r) => r._key}
+          emptyText={
+            rows.length === 0 ? (
+              <EmptyState icon={<Icon />} title={`还没有${title}`} hint={emptyText} />
+            ) : (
+              <EmptyState icon={<Icon />} title={`没有匹配的${title}`} hint="换个关键词试试。" />
+            )
+          }
+        />
       </ListBody>
       {!isOperator && <p className="text-xs text-muted">新建需要 operator 角色;删除需要 admin。</p>}
       {creating && (
@@ -1098,6 +1216,7 @@ function Registries({ isAdmin }: { isAdmin: boolean }) {
   const [busy, setBusy] = useState(false)
   const [fb, setFb] = useState<FeedbackState>(null)
   const [adding, setAdding] = useState(false)
+  const [query, setQuery] = useState('')
 
   const load = useCallback(async () => {
     if (!isAdmin) {
@@ -1135,6 +1254,12 @@ function Registries({ isAdmin }: { isAdmin: boolean }) {
       setBusy(false)
     }
   }
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((row) => `${row.name} ${row.server} ${row.username}`.toLowerCase().includes(q))
+  }, [rows, query])
 
   const columns: Column<RegistryRow>[] = useMemo(
     () => [
@@ -1181,7 +1306,14 @@ function Registries({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <Toolbar icon={KeyRound} title="镜像仓库" count={rows.length} onReload={() => void load()} busy={loading || busy}>
+      <Toolbar
+        icon={KeyRound}
+        title="镜像仓库"
+        count={rows.length}
+        onReload={() => void load()}
+        busy={loading || busy}
+        search={{ value: query, onChange: setQuery, placeholder: '搜索仓库' }}
+      >
         <Button size="sm" disabled={busy} onClick={() => setAdding(true)}>
           <Plus size={14} />
           添加仓库
@@ -1189,7 +1321,18 @@ function Registries({ isAdmin }: { isAdmin: boolean }) {
       </Toolbar>
       <Feedback fb={fb} />
       <ListBody loading={loading} error={error}>
-        <Table columns={columns} rows={rows} rowKey={(r) => r.name} emptyText="暂无仓库凭证。" />
+        <Table
+          columns={columns}
+          rows={filtered}
+          rowKey={(r) => r.name}
+          emptyText={
+            <EmptyState
+              icon={<KeyRound />}
+              title={rows.length === 0 ? '还没有仓库凭证' : '没有匹配的仓库'}
+              hint={rows.length === 0 ? '点击「添加仓库」录入私有镜像仓库的登录凭证。' : '换个关键词试试。'}
+            />
+          }
+        />
       </ListBody>
       {adding && (
         <RegistryModal

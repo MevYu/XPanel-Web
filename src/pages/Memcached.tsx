@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
+import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
 import {
   Play,
@@ -22,6 +23,7 @@ import {
   Timer,
   Recycle,
   ArrowDownUp,
+  Info,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -217,6 +219,20 @@ export default function Memcached() {
   return (
     <InstallGate moduleId="memcached">
     <div className="flex flex-col gap-4">
+      {/* aaPanel 顶部信息条:展示 memcached 连接地址,与服务运行状态。 */}
+      {settings && (
+        <div className="flex items-center gap-2 rounded-(--radius-card) border border-border bg-surface-2/60 px-3 py-2 text-sm text-muted">
+          <Info size={15} className="shrink-0 text-brand" />
+          <span>memcached 地址:</span>
+          <span className="font-[family-name:var(--font-mono)] text-xs text-text">{settings.addr}</span>
+          {stats ? (
+            <Badge status="online">已连接</Badge>
+          ) : (
+            <Badge status="neutral">未连接</Badge>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Button size="md" disabled={busy || !isAdmin} onClick={() => void action('start')}>
@@ -254,7 +270,13 @@ export default function Memcached() {
       )}
 
       {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
+        <p
+          className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+            feedback.kind === 'ok'
+              ? 'border-online/40 bg-online/10 text-online'
+              : 'border-crit/40 bg-crit/10 text-crit'
+          }`}
+        >
           {feedback.text}
         </p>
       )}
@@ -272,36 +294,43 @@ export default function Memcached() {
             <Metric icon={Timer} tint="text-amber-400" value={fmtUptime(stats.uptime)} label="运行时长" />
           </div>
 
-          <Card className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <ArrowDownUp size={15} className="text-muted" />
-              <h2 className="text-sm font-medium text-text">命中明细</h2>
+          <div className="rounded-(--radius-card) border border-border bg-surface">
+            <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-xs font-medium uppercase tracking-wide text-muted">
+              <ArrowDownUp size={14} className="text-muted" />
+              命中明细
             </div>
-            <div className="flex flex-wrap gap-x-6 gap-y-1.5 font-[family-name:var(--font-mono)] text-xs text-muted">
-              <span>get_hits {fmtNum(stats.get_hits)}</span>
-              <span>get_misses {fmtNum(stats.get_misses)}</span>
-              <span>cmd_get {fmtNum(stats.cmd_get)}</span>
-              <span>cmd_set {fmtNum(stats.cmd_set)}</span>
-              <span>total_connections {fmtNum(stats.total_connections)}</span>
-              <span>total_items {fmtNum(stats.total_items)}</span>
-            </div>
-          </Card>
+            <dl className="grid gap-x-4 divide-border/60 sm:grid-cols-2 sm:divide-x">
+              {[
+                ['get_hits', fmtNum(stats.get_hits)],
+                ['get_misses', fmtNum(stats.get_misses)],
+                ['cmd_get', fmtNum(stats.cmd_get)],
+                ['cmd_set', fmtNum(stats.cmd_set)],
+                ['total_connections', fmtNum(stats.total_connections)],
+                ['total_items', fmtNum(stats.total_items)],
+              ].map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between gap-3 px-4 py-2">
+                  <dt className="font-[family-name:var(--font-mono)] text-xs text-muted">{k}</dt>
+                  <dd className="truncate font-[family-name:var(--font-mono)] text-sm tabular-nums text-text">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
 
           {slabRows.length > 0 && (
             <div className="flex flex-col gap-2">
-              <h2 className="text-sm font-medium text-text">Slabs</h2>
+              <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Slabs</h2>
               <Table columns={SLAB_COLUMNS} rows={slabRows} rowKey={(s) => s.id} emptyText="暂无 slab" />
             </div>
           )}
         </>
       ) : (
-        <Card className="flex flex-col items-center gap-2 py-10 text-center">
-          <Plug size={28} className="text-muted" />
-          <p className="text-sm font-medium text-text">未连接到 memcached</p>
-          <p className="max-w-md text-xs text-muted">
-            {loadErr || '请确认 memcached 服务正在运行,或在「连接设置」中修正地址,然后点击「刷新」重试。'}
-          </p>
-          <div className="mt-1 flex items-center gap-2">
+        <div className="rounded-(--radius-card) border border-border bg-surface">
+          <EmptyState
+            icon={<Plug />}
+            title="未连接到 memcached"
+            hint={loadErr || '请确认 memcached 服务正在运行,或在「连接设置」中修正地址,然后点击「刷新」重试。'}
+          />
+          <div className="flex items-center justify-center gap-2 pb-10">
             <Button size="sm" variant="ghost" onClick={() => setSettingsOpen(true)}>
               连接设置
             </Button>
@@ -309,7 +338,7 @@ export default function Memcached() {
               重试
             </Button>
           </div>
-        </Card>
+        </div>
       )}
 
       {flushOpen && (
