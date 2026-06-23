@@ -42,21 +42,21 @@ interface GaugeProps {
   label: string
   /** hover/focus 时就地展开的细节内容;无则不展开。 */
   detail?: ReactNode
-  /** 环直径(px),默认 128;紧凑排布传 ~100。 */
+  /** 环直径(px),默认 164(对齐 aaPanel 大号超细环);紧凑排布传 ~100。 */
   size?: number
 }
 
 /** Gauge 圆形状态球:SVG 环按百分比填充 + 阈值染色 + 柔和辉光,hover/focus 放大并显出细节面板。 */
-export function Gauge({ pct, reading, unit, label, detail, size = 128 }: GaugeProps) {
+export function Gauge({ pct, reading, unit, label, detail, size = 164 }: GaugeProps) {
   const [open, setOpen] = useState(false)
   const titleId = useId()
   const level = levelFor(pct)
   const clamped = clampPct(pct)
 
-  // 描边与读数字号随直径缩放,小环也保持比例协调。
+  // 大环描边 7px;小环略增厚保持可见。读数字号随直径缩放。
   const compact = size < 120
-  const stroke = compact ? 8 : 10
-  const readingClass = compact ? 'text-xl' : 'text-3xl'
+  const stroke = compact ? 6 : 7
+  const readingClass = compact ? 'text-xl' : 'text-[2.6rem]'
   const unitClass = compact ? 'text-xs' : 'text-lg'
 
   const r = (size - stroke) / 2
@@ -81,7 +81,7 @@ export function Gauge({ pct, reading, unit, label, detail, size = 128 }: GaugePr
         onBlur={() => setOpen(false)}
         className={[
           'relative flex flex-col items-center rounded-full p-2 outline-none',
-          compact ? 'gap-2' : 'gap-3',
+          compact ? 'gap-2' : 'gap-4',
           'transition-transform duration-(--dur-base) ease-(--ease-out)',
           'motion-safe:group-hover:scale-[1.05] motion-safe:focus-visible:scale-[1.05]',
           'focus-visible:ring-2 focus-visible:ring-brand/60',
@@ -128,7 +128,7 @@ export function Gauge({ pct, reading, unit, label, detail, size = 128 }: GaugePr
           {/* 中心读数 */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span
-              className={`font-[family-name:var(--font-mono)] ${readingClass} font-medium tabular-nums tracking-tight`}
+              className={`font-[family-name:var(--font-mono)] ${readingClass} font-bold tabular-nums tracking-tight`}
             >
               <span className={levelText[level]}>{reading}</span>
               {unit && <span className={`${unitClass} text-muted`}>{unit}</span>}
@@ -144,7 +144,7 @@ export function Gauge({ pct, reading, unit, label, detail, size = 128 }: GaugePr
           id={titleId}
           role="tooltip"
           className={[
-            'pointer-events-none absolute top-full z-20 mt-1 w-60 max-w-[calc(100vw-2rem)]',
+            'pointer-events-none absolute left-1/2 top-full z-20 mt-1 w-80 max-w-[calc(100vw-2rem)] -translate-x-1/2',
             'rounded-(--radius-card) border border-border-strong bg-elevated p-4',
             'shadow-[var(--shadow-elevated),var(--inset-hl)]',
             'origin-top transition-[opacity,transform] duration-(--dur-base) ease-(--ease-out)',
