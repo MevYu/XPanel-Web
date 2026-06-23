@@ -7,7 +7,17 @@ import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Plus, Settings2, RefreshCw, Search, Globe, X } from 'lucide-react'
+import {
+  Plus,
+  Settings2,
+  RefreshCw,
+  Search,
+  Globe,
+  X,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
+import { IconButton } from '../components/IconButton'
 import {
   type Domain,
   type DnsRecord,
@@ -18,6 +28,8 @@ import {
 } from './dns/shared'
 import { RecordModal } from './dns/RecordModal'
 import { DnsSettingsModal } from './dns/DnsSettingsModal'
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 /** DNS:aaPanel 风格 —— 顶部工具栏(域名选择 + 添加/设置)+ 解析记录紧凑表 + 固定尺寸弹窗表单。 */
 export default function Dns() {
@@ -32,6 +44,9 @@ export default function Dns() {
   const [recordsLoading, setRecordsLoading] = useState(false)
   const [recErr, setRecErr] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   const [addDomainOpen, setAddDomainOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -117,6 +132,20 @@ export default function Dns() {
         r.type.toLowerCase().includes(q),
     )
   }, [records, selected, query])
+
+  // 切换域名/搜索/每页条数或行数缩减时,把当前页夹回有效范围,避免停在空页。
+  const total = visible.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  useEffect(() => {
+    setPage(0)
+  }, [selected])
+  const pageRows = useMemo(
+    () => visible.slice(page * pageSize, page * pageSize + pageSize),
+    [visible, page, pageSize],
+  )
 
   const columns: Column<DnsRecord>[] = useMemo(
     () => [
@@ -288,32 +317,73 @@ export default function Dns() {
       ) : recordsLoading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <Table
-          columns={columns}
-          rows={visible}
-          rowKey={(r) => r.id}
-          emptyText={
-            <EmptyState
-              icon={<Globe />}
-              title={
-                domains.length === 0
-                  ? '还没有域名'
-                  : query.trim() && records.length > 0
-                    ? '没有匹配的记录'
-                    : '该域名暂无解析记录'
-              }
-              hint={
-                domains.length === 0
-                  ? '点击「添加域名」开始管理你的 DNS。'
-                  : query.trim() && records.length > 0
-                    ? '换个关键词试试。'
-                    : isAdmin
-                      ? '点击「添加记录」创建第一条解析。'
-                      : '记录的写操作需要 admin 角色。'
-              }
-            />
-          }
-        />
+        <>
+          <Table
+            columns={columns}
+            rows={pageRows}
+            rowKey={(r) => r.id}
+            emptyText={
+              <EmptyState
+                icon={<Globe />}
+                title={
+                  domains.length === 0
+                    ? '还没有域名'
+                    : query.trim() && records.length > 0
+                      ? '没有匹配的记录'
+                      : '该域名暂无解析记录'
+                }
+                hint={
+                  domains.length === 0
+                    ? '点击「添加域名」开始管理你的 DNS。'
+                    : query.trim() && records.length > 0
+                      ? '换个关键词试试。'
+                      : isAdmin
+                        ? '点击「添加记录」创建第一条解析。'
+                        : '记录的写操作需要 admin 角色。'
+                }
+              />
+            }
+          />
+          {total > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+              <span className="tabular-nums">共 {total} 条</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value))
+                  setPage(0)
+                }}
+                aria-label="每页条数"
+                className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} 条/页
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <IconButton
+                  aria-label="上一页"
+                  className="h-8 w-8"
+                  disabled={page === 0}
+                  icon={<ChevronLeft size={16} />}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                />
+                <span className="tabular-nums px-1">
+                  {page + 1} / {pageCount}
+                </span>
+                <IconButton
+                  aria-label="下一页"
+                  className="h-8 w-8"
+                  disabled={page >= pageCount - 1}
+                  icon={<ChevronRight size={16} />}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {!isAdmin && <p className="text-xs text-muted">域名与记录的写操作需要 admin 角色。</p>}

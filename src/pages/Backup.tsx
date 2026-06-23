@@ -5,9 +5,17 @@ import { Card } from '../components/Card'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Tabs } from '../components/Tabs'
+import { IconButton } from '../components/IconButton'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Plus, HardDriveDownload, ListPlus, Cloud } from 'lucide-react'
+import {
+  Plus,
+  HardDriveDownload,
+  ListPlus,
+  Cloud,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 import {
   type Job,
   type Record,
@@ -32,6 +40,8 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'remotes', label: '远程存储' },
 ]
 
+const PAGE_SIZES = [10, 20, 50] as const
+
 /** 备份:aaPanel 风格——Tabs(记录/任务/远程存储)+ 工具栏(新建备份/新建任务/添加远程)+ 紧凑表 + 文字操作。全部需 admin。 */
 export default function Backup() {
   const { role } = useAuth()
@@ -48,6 +58,13 @@ export default function Backup() {
   const [busy, setBusy] = useState(false)
 
   const [modal, setModal] = useState<'run' | 'job' | 'target' | null>(null)
+
+  const [recPageSize, setRecPageSize] = useState<number>(PAGE_SIZES[0])
+  const [recPage, setRecPage] = useState(0)
+  const [jobPageSize, setJobPageSize] = useState<number>(PAGE_SIZES[0])
+  const [jobPage, setJobPage] = useState(0)
+  const [remotePageSize, setRemotePageSize] = useState<number>(PAGE_SIZES[0])
+  const [remotePage, setRemotePage] = useState(0)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -196,6 +213,34 @@ export default function Backup() {
       setBusy(false)
     }
   }
+
+  // 每页条数变化或行数缩减时,把当前页夹回有效范围,避免停在空页。
+  const recPageCount = Math.max(1, Math.ceil(records.length / recPageSize))
+  useEffect(() => {
+    if (recPage > recPageCount - 1) setRecPage(recPageCount - 1)
+  }, [recPage, recPageCount])
+  const recRows = useMemo(
+    () => records.slice(recPage * recPageSize, recPage * recPageSize + recPageSize),
+    [records, recPage, recPageSize],
+  )
+
+  const jobPageCount = Math.max(1, Math.ceil(jobs.length / jobPageSize))
+  useEffect(() => {
+    if (jobPage > jobPageCount - 1) setJobPage(jobPageCount - 1)
+  }, [jobPage, jobPageCount])
+  const jobRows = useMemo(
+    () => jobs.slice(jobPage * jobPageSize, jobPage * jobPageSize + jobPageSize),
+    [jobs, jobPage, jobPageSize],
+  )
+
+  const remotePageCount = Math.max(1, Math.ceil(remotes.length / remotePageSize))
+  useEffect(() => {
+    if (remotePage > remotePageCount - 1) setRemotePage(remotePageCount - 1)
+  }, [remotePage, remotePageCount])
+  const remoteRows = useMemo(
+    () => remotes.slice(remotePage * remotePageSize, remotePage * remotePageSize + remotePageSize),
+    [remotes, remotePage, remotePageSize],
+  )
 
   const jobColumns: Column<Job>[] = useMemo(
     () => [
@@ -468,54 +513,93 @@ export default function Backup() {
         (loading ? (
           loadingTable
         ) : (
-          <Table
-            columns={recordColumns}
-            rows={records}
-            rowKey={(rec) => rec.id}
-            emptyText={
-              <EmptyState
-                icon={<HardDriveDownload />}
-                title="暂无备份记录"
-                hint="点击「新建备份」立即执行一次备份。"
-              />
-            }
-          />
+          <>
+            <Table
+              columns={recordColumns}
+              rows={recRows}
+              rowKey={(rec) => rec.id}
+              emptyText={
+                <EmptyState
+                  icon={<HardDriveDownload />}
+                  title="暂无备份记录"
+                  hint="点击「新建备份」立即执行一次备份。"
+                />
+              }
+            />
+            <Pagination
+              total={records.length}
+              page={recPage}
+              pageCount={recPageCount}
+              pageSize={recPageSize}
+              onPage={setRecPage}
+              onPageSize={(n) => {
+                setRecPageSize(n)
+                setRecPage(0)
+              }}
+            />
+          </>
         ))}
 
       {tab === 'jobs' &&
         (loading ? (
           loadingTable
         ) : (
-          <Table
-            columns={jobColumns}
-            rows={jobs}
-            rowKey={(j) => j.id}
-            emptyText={
-              <EmptyState
-                icon={<ListPlus />}
-                title="还没有备份任务"
-                hint="点击「新建任务」配置定时备份与保留策略。"
-              />
-            }
-          />
+          <>
+            <Table
+              columns={jobColumns}
+              rows={jobRows}
+              rowKey={(j) => j.id}
+              emptyText={
+                <EmptyState
+                  icon={<ListPlus />}
+                  title="还没有备份任务"
+                  hint="点击「新建任务」配置定时备份与保留策略。"
+                />
+              }
+            />
+            <Pagination
+              total={jobs.length}
+              page={jobPage}
+              pageCount={jobPageCount}
+              pageSize={jobPageSize}
+              onPage={setJobPage}
+              onPageSize={(n) => {
+                setJobPageSize(n)
+                setJobPage(0)
+              }}
+            />
+          </>
         ))}
 
       {tab === 'remotes' &&
         (loading ? (
           loadingTable
         ) : (
-          <Table
-            columns={remoteColumns}
-            rows={remotes}
-            rowKey={(r) => r.id}
-            emptyText={
-              <EmptyState
-                icon={<Cloud />}
-                title="还没有远程存储"
-                hint="点击「添加远程」配置 rclone 后端与本地路径。"
-              />
-            }
-          />
+          <>
+            <Table
+              columns={remoteColumns}
+              rows={remoteRows}
+              rowKey={(r) => r.id}
+              emptyText={
+                <EmptyState
+                  icon={<Cloud />}
+                  title="还没有远程存储"
+                  hint="点击「添加远程」配置 rclone 后端与本地路径。"
+                />
+              }
+            />
+            <Pagination
+              total={remotes.length}
+              page={remotePage}
+              pageCount={remotePageCount}
+              pageSize={remotePageSize}
+              onPage={setRemotePage}
+              onPageSize={(n) => {
+                setRemotePageSize(n)
+                setRemotePage(0)
+              }}
+            />
+          </>
         ))}
 
       {tab === 'remotes' && (
@@ -538,6 +622,61 @@ export default function Backup() {
           onChanged={() => void load()}
         />
       )}
+    </div>
+  )
+}
+
+/** Pagination 表格底部分页:总数 + 每页条数 + 上/下页,对齐 aaPanel 列表底栏与 Sites/Database 页风格。 */
+function Pagination({
+  total,
+  page,
+  pageCount,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  total: number
+  page: number
+  pageCount: number
+  pageSize: number
+  onPage: (p: number) => void
+  onPageSize: (n: number) => void
+}) {
+  if (total === 0) return null
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => onPageSize(Number(e.target.value))}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => onPage(Math.max(0, page - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => onPage(Math.min(pageCount - 1, page + 1))}
+        />
+      </div>
     </div>
   )
 }
