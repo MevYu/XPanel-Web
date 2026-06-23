@@ -23,6 +23,26 @@ interface Props {
 
 type Tab = 'net' | 'disk'
 
+type RateLevel = 'ok' | 'warn' | 'crit' | 'idle'
+
+// 速率染色阈值(B/s):快=绿、中=黄、慢=红、闲置=中性(避免空闲全红刺眼)。可调。
+const RATE_FAST = 512 * 1024
+const RATE_MID = 64 * 1024
+
+function rateLevel(bps: number): RateLevel {
+  if (bps >= RATE_FAST) return 'ok'
+  if (bps >= RATE_MID) return 'warn'
+  if (bps > 0) return 'crit'
+  return 'idle'
+}
+
+const rateColor: Record<RateLevel, string> = {
+  ok: 'text-online',
+  warn: 'text-warn',
+  crit: 'text-crit',
+  idle: 'text-muted',
+}
+
 /** TrafficCard aaPanel Traffic 卡:实时上下行/读写折线 + 累计总量,可切流量/磁盘 IO。 */
 export function TrafficCard({ detail, net, history, error }: Props) {
   const [tab, setTab] = useState<Tab>('net')
@@ -47,7 +67,7 @@ export function TrafficCard({ detail, net, history, error }: Props) {
   return (
     <Card className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-text">流量</h3>
+        <h3 className="text-sm font-medium text-text">{isNet ? '流量' : '磁盘 IO'}</h3>
         <Segmented tab={tab} onChange={setTab} />
       </div>
       {error ? (
@@ -61,11 +81,13 @@ export function TrafficCard({ detail, net, history, error }: Props) {
               label={isNet ? '上行' : '写'}
               value={formatRate(isNet ? tx : diskWrite)}
               dot="brand"
+              valueClass={rateColor[rateLevel(isNet ? tx : diskWrite)]}
             />
             <Cell
               label={isNet ? '下行' : '读'}
               value={formatRate(isNet ? rx : diskRead)}
               dot="online"
+              valueClass={rateColor[rateLevel(isNet ? rx : diskRead)]}
             />
             <Cell
               label={isNet ? '累计发送' : '累计写'}
@@ -128,7 +150,17 @@ function SegButton({
   )
 }
 
-function Cell({ label, value, dot }: { label: string; value: string; dot?: 'brand' | 'online' }) {
+function Cell({
+  label,
+  value,
+  dot,
+  valueClass = 'text-text',
+}: {
+  label: string
+  value: string
+  dot?: 'brand' | 'online'
+  valueClass?: string
+}) {
   const dotColor = dot === 'brand' ? 'bg-brand' : dot === 'online' ? 'bg-online' : ''
   return (
     <div className="flex flex-col gap-1.5">
@@ -136,7 +168,9 @@ function Cell({ label, value, dot }: { label: string; value: string; dot?: 'bran
         {dot && <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} aria-hidden />}
         {label}
       </span>
-      <span className="font-[family-name:var(--font-mono)] text-lg font-medium leading-none tabular-nums text-text">
+      <span
+        className={`font-[family-name:var(--font-mono)] text-lg font-medium leading-none tabular-nums ${valueClass}`}
+      >
         {value}
       </span>
     </div>

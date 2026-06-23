@@ -38,6 +38,15 @@ export interface DetailMetrics {
   boot_time: number
 }
 
+// 主机静态信息(变化极慢,Dashboard 启动拉一次)。cpu_* 字段为新增,旧后端可能不返回。
+export interface SysInfo {
+  hostname: string
+  panel_version: string
+  cpu_model?: string
+  cpu_physical_cores?: number
+  cpu_logical_cores?: number
+}
+
 export interface DiskPartition {
   device: string
   mountpoint: string

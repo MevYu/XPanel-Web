@@ -33,8 +33,8 @@ const DETAIL: DetailMetrics = {
 
 describe('SysStatusCard', () => {
   it('renders the three status rings with readings and labels', () => {
-    render(<SysStatusCard m={M} detail={DETAIL} />)
-    expect(screen.getByText('负载')).toBeInTheDocument()
+    render(<SysStatusCard m={M} detail={DETAIL} sysinfo={null} />)
+    expect(screen.getAllByText('负载').length).toBeGreaterThan(0)
     expect(screen.getByText('cpu')).toBeInTheDocument()
     expect(screen.getByText('内存')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /负载 2.00/ })).toBeInTheDocument()
@@ -43,7 +43,7 @@ describe('SysStatusCard', () => {
   })
 
   it('shows aaPanel-style subtitles under each ring', () => {
-    render(<SysStatusCard m={M} detail={DETAIL} />)
+    render(<SysStatusCard m={M} detail={DETAIL} sysinfo={null} />)
     // 负载比 0.5 < 0.7 → 平稳
     expect(screen.getByText('运行平稳')).toBeInTheDocument()
     expect(screen.getByText('2.00 / 1.50 / 1.00')).toBeInTheDocument()
@@ -51,7 +51,7 @@ describe('SysStatusCard', () => {
   })
 
   it('reveals CPU per-core detail on hover', () => {
-    render(<SysStatusCard m={M} detail={DETAIL} />)
+    render(<SysStatusCard m={M} detail={DETAIL} sysinfo={null} />)
     const cpuButton = screen.getByRole('button', { name: /cpu 42.5%/ })
     const group = cpuButton.closest('.group') as HTMLElement
     const tip = within(group).getByRole('tooltip', { hidden: true })
@@ -63,7 +63,7 @@ describe('SysStatusCard', () => {
   })
 
   it('renders without detail panels when detail is null', () => {
-    render(<SysStatusCard m={M} detail={null} />)
+    render(<SysStatusCard m={M} detail={null} sysinfo={null} />)
     expect(screen.getByText('0.00')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /cpu 42.5%/ })).toBeInTheDocument()
   })

@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react'
 import { Card } from '../../components/Card'
 import { formatBytes } from '../../lib/format'
-import type { Metrics, DetailMetrics } from '../../api/types'
+import type { Metrics, DetailMetrics, SysInfo } from '../../api/types'
 import { Gauge, GaugeDetailRow, MiniBar, clampPct, levelFor } from './Gauge'
 
 const pct = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0)
@@ -18,7 +19,15 @@ function loadText(load1: number, cores: number): string {
 }
 
 /** SysStatusCard aaPanel Sys Status 卡:负载 / CPU / 内存三环,环下含均值/核数/用量副标。 */
-export function SysStatusCard({ m, detail }: { m: Metrics; detail: DetailMetrics | null }) {
+export function SysStatusCard({
+  m,
+  detail,
+  sysinfo,
+}: {
+  m: Metrics
+  detail: DetailMetrics | null
+  sysinfo: SysInfo | null
+}) {
   const cores = detail?.cpu_per_core.length ?? 0
   const load1 = detail?.load.load1 ?? 0
   const loadPct = cores > 0 ? (load1 / cores) * 100 : 0
@@ -35,7 +44,7 @@ export function SysStatusCard({ m, detail }: { m: Metrics; detail: DetailMetrics
               pct={loadPct}
               reading={load1.toFixed(2)}
               label="负载"
-              detail={detail && <LoadDetail detail={detail} cores={cores} />}
+              detail={detail && <LoadDetail detail={detail} cores={cores} load1={load1} />}
             />
           }
           primary={loadText(load1, cores)}
@@ -53,7 +62,7 @@ export function SysStatusCard({ m, detail }: { m: Metrics; detail: DetailMetrics
               reading={m.cpu_percent.toFixed(1)}
               unit="%"
               label="cpu"
-              detail={detail && <CpuDetail detail={detail} />}
+              detail={detail && <CpuDetail detail={detail} sysinfo={sysinfo} cpuPct={m.cpu_percent} />}
             />
           }
           primary="CPU 占用"
@@ -67,7 +76,7 @@ export function SysStatusCard({ m, detail }: { m: Metrics; detail: DetailMetrics
               reading={memPct.toFixed(0)}
               unit="%"
               label="内存"
-              detail={detail && <MemDetail m={m} detail={detail} />}
+              detail={detail && <MemDetail m={m} detail={detail} memPct={memPct} />}
             />
           }
           primary="内存占用"
@@ -99,11 +108,43 @@ function RingCell({
   )
 }
 
-function LoadDetail({ detail, cores }: { detail: DetailMetrics; cores: number }) {
-  const { load1, load5, load15 } = detail.load
+// DetailHeader aaPanel 浮层顶部强调标题行:资源名 + 当前占用大字 + 分隔线。
+function DetailHeader({ title, reading }: { title: string; reading: string }) {
+  return (
+    <div className="-mx-4 -mt-4 mb-3 border-b border-border px-4 pb-3 pt-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm font-medium text-text">{title}</span>
+        <span className="font-[family-name:var(--font-mono)] text-base font-bold tabular-nums text-text">
+          {reading}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// DetailInfoRow 浮层信息行:无标签的整行文本(CPU 型号、核数说明)。
+function DetailInfoRow({ children }: { children: ReactNode }) {
+  return <p className="text-xs leading-snug text-muted">{children}</p>
+}
+
+function LoadDetail({
+  detail,
+  cores,
+  load1,
+}: {
+  detail: DetailMetrics
+  cores: number
+  load1: number
+}) {
+  const { load5, load15 } = detail.load
   return (
     <div className="flex flex-col gap-2">
-      <GaugeDetailRow label="1 分钟" value={load1.toFixed(2)} tone={levelFor((load1 / cores) * 100)} />
+      <DetailHeader title="负载" reading={load1.toFixed(2)} />
+      <GaugeDetailRow
+        label="1 分钟"
+        value={load1.toFixed(2)}
+        tone={cores > 0 ? levelFor((load1 / cores) * 100) : undefined}
+      />
       <GaugeDetailRow label="5 分钟" value={load5.toFixed(2)} />
       <GaugeDetailRow label="15 分钟" value={load15.toFixed(2)} />
       <div className="my-1 h-px bg-border" aria-hidden />
@@ -112,11 +153,29 @@ function LoadDetail({ detail, cores }: { detail: DetailMetrics; cores: number })
   )
 }
 
-function CpuDetail({ detail }: { detail: DetailMetrics }) {
+function CpuDetail({
+  detail,
+  sysinfo,
+  cpuPct,
+}: {
+  detail: DetailMetrics
+  sysinfo: SysInfo | null
+  cpuPct: number
+}) {
   const cores = detail.cpu_per_core
+  const physical = sysinfo?.cpu_physical_cores
+  const logical = sysinfo?.cpu_logical_cores
   return (
     <div className="flex flex-col gap-2.5">
-      <GaugeDetailRow label="核数" value={`${cores.length}`} />
+      <DetailHeader title="CPU 占用" reading={`${cpuPct.toFixed(1)}%`} />
+      {sysinfo?.cpu_model && sysinfo.cpu_model !== 'Undefined' && (
+        <DetailInfoRow>{sysinfo.cpu_model}</DetailInfoRow>
+      )}
+      {physical != null && logical != null && (
+        <DetailInfoRow>
+          {`${cores.length} 核(物理 ${physical} / 逻辑 ${logical}）`}
+        </DetailInfoRow>
+      )}
       <div className="my-0.5 h-px bg-border" aria-hidden />
       <div className="flex max-h-44 flex-col gap-1.5 overflow-y-auto pr-1">
         {cores.map((p, i) => (
@@ -135,11 +194,20 @@ function CpuDetail({ detail }: { detail: DetailMetrics }) {
   )
 }
 
-function MemDetail({ m, detail }: { m: Metrics; detail: DetailMetrics }) {
+function MemDetail({
+  m,
+  detail,
+  memPct,
+}: {
+  m: Metrics
+  detail: DetailMetrics
+  memPct: number
+}) {
   const mem = detail.memory
   const swapPct = pct(mem.swap_used, mem.swap_total)
   return (
     <div className="flex flex-col gap-2">
+      <DetailHeader title="内存占用" reading={`${memPct.toFixed(0)}%`} />
       <GaugeDetailRow label="已用" value={formatBytes(m.mem_used)} />
       <GaugeDetailRow label="总量" value={formatBytes(m.mem_total)} />
       <GaugeDetailRow label="可用" value={formatBytes(mem.available)} />

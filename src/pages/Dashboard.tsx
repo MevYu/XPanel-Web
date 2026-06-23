@@ -5,7 +5,7 @@ import { Card } from '../components/Card'
 import { Spinner } from '../components/Spinner'
 import { Badge } from '../components/Badge'
 import { formatDuration } from '../lib/format'
-import type { Metrics, DetailMetrics } from '../api/types'
+import type { Metrics, DetailMetrics, SysInfo } from '../api/types'
 import { OverviewStats } from './dashboard/OverviewStats'
 import { ServicesCard } from './dashboard/ServicesCard'
 import { SysStatusCard } from './dashboard/SysStatusCard'
@@ -88,8 +88,14 @@ export default function Dashboard() {
   const detail = usePoll(fetchDetail, POLL_MS)
   const [net, setNet] = useState<NetRate[]>([])
   const [history, setHistory] = useState<TrafficHistory>({ net: [], disk: [] })
+  // 主机静态信息变化极慢,启动拉一次供 TopBar 标题与 CPU 浮层用。
+  const [sysinfo, setSysinfo] = useState<SysInfo | null>(null)
   // 上一次 detail 采样(含时间戳),供差分算网络/磁盘速率。
   const prevDetail = useRef<{ t: number; detail: DetailMetrics } | null>(null)
+
+  useEffect(() => {
+    apiFetch<SysInfo>('/api/m/dashboard/sysinfo').then(setSysinfo).catch(() => {})
+  }, [])
 
   useEffect(() => {
     const d = detail.data
@@ -130,11 +136,11 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col gap-5">
-      <TopBar uptimeSec={detail.data?.uptime_sec ?? null} />
+      <TopBar sysinfo={sysinfo} uptimeSec={detail.data?.uptime_sec ?? null} />
 
       {/* aaPanel 首页第一行:系统状态(三环) + 磁盘(分区列表) */}
       <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
-        <SysStatusCard m={m} detail={detail.data} />
+        <SysStatusCard m={m} detail={detail.data} sysinfo={sysinfo} />
         <DiskCard m={m} />
       </div>
 
@@ -151,13 +157,8 @@ export default function Dashboard() {
 }
 
 // TopBar aaPanel 顶部行:主机名 + 版本徽标 + 运行时长 + 实时刷新指示。
-function TopBar({ uptimeSec }: { uptimeSec: number | null }) {
-  const [info, setInfo] = useState<{ hostname: string; panel_version: string } | null>(null)
-  useEffect(() => {
-    apiFetch<{ hostname: string; panel_version: string }>('/api/m/dashboard/sysinfo')
-      .then(setInfo)
-      .catch(() => {})
-  }, [])
+function TopBar({ sysinfo, uptimeSec }: { sysinfo: SysInfo | null; uptimeSec: number | null }) {
+  const info = sysinfo
   return (
     <header className="flex flex-wrap items-center gap-3">
       <h1 className="font-[family-name:var(--font-display)] text-lg font-semibold text-text">
