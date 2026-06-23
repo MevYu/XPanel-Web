@@ -58,8 +58,8 @@ describe('SysStatusCard', () => {
     expect(tip).toHaveAttribute('aria-hidden', 'true')
     fireEvent.mouseEnter(group)
     expect(tip).toHaveAttribute('aria-hidden', 'false')
-    expect(within(tip).getByText('核0')).toBeInTheDocument()
-    expect(within(tip).getByText('核3')).toBeInTheDocument()
+    expect(within(tip).getByText('CPU 占用')).toBeInTheDocument()
+    expect(within(tip).getByText('90%')).toBeInTheDocument()
   })
 
   it('renders without detail panels when detail is null', () => {

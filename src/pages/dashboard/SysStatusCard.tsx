@@ -6,8 +6,8 @@ import { Gauge, GaugeDetailRow, MiniBar, clampPct, levelFor } from './Gauge'
 
 const pct = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0)
 
-// 大号超细线环,对齐 aaPanel Sys Status 三环形态(直径 ~164、描边 4)。
-const RING = 164
+// 对齐 aaPanel Sys Status 三环形态(直径 ~130、超细描边)。
+const RING = 132
 
 // 负载相对核数 <0.7 视为平稳,对应 aaPanel "Smooth operation"。
 function loadText(load1: number, cores: number): string {
@@ -177,11 +177,11 @@ function CpuDetail({
         </DetailInfoRow>
       )}
       <div className="my-0.5 h-px bg-border" aria-hidden />
-      <div className="flex max-h-44 flex-col gap-1.5 overflow-y-auto pr-1">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
         {cores.map((p, i) => (
           <div key={i} className="flex items-center gap-2">
-            <span className="w-9 shrink-0 font-[family-name:var(--font-mono)] text-[0.7rem] tabular-nums text-muted">
-              核{i}
+            <span className="w-8 shrink-0 font-[family-name:var(--font-mono)] text-[0.7rem] tabular-nums text-muted">
+              {i}
             </span>
             <MiniBar pct={p} />
             <span className="w-8 shrink-0 text-right font-[family-name:var(--font-mono)] text-[0.7rem] tabular-nums text-muted">

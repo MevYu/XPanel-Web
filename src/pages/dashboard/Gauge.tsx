@@ -144,7 +144,7 @@ export function Gauge({ pct, reading, unit, label, detail, size = 164 }: GaugePr
           id={titleId}
           role="tooltip"
           className={[
-            'pointer-events-none absolute top-full z-20 mt-1 w-60 max-w-[calc(100vw-2rem)]',
+            'pointer-events-none absolute left-1/2 top-full z-20 mt-1 w-80 max-w-[calc(100vw-2rem)] -translate-x-1/2',
             'rounded-(--radius-card) border border-border-strong bg-elevated p-4',
             'shadow-[var(--shadow-elevated),var(--inset-hl)]',
             'origin-top transition-[opacity,transform] duration-(--dur-base) ease-(--ease-out)',

@@ -7,7 +7,7 @@ import { Badge } from '../components/Badge'
 import { formatDuration } from '../lib/format'
 import type { Metrics, DetailMetrics, SysInfo } from '../api/types'
 import { OverviewStats } from './dashboard/OverviewStats'
-import { ServicesCard } from './dashboard/ServicesCard'
+import { SoftwareCard } from './dashboard/SoftwareCard'
 import { SysStatusCard } from './dashboard/SysStatusCard'
 import { DiskCard } from './dashboard/DiskCard'
 import { TrafficCard } from './dashboard/TrafficCard'
@@ -147,9 +147,9 @@ export default function Dashboard() {
       {/* aaPanel 首页:概览计数小卡一排 */}
       <OverviewStats />
 
-      {/* aaPanel 首页:服务状态(软件) + 流量 */}
+      {/* aaPanel 首页:软件(已启用模块入口宫格) + 流量 */}
       <div className="grid gap-5 lg:grid-cols-2">
-        <ServicesCard />
+        <SoftwareCard />
         <TrafficCard detail={detail.data} net={net} history={history} error={!!detail.error} />
       </div>
     </div>
