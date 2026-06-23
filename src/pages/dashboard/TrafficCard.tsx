@@ -23,6 +23,8 @@ interface Props {
   detail: DetailMetrics | null
   net: NetRate[]
   history: TrafficHistory
+  // 全机磁盘 TPS(每秒读+写 IO 次数),磁盘 IO tab 显示。
+  tps: number
   error: boolean
 }
 
@@ -35,7 +37,7 @@ const ALL = ''
 export const isRealDisk = (name: string) => /^(nvme|sd|vd|xvd|dm-)/.test(name)
 
 /** TrafficCard aaPanel Traffic 卡:实时上下行/读写折线 + 累计总量,可切流量/磁盘 IO、选具体设备。 */
-export function TrafficCard({ detail, net, history, error }: Props) {
+export function TrafficCard({ detail, net, history, tps, error }: Props) {
   const [tab, setTab] = useState<Tab>('net')
   // 选中设备名;切 tab 时复位为「全部」。
   const [device, setDevice] = useState<string>(ALL)
@@ -80,7 +82,7 @@ export function TrafficCard({ detail, net, history, error }: Props) {
       ) : !detail ? (
         <p className="text-sm text-muted">暂无数据。</p>
       ) : (
-        <Body detail={detail} net={net} history={history} tab={tab} device={device} />
+        <Body detail={detail} net={net} history={history} tps={tps} tab={tab} device={device} />
       )}
     </Card>
   )
@@ -90,12 +92,14 @@ function Body({
   detail,
   net,
   history,
+  tps,
   tab,
   device,
 }: {
   detail: DetailMetrics
   net: NetRate[]
   history: TrafficHistory
+  tps: number
   tab: Tab
   device: string
 }) {
@@ -137,10 +141,21 @@ function Body({
   return (
     <>
       <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
-        <Cell label={isNet ? '上行' : '写'} value={formatRate(rateA)} dot="brand" />
-        <Cell label={isNet ? '下行' : '读'} value={formatRate(rateB)} dot="online" />
-        <Cell label={isNet ? '累计发送' : '累计写'} value={formatBytes(totalA)} />
-        <Cell label={isNet ? '累计接收' : '累计读'} value={formatBytes(totalB)} />
+        {isNet ? (
+          <>
+            <Cell label="上行" value={formatRate(rateA)} dot="brand" />
+            <Cell label="下行" value={formatRate(rateB)} dot="online" />
+            <Cell label="累计发送" value={formatBytes(totalA)} />
+            <Cell label="累计接收" value={formatBytes(totalB)} />
+          </>
+        ) : (
+          <>
+            <Cell label="写" value={formatRate(rateA)} dot="brand" />
+            <Cell label="读" value={formatRate(rateB)} dot="online" />
+            <Cell label="TPS" value={Math.round(tps).toLocaleString()} />
+            <Cell label="IO Wait" value={`${(detail.cpu_iowait_percent ?? 0).toFixed(1)}%`} />
+          </>
+        )}
       </div>
       <div className="h-56">
         <Suspense

@@ -54,11 +54,13 @@ function diffNet(
   })
 }
 
-// 每磁盘设备的 read/write 字节速率(B/s),由相邻两次累计计数差分得出。
+// 每磁盘设备的 read/write 字节速率(B/s)与 read/write IO 次数速率(ops/s),由相邻两次累计计数差分得出。
 export interface DiskRate {
   name: string
   read: number
   write: number
+  readOps: number
+  writeOps: number
 }
 
 // diffDisk 差分每磁盘设备 read/write 速率(B/s);无前次或 Δt<=0 返回空。
@@ -81,6 +83,8 @@ function diffDisk(
         name: d.name,
         read: p ? Math.max(0, d.read_bytes - p.read_bytes) / dt : 0,
         write: p ? Math.max(0, d.write_bytes - p.write_bytes) / dt : 0,
+        readOps: p ? Math.max(0, d.read_count - p.read_count) / dt : 0,
+        writeOps: p ? Math.max(0, d.write_count - p.write_count) / dt : 0,
       }
     })
 }
@@ -110,6 +114,8 @@ export default function Dashboard() {
   const { data, error, loading } = usePoll(fetchMetrics, POLL_MS)
   const detail = usePoll(fetchDetail, POLL_MS)
   const [net, setNet] = useState<NetRate[]>([])
+  // 全机磁盘 TPS(每秒读+写 IO 次数之和),由 diffDisk 各设备 ops 速率聚合。
+  const [tps, setTps] = useState(0)
   const [history, setHistory] = useState<TrafficHistory>({
     net: [],
     disk: [],
@@ -138,6 +144,7 @@ export default function Dashboard() {
       const diskRates = diffDisk(prevDetail.current, d, now)
       const writeSum = diskRates.reduce((s, dr) => s + dr.write, 0)
       const readSum = diskRates.reduce((s, dr) => s + dr.read, 0)
+      setTps(diskRates.reduce((s, dr) => s + dr.readOps + dr.writeOps, 0))
       setHistory((h) => ({
         net: pushWindow(h.net, { t: now, a: tx, b: rx }),
         disk: pushWindow(h.disk, { t: now, a: writeSum, b: readSum }),
@@ -188,7 +195,7 @@ export default function Dashboard() {
       {/* aaPanel 首页:软件(已启用模块入口宫格) + 流量 */}
       <div className="grid gap-5 lg:grid-cols-2">
         <SoftwareCard />
-        <TrafficCard detail={detail.data} net={net} history={history} error={!!detail.error} />
+        <TrafficCard detail={detail.data} net={net} history={history} tps={tps} error={!!detail.error} />
       </div>
     </div>
   )
