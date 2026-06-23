@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Modal } from '../components/Modal'
@@ -8,9 +9,24 @@ import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Badge } from '../components/Badge'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { IconButton } from '../components/IconButton'
 import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
-import { Plus, Settings2, RefreshCw, Boxes } from 'lucide-react'
+import {
+  Plus,
+  Settings2,
+  RefreshCw,
+  Boxes,
+  FilePenLine,
+  FileCode2,
+  Globe,
+  Trash2,
+  MoreVertical,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -529,6 +545,10 @@ export default function Supervisor() {
   const [configProg, setConfigProg] = useState<Program | null>(null)
   const [proxyProg, setProxyProg] = useState<Program | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [menuId, setMenuId] = useState<number | null>(null)
+
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   // refreshStates 拉取每个程序的运行态用于徽章;list 端点不带运行态,这是后端薄处,失败逐个回退 unknown。
   const refreshStates = useCallback(async (list: Program[]) => {
@@ -561,6 +581,17 @@ export default function Supervisor() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // 行数缩减(如删除程序)时把当前页夹回有效范围,避免停在空页。
+  const total = programs.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => programs.slice(page * pageSize, page * pageSize + pageSize),
+    [programs, page, pageSize],
+  )
 
   async function action(p: Program, verb: 'start' | 'stop' | 'restart') {
     if (verb === 'stop' && !window.confirm(`确认停止守护程序「${p.name}」?`)) return
@@ -709,54 +740,57 @@ export default function Supervisor() {
       {
         key: 'actions',
         header: '操作',
-        width: '296px',
+        width: '168px',
         align: 'right',
+        // 主操作(日志/重启)走文字链,低频管理项收进 ⋮ 菜单——对齐 aaPanel 操作列密度。
         cell: (p) => (
           <ActionLinks>
             <ActionLink onClick={() => void show(p, 'logs')}>日志</ActionLink>
             <ActionLink disabled={!isOperator || busy} onClick={() => void action(p, 'restart')}>
               重启
             </ActionLink>
-            <ActionLink
-              disabled={!isAdmin || busy}
-              aria-label="编辑程序"
-              title={isAdmin ? '编辑程序' : '需要 admin 角色'}
-              onClick={() => setEditing(p)}
+            <RowMenu
+              open={menuId === p.id}
+              onToggle={() => setMenuId((id) => (id === p.id ? null : p.id))}
+              onClose={() => setMenuId(null)}
             >
-              编辑
-            </ActionLink>
-            <ActionLink
-              disabled={!isAdmin || busy}
-              aria-label="编辑配置文件"
-              title={isAdmin ? '编辑配置文件' : '需要 admin 角色'}
-              onClick={() => setConfigProg(p)}
-            >
-              配置
-            </ActionLink>
-            <ActionLink
-              disabled={!isOperator || busy}
-              aria-label="反向代理"
-              title={isOperator ? '建反向代理(网站模块)' : '需要 operator 角色'}
-              onClick={() => setProxyProg(p)}
-            >
-              代理
-            </ActionLink>
-            <ActionLink
-              danger
-              disabled={!isAdmin || busy}
-              aria-label="删除程序"
-              title={isAdmin ? '删除程序' : '需要 admin 角色'}
-              onClick={() => void remove(p)}
-            >
-              删除
-            </ActionLink>
+              <MenuItem
+                disabled={!isAdmin || busy}
+                title={isAdmin ? '编辑程序' : '需要 admin 角色'}
+                onClick={() => setEditing(p)}
+              >
+                <FilePenLine size={14} /> 编辑
+              </MenuItem>
+              <MenuItem
+                disabled={!isAdmin || busy}
+                title={isAdmin ? '编辑配置文件' : '需要 admin 角色'}
+                onClick={() => setConfigProg(p)}
+              >
+                <FileCode2 size={14} /> 配置
+              </MenuItem>
+              <MenuItem
+                disabled={!isOperator || busy}
+                title={isOperator ? '建反向代理(网站模块)' : '需要 operator 角色'}
+                onClick={() => setProxyProg(p)}
+              >
+                <Globe size={14} /> 代理
+              </MenuItem>
+              <MenuItem
+                danger
+                disabled={!isAdmin || busy}
+                title={isAdmin ? '删除程序' : '需要 admin 角色'}
+                onClick={() => void remove(p)}
+              >
+                <Trash2 size={14} /> 删除
+              </MenuItem>
+            </RowMenu>
           </ActionLinks>
         ),
       },
     ],
     // action/remove/show 闭包随 busy/role/states/programs 重算即可,逻辑稳定无需列出。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isOperator, isAdmin, busy, states, programs],
+    [isOperator, isAdmin, busy, states, programs, menuId],
   )
 
   return (
@@ -803,18 +837,59 @@ export default function Supervisor() {
       {loading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <Table
-          columns={columns}
-          rows={programs}
-          rowKey={(p) => p.id}
-          emptyText={
-            <EmptyState
-              icon={<Boxes />}
-              title="还没有守护程序"
-              hint="点击「添加程序」托管你的第一个常驻进程。"
-            />
-          }
-        />
+        <>
+          <Table
+            columns={columns}
+            rows={pageRows}
+            rowKey={(p) => p.id}
+            emptyText={
+              <EmptyState
+                icon={<Boxes />}
+                title="还没有守护程序"
+                hint="点击「添加程序」托管你的第一个常驻进程。"
+              />
+            }
+          />
+          {total > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+              <span className="tabular-nums">共 {total} 条</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value))
+                  setPage(0)
+                }}
+                aria-label="每页条数"
+                className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} 条/页
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <IconButton
+                  aria-label="上一页"
+                  className="h-8 w-8"
+                  disabled={page === 0}
+                  icon={<ChevronLeft size={16} />}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                />
+                <span className="tabular-nums px-1">
+                  {page + 1} / {pageCount}
+                </span>
+                <IconButton
+                  aria-label="下一页"
+                  className="h-8 w-8"
+                  disabled={page >= pageCount - 1}
+                  icon={<ChevronRight size={16} />}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {!isOperator && (
@@ -839,5 +914,98 @@ export default function Supervisor() {
       {modal && <OutputModal title={modal.title} text={modal.text} onClose={() => setModal(null)} />}
     </div>
     </InstallGate>
+  )
+}
+
+/**
+ * RowMenu 行内「更多」下拉:⋮ 触发,菜单用 fixed 定位脱离表格 overflow 裁剪;
+ * 点击外部或 Escape 关闭。受控 open,父层用 menuId 保证同时只开一个。
+ */
+function RowMenu({
+  open,
+  onToggle,
+  onClose,
+  children,
+}: {
+  open: boolean
+  onToggle: () => void
+  onClose: () => void
+  children: ReactNode
+}) {
+  const wrapRef = useRef<HTMLSpanElement>(null)
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
+
+  function handleToggle(e: React.MouseEvent<HTMLButtonElement>) {
+    const r = e.currentTarget.getBoundingClientRect()
+    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right })
+    onToggle()
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
+  return (
+    <span ref={wrapRef} className="inline-flex">
+      <IconButton
+        aria-label="更多操作"
+        title="更多操作"
+        className="h-7 w-7"
+        icon={<MoreVertical size={16} />}
+        onClick={handleToggle}
+      />
+      {open && pos && (
+        <div
+          role="menu"
+          style={{ top: pos.top, right: pos.right }}
+          className="fixed z-50 min-w-32 overflow-hidden rounded-(--radius-sm) border border-border bg-surface py-1 shadow-lg"
+          onClick={onClose}
+        >
+          {children}
+        </div>
+      )}
+    </span>
+  )
+}
+
+/** MenuItem RowMenu 内的一行操作项:图标 + 文案,danger 走危险色,disabled 不可点。 */
+function MenuItem({
+  onClick,
+  children,
+  danger,
+  disabled,
+  title,
+}: {
+  onClick: () => void
+  children: ReactNode
+  danger?: boolean
+  disabled?: boolean
+  title?: string
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] outline-none transition disabled:cursor-not-allowed disabled:opacity-40 ${
+        danger ? 'text-muted hover:bg-crit-soft hover:text-crit' : 'text-text hover:bg-surface-2'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
