@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/Button'
-import { Segmented } from '../components/Segmented'
+import { Tabs } from '../components/Tabs'
+import { IconButton } from '../components/IconButton'
 import { EmptyState } from '../components/EmptyState'
 import { Badge } from '../components/Badge'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
@@ -14,18 +15,32 @@ import { SiteDrawer } from './sites/SiteDrawer'
 import { CreateSiteModal } from './sites/CreateSiteModal'
 import { SettingsModal } from './sites/SettingsModal'
 
-type Filter = 'all' | 'static' | 'php' | 'proxy'
+type Filter = 'all' | 'php' | 'static' | 'proxy'
 
-const FILTERS: { key: Filter; label: string }[] = [
+// 顶部页级 tab,对齐 aaPanel「PHP项目 / 静态 / 反向代理」分段:按站点类型切换列表。
+const TABS: { key: Filter; label: string }[] = [
   { key: 'all', label: '全部' },
-  { key: 'static', label: '静态' },
-  { key: 'php', label: 'PHP' },
+  { key: 'php', label: 'PHP 项目' },
+  { key: 'static', label: '静态项目' },
   { key: 'proxy', label: '反向代理' },
 ]
 
 const kindIcon: Record<string, LucideIcon> = { static: Globe, php: Code2, proxy: Boxes }
 
-/** Sites 网站管理:紧凑数据表 + 工具栏(左上新建,右上搜索/筛选)+ 左竖 tab 设置弹窗。 */
+/** sslExpiryCell 渲染证书到期:无证书 —;否则按剩余天数着色(<15 天 warn,过期 crit)。 */
+function sslExpiryCell(expires: number) {
+  if (!expires) return <span className="text-xs text-faint">—</span>
+  const days = Math.floor((expires * 1000 - Date.now()) / 86_400_000)
+  const status = days < 0 ? 'crit' : days < 15 ? 'warn' : 'online'
+  const text = days < 0 ? '已过期' : `${days} 天`
+  return (
+    <span className={`text-xs ${status === 'crit' ? 'text-crit' : status === 'warn' ? 'text-warn' : 'text-muted'}`}>
+      {text}
+    </span>
+  )
+}
+
+/** Sites 网站管理:对齐 aaPanel 网站页骨架——顶部类型 tab、工具栏卡(左新建/右搜索)、紧凑数据表 + 文字行操作。 */
 export default function Sites() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
@@ -103,14 +118,19 @@ export default function Sites() {
         cell: (s) => {
           const Icon = kindIcon[s.kind] ?? Globe
           return (
-            <button
-              type="button"
-              onClick={() => open(s)}
-              className="inline-flex items-center gap-2 rounded-sm font-medium text-text outline-none transition hover:text-brand focus-visible:ring-2 focus-visible:ring-brand/60"
-            >
-              <Icon size={15} className="shrink-0 text-muted" />
-              <span className="truncate">{s.name}</span>
-            </button>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <button
+                type="button"
+                onClick={() => open(s)}
+                className="inline-flex items-center gap-2 self-start rounded-sm font-medium text-text outline-none transition hover:text-brand focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                <Icon size={15} className="shrink-0 text-muted" />
+                <span className="truncate">{s.name}</span>
+              </button>
+              <span className="truncate pl-[23px] font-[family-name:var(--font-mono)] text-[11px] text-faint">
+                {s.root_dir || '—'}
+              </span>
+            </div>
           )
         },
       },
@@ -139,13 +159,18 @@ export default function Sites() {
         ),
       },
       {
-        key: 'root',
-        header: '根目录',
+        key: 'backup',
+        header: '备份',
+        width: '72px',
         cell: (s) => (
-          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
-            {s.root_dir || '—'}
-          </span>
+          <ActionLink onClick={() => open(s, 'backups')}>备份</ActionLink>
         ),
+      },
+      {
+        key: 'expiry',
+        header: '到期',
+        width: '84px',
+        cell: (s) => sslExpiryCell(s.ssl?.expires_at ?? 0),
       },
       {
         key: 'ssl',
@@ -167,12 +192,11 @@ export default function Sites() {
       {
         key: 'actions',
         header: '操作',
-        width: '150px',
+        width: '120px',
         align: 'right',
         cell: (s) => (
           <ActionLinks>
             <ActionLink onClick={() => open(s)}>设置</ActionLink>
-            <ActionLink onClick={() => open(s, 'backups')}>备份</ActionLink>
             <ActionLink
               danger
               disabled={!isAdmin}
@@ -192,18 +216,16 @@ export default function Sites() {
   return (
     <InstallGate moduleId="sites">
     <div className="flex flex-col gap-4">
+      <Tabs tabs={TABS} active={filter} onChange={setFilter} />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Button size="md" disabled={!canWrite} onClick={() => setCreating(true)}>
             <Plus size={15} />
             新建站点
           </Button>
-          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
-            <Settings2 size={15} />
-            设置
-          </Button>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
           <div className="relative w-56">
             <Search
               size={15}
@@ -217,7 +239,11 @@ export default function Sites() {
               className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             />
           </div>
-          <Segmented items={FILTERS} active={filter} onChange={setFilter} />
+          <IconButton
+            aria-label="网站设置"
+            icon={<Settings2 size={16} />}
+            onClick={() => setSettingsOpen(true)}
+          />
         </div>
       </div>
 

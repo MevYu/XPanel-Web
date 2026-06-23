@@ -317,7 +317,17 @@ function SettingsModal({ isAdmin, onClose }: { isAdmin: boolean; onClose: () => 
             onChange={(e) => setForm({ ...form, log_dir: e.target.value })}
           />
           {!isAdmin && <p className="text-xs text-muted">设置需要 admin 角色。</p>}
-          {fb && <p className={`text-sm ${fb.kind === 'ok' ? 'text-online' : 'text-crit'}`}>{fb.text}</p>}
+          {fb && (
+            <p
+              className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+                fb.kind === 'ok'
+                  ? 'border-online/40 bg-online/10 text-online'
+                  : 'border-crit/40 bg-crit/10 text-crit'
+              }`}
+            >
+              {fb.text}
+            </p>
+          )}
           <div className="flex items-center justify-end gap-2">
             <Button variant="ghost" onClick={onClose} disabled={busy}>
               关闭
@@ -769,7 +779,17 @@ export default function Supervisor() {
         </Button>
       </div>
 
-      {fb && <p className={`text-sm ${fb.kind === 'ok' ? 'text-online' : 'text-crit'}`}>{fb.text}</p>}
+      {fb && (
+        <p
+          className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+            fb.kind === 'ok'
+              ? 'border-online/40 bg-online/10 text-online'
+              : 'border-crit/40 bg-crit/10 text-crit'
+          }`}
+        >
+          {fb.text}
+        </p>
+      )}
 
       {loadErr && programs.length === 0 && !loading && (
         <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">

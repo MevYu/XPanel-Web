@@ -18,6 +18,8 @@ interface TableProps<T> {
   onRowClick?: (row: T) => void
   /** 空数据内联占位文案。 */
   emptyText?: ReactNode
+  /** 去掉外层边框/圆角/底色,供嵌入已有面板时贴合使用。 */
+  bare?: boolean
 }
 
 const alignClass = {
@@ -27,9 +29,15 @@ const alignClass = {
 } as const
 
 /** Table 紧凑数据表:dense 行(~38px)、小字号、内联空态。受控、通用,行操作建议用 ActionLink。 */
-export function Table<T>({ columns, rows, rowKey, onRowClick, emptyText = '暂无数据' }: TableProps<T>) {
+export function Table<T>({ columns, rows, rowKey, onRowClick, emptyText = '暂无数据', bare }: TableProps<T>) {
   return (
-    <div className="overflow-x-auto rounded-(--radius-card) border border-border bg-surface">
+    <div
+      className={
+        bare
+          ? 'overflow-x-auto'
+          : 'overflow-x-auto rounded-(--radius-card) border border-border bg-surface'
+      }
+    >
       <table className="w-full border-collapse text-[13px]">
         <thead>
           <tr className="border-b border-border">

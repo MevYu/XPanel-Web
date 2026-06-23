@@ -71,12 +71,17 @@ function validIP(s: string): boolean {
   return v4.test(addr) || addr.includes(':')
 }
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'port', label: '端口规则' },
-  { key: 'ip', label: 'IP 规则' },
-]
+// tab 标签带计数,对齐 aaPanel「端口规则: N / IP 规则: N」。
+function tabLabel(text: string, count: number) {
+  return (
+    <span className="flex items-center gap-1.5">
+      {text}
+      <span className="font-[family-name:var(--font-mono)] text-xs text-faint">{count}</span>
+    </span>
+  )
+}
 
-/** Firewall 防火墙:aaPanel 风格 —— 顶部状态条 + 端口/IP 规则 tab,紧凑表格 + 固定尺寸放行弹窗。 */
+/** Firewall 防火墙:aaPanel 安全/防火墙页骨架 —— 顶部状态开关条 + 端口/IP 计数 tab + 紧凑规则表(工具栏内嵌)。 */
 export default function Firewall() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
@@ -357,104 +362,46 @@ export default function Firewall() {
 
   return (
     <InstallGate moduleId="firewall">
-    <div className="flex flex-col gap-4">
-      {/* 顶部状态条 */}
-      <Card className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <div className="flex items-center gap-2">
-          <Network size={15} className="text-warn" />
-          <span className="text-sm text-muted">后端</span>
-          {backend ? <Badge status="online">{backend}</Badge> : <Badge status="neutral">未检测到</Badge>}
-        </div>
-        <div className="flex items-center gap-2">
-          {running ? <ShieldCheck size={15} className="text-online" /> : <ShieldOff size={15} className="text-muted" />}
-          <span className="text-sm text-muted">运行状态</span>
-          <Badge status={running ? 'online' : 'neutral'}>{running ? '运行中' : '已停止'}</Badge>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted">SSH 端口</span>
-          <span className="font-[family-name:var(--font-mono)] text-sm text-text">{sshPort || '22'}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Wifi size={15} className="text-warn" />
-          <span className="text-sm text-muted">Ping</span>
-          <Switch
-            checked
-            disabled={!isAdmin || busy}
-            aria-label="允许 ping"
-            onChange={(next) => void setPing(next)}
-          />
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          {busy && <Spinner size={16} />}
+    <div className="flex flex-col gap-3">
+      {/* 顶部状态开关条:对齐 aaPanel —— 左侧防火墙/ICMP 开关,右侧后端 + SSH 端口元信息 */}
+      <Card className="flex flex-wrap items-center gap-x-8 gap-y-3 py-3">
+        <label className="flex items-center gap-2.5">
           {running ? (
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={() => void setEnabled(false)}
-              disabled={!isAdmin || busy}
-              title={isAdmin ? undefined : '需要 admin 角色'}
-            >
-              禁用防火墙
-            </Button>
+            <ShieldCheck size={16} className="text-online" />
           ) : (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void setEnabled(true)}
-              disabled={!isAdmin || busy}
-              title={isAdmin ? undefined : '需要 admin 角色'}
-            >
-              启用防火墙
-            </Button>
+            <ShieldOff size={16} className="text-muted" />
           )}
+          <span className="text-sm text-text">开启防火墙</span>
+          <Switch
+            checked={running}
+            disabled={!isAdmin || busy}
+            aria-label="开启防火墙"
+            onChange={(next) => void setEnabled(next)}
+          />
+        </label>
+        <label className="flex items-center gap-2.5">
+          <Wifi size={16} className="text-warn" />
+          <span className="text-sm text-text">屏蔽 Ping</span>
+          <Switch
+            checked={false}
+            disabled={!isAdmin || busy}
+            aria-label="屏蔽 ping"
+            onChange={(next) => void setPing(!next)}
+          />
+        </label>
+        <div className="ml-auto flex items-center gap-x-6 gap-y-2">
+          {busy && <Spinner size={16} />}
+          <div className="flex items-center gap-2">
+            <Network size={15} className="text-warn" />
+            <span className="text-sm text-muted">后端</span>
+            {backend ? <Badge status="online">{backend}</Badge> : <Badge status="neutral">未检测到</Badge>}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted">SSH 端口</span>
+            <span className="font-[family-name:var(--font-mono)] text-sm text-text">{sshPort || '22'}</span>
+          </div>
         </div>
       </Card>
-
-      {/* tab 栏 */}
-      <Tabs
-        tabs={TABS}
-        active={tab}
-        onChange={(k) => {
-          setTab(k)
-          setQuery('')
-        }}
-      />
-
-      {/* 工具栏:主操作左上,搜索/刷新右上 */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          {tab === 'port' ? (
-            <Button size="md" disabled={!isAdmin} onClick={() => setPortModal(true)}>
-              <Plus size={15} />
-              放行端口
-            </Button>
-          ) : (
-            <Button size="md" disabled={!isAdmin} onClick={() => setIPModal(true)}>
-              <Plus size={15} />
-              添加 IP 规则
-            </Button>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="relative w-56">
-            <Search
-              size={15}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-            />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={tab === 'port' ? '搜索端口 / 来源 / 备注' : '搜索 IP / 备注'}
-              spellCheck={false}
-              className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-            />
-          </div>
-          <Button variant="ghost" size="md" onClick={() => void load()} disabled={busy}>
-            <RefreshCw size={15} />
-            刷新
-          </Button>
-        </div>
-      </div>
 
       {feedback && (
         <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>{feedback.text}</p>
@@ -470,39 +417,95 @@ export default function Firewall() {
         </p>
       )}
 
-      {loading ? (
-        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
-      ) : tab === 'port' ? (
-        <Table
-          columns={portColumns}
-          rows={visiblePorts}
-          rowKey={(r) => `${r.action}-${r.proto}-${r.port}-${r.source}`}
-          emptyText={
-            <EmptyState
-              icon={<ShieldCheck />}
-              title={rules.length === 0 ? '还没有端口规则' : '没有匹配的规则'}
-              hint={rules.length === 0 ? '点击「放行端口」添加第一条规则。' : '换个关键词试试。'}
-            />
-          }
+      {/* 规则面板:计数 tab + 内嵌工具栏 + 紧凑规则表,对齐 aaPanel */}
+      <Card className="flex flex-col gap-0 p-0">
+        {/* 计数 tab */}
+        <Tabs
+          className="px-2"
+          tabs={[
+            { key: 'port' as Tab, label: tabLabel('端口规则', rules.length) },
+            { key: 'ip' as Tab, label: tabLabel('IP 规则', ipRows.length) },
+          ]}
+          active={tab}
+          onChange={(k) => {
+            setTab(k)
+            setQuery('')
+          }}
         />
-      ) : (
-        <Table
-          columns={ipColumns}
-          rows={visibleIPs}
-          rowKey={(r) => r.id}
-          emptyText={
-            <EmptyState
-              icon={<ShieldCheck />}
-              title={ipRows.length === 0 ? '本会话还没有 IP 规则' : '没有匹配的规则'}
-              hint={
-                ipRows.length === 0
-                  ? '后端不提供 IP 规则列表,此处仅展示本次添加的条目。'
-                  : '换个关键词试试。'
-              }
-            />
-          }
-        />
-      )}
+
+        {/* 工具栏:左添加规则,右搜索/刷新 */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            {tab === 'port' ? (
+              <Button size="sm" disabled={!isAdmin} onClick={() => setPortModal(true)}>
+                <Plus size={15} />
+                添加端口规则
+              </Button>
+            ) : (
+              <Button size="sm" disabled={!isAdmin} onClick={() => setIPModal(true)}>
+                <Plus size={15} />
+                添加 IP 规则
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative w-56">
+              <Search
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+              />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={tab === 'port' ? '搜索端口 / 来源 / 备注' : '搜索 IP / 备注'}
+                spellCheck={false}
+                className="h-9 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              />
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => void load()} disabled={busy}>
+              <RefreshCw size={15} />
+              刷新
+            </Button>
+          </div>
+        </div>
+
+        {/* 紧凑规则表(去外框,贴合面板) */}
+        {loading ? (
+          <div className="h-48 animate-pulse" />
+        ) : tab === 'port' ? (
+          <Table
+            bare
+            columns={portColumns}
+            rows={visiblePorts}
+            rowKey={(r) => `${r.action}-${r.proto}-${r.port}-${r.source}`}
+            emptyText={
+              <EmptyState
+                icon={<ShieldCheck />}
+                title={rules.length === 0 ? '还没有端口规则' : '没有匹配的规则'}
+                hint={rules.length === 0 ? '点击「添加端口规则」添加第一条规则。' : '换个关键词试试。'}
+              />
+            }
+          />
+        ) : (
+          <Table
+            bare
+            columns={ipColumns}
+            rows={visibleIPs}
+            rowKey={(r) => r.id}
+            emptyText={
+              <EmptyState
+                icon={<ShieldCheck />}
+                title={ipRows.length === 0 ? '本会话还没有 IP 规则' : '没有匹配的规则'}
+                hint={
+                  ipRows.length === 0
+                    ? '后端不提供 IP 规则列表,此处仅展示本次添加的条目。'
+                    : '换个关键词试试。'
+                }
+              />
+            }
+          />
+        )}
+      </Card>
 
       {portModal && (
         <PortModal busy={busy} onClose={() => setPortModal(false)} onSubmit={addPort} />

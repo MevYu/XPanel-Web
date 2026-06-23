@@ -9,7 +9,7 @@ import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Plus, ShieldCheck, KeyRound, Users as UsersIcon } from 'lucide-react'
+import { Plus, Search, ShieldCheck, KeyRound, User, Users as UsersIcon } from 'lucide-react'
 import { formatTime } from '../lib/formatTime'
 
 const DANGER = { 'X-Confirm-Danger': '1' }
@@ -26,6 +26,11 @@ function fmtTime(unix: number | null): string {
 type Role = 'admin' | 'operator' | 'readonly'
 const ROLES: Role[] = ['admin', 'operator', 'readonly']
 const ROLE_LABEL: Record<Role, string> = { admin: '管理员', operator: '操作员', readonly: '只读' }
+const ROLE_BADGE: Record<Role, 'online' | 'warn' | 'neutral'> = {
+  admin: 'warn',
+  operator: 'online',
+  readonly: 'neutral',
+}
 
 interface UserInfo {
   id: number
@@ -81,6 +86,7 @@ function UserTable() {
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [query, setQuery] = useState('')
 
   const [creating, setCreating] = useState(false)
   const [rolingUser, setRolingUser] = useState<UserInfo | null>(null)
@@ -116,18 +122,34 @@ function UserTable() {
     }
   }
 
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return users
+    return users.filter(
+      (u) => u.username.toLowerCase().includes(q) || (ROLE_LABEL[u.role as Role] ?? u.role).includes(q),
+    )
+  }, [users, query])
+
   const columns: Column<UserInfo>[] = useMemo(
     () => [
       {
         key: 'username',
         header: '用户名',
-        cell: (u) => <span className="font-medium text-text">{u.username}</span>,
+        cell: (u) => (
+          <span className="inline-flex items-center gap-2 font-medium text-text">
+            <User size={15} className="shrink-0 text-gold" />
+            <span className="truncate">{u.username}</span>
+          </span>
+        ),
       },
       {
         key: 'role',
         header: '角色',
         width: '110px',
-        cell: (u) => <span className="text-muted">{ROLE_LABEL[u.role as Role] ?? u.role}</span>,
+        cell: (u) => {
+          const r = u.role as Role
+          return <Badge status={ROLE_BADGE[r] ?? 'neutral'}>{ROLE_LABEL[r] ?? u.role}</Badge>
+        },
       },
       {
         key: 'totp',
@@ -171,11 +193,29 @@ function UserTable() {
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button onClick={() => setCreating(true)} disabled={busy}>
-          <Plus size={15} />
-          添加用户
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="md" onClick={() => setCreating(true)} disabled={busy}>
+            <Plus size={15} />
+            添加用户
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => void load()} disabled={busy}>
+            刷新
+          </Button>
+        </div>
+        <div className="relative w-56">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索用户名或角色"
+            spellCheck={false}
+            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          />
+        </div>
       </div>
 
       {feedback && (
@@ -211,13 +251,13 @@ function UserTable() {
       ) : (
         <Table
           columns={columns}
-          rows={users}
+          rows={visible}
           rowKey={(u) => u.id}
           emptyText={
             <EmptyState
               icon={<UsersIcon />}
-              title="还没有面板用户"
-              hint="点击「添加用户」创建第一个账号。"
+              title={users.length === 0 ? '还没有面板用户' : '没有匹配的用户'}
+              hint={users.length === 0 ? '点击「添加用户」创建第一个账号。' : '换个关键词试试。'}
             />
           }
         />

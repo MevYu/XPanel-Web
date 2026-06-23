@@ -8,8 +8,10 @@ import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { Plus, ShieldCheck, FolderLock, RefreshCw } from 'lucide-react'
 import { uid } from '../lib/uid'
+import { formatTime } from '../lib/formatTime'
 
 const DANGER = { 'X-Confirm-Danger': '1' }
 
@@ -18,14 +20,23 @@ function errorText(e: unknown): string {
   return msg || '操作失败,请稍后重试'
 }
 
-function fmtTime(unix: number): string {
-  if (!unix) return '—'
-  const d = new Date(unix * 1000)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
 type Feedback = { kind: 'ok' | 'err'; text: string } | null
+
+/** FeedbackBanner 操作反馈条:对齐 Malscan/Ftp 的带边框底色横幅。 */
+function FeedbackBanner({ feedback }: { feedback: Feedback }) {
+  if (!feedback) return null
+  return (
+    <p
+      className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+        feedback.kind === 'ok'
+          ? 'border-online/40 bg-online/10 text-online'
+          : 'border-crit/40 bg-crit/10 text-crit'
+      }`}
+    >
+      {feedback.text}
+    </p>
+  )
+}
 
 interface Settings {
   protected_dirs: string[]
@@ -313,7 +324,7 @@ function Control() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Card className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-(--radius-card) border border-border bg-surface p-5 shadow-[var(--shadow-card),var(--inset-hl)]">
         <div className="flex items-center gap-3">
           <ShieldCheck size={18} className={protectedOn ? 'text-online' : 'text-warn'} />
           <div className="flex items-center gap-2">
@@ -344,7 +355,7 @@ function Control() {
             重建基线
           </Button>
         </div>
-      </Card>
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button
@@ -362,27 +373,18 @@ function Control() {
         <span className="text-xs text-muted">改目录或排除规则后建议重建基线。</span>
       </div>
 
-      {feedback && (
-        <p
-          className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
-            feedback.kind === 'ok'
-              ? 'border-online/40 bg-online/10 text-online'
-              : 'border-crit/40 bg-crit/10 text-crit'
-          }`}
-        >
-          {feedback.text}
-        </p>
-      )}
+      <FeedbackBanner feedback={feedback} />
 
       <Table
         columns={columns}
         rows={rows}
         rowKey={(d) => d.id}
         emptyText={
-          <span className="flex flex-col items-center gap-1 py-6">
-            <span className="text-sm font-medium text-text">还没有受保护目录</span>
-            <span className="text-xs text-muted">点击「添加保护」纳入第一个目录,再重建基线。</span>
-          </span>
+          <EmptyState
+            icon={<FolderLock />}
+            title="还没有受保护目录"
+            hint="点击「添加保护」纳入第一个目录,再重建基线。"
+          />
         }
       />
 
@@ -427,11 +429,7 @@ function Control() {
               onChange={(e) => setAddPath(e.target.value)}
             />
             <p className="text-xs text-muted">须为绝对且干净的路径(后端校验),如 /www/wwwroot。</p>
-            {feedback?.kind === 'err' && (
-              <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
-                {feedback.text}
-              </p>
-            )}
+            <FeedbackBanner feedback={feedback?.kind === 'err' ? feedback : null} />
             <div className="flex items-center justify-end gap-2">
               <Button variant="ghost" onClick={() => setAdding(false)} disabled={busy}>
                 取消
@@ -459,11 +457,7 @@ function Control() {
               value={editPath}
               onChange={(e) => setEditPath(e.target.value)}
             />
-            {feedback?.kind === 'err' && (
-              <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
-                {feedback.text}
-              </p>
-            )}
+            <FeedbackBanner feedback={feedback?.kind === 'err' ? feedback : null} />
             <div className="flex items-center justify-end gap-2">
               <Button variant="ghost" onClick={() => setEditing(null)} disabled={busy}>
                 取消
@@ -522,7 +516,7 @@ function Events() {
         header: '检出时间',
         width: '160px',
         align: 'right',
-        cell: (ev) => <span className="text-xs text-muted">{fmtTime(ev.detected_at)}</span>,
+        cell: (ev) => <span className="text-xs text-muted">{formatTime(ev.detected_at)}</span>,
       },
     ],
     [],
@@ -551,10 +545,11 @@ function Events() {
           rows={events}
           rowKey={(ev) => ev.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">暂无篡改事件</span>
-              <span className="text-xs text-muted">受保护目录一旦发生变更,会在此列出。</span>
-            </span>
+            <EmptyState
+              icon={<ShieldCheck />}
+              title="暂无篡改事件"
+              hint="受保护目录一旦发生变更,会在此列出。"
+            />
           }
         />
       )}

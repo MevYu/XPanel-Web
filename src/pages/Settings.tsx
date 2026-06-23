@@ -3,7 +3,6 @@ import type { ReactNode } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
-import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Spinner } from '../components/Spinner'
 import { ShieldCheck, Network, DoorOpen, Plus, X, AlertTriangle } from 'lucide-react'
@@ -54,6 +53,14 @@ const NUM_KEYS = [
   'entry_probe_window_minutes',
 ] as const
 
+type TabKey = 'security' | 'network' | 'entry'
+
+const TABS: { key: TabKey; label: string; icon: ReactNode }[] = [
+  { key: 'security', label: '安全', icon: <ShieldCheck size={15} /> },
+  { key: 'network', label: '网络', icon: <Network size={15} /> },
+  { key: 'entry', label: '入口与监听', icon: <DoorOpen size={15} /> },
+]
+
 // crypto.randomUUID 在本仓库禁用,用 uid() 给可信代理行打稳定 key。
 let uidSeq = 0
 function uid(): string {
@@ -75,10 +82,12 @@ function sameProxies(a: string[], b: string[]): boolean {
   return na.length === nb.length && na.every((v, i) => v === nb[i])
 }
 
-/** Settings 面板设置:登录安全 / 网络 / 入口与监听 三组卡;改入口与监听走危险确认 + 重启提示。仅 admin 可改。 */
+/** Settings 面板设置:左竖 tab(安全 / 网络 / 入口与监听)+ 右侧行式配置;改入口与监听走危险确认 + 重启提示。仅 admin 可改。 */
 export default function Settings() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
+
+  const [tab, setTab] = useState<TabKey>('security')
 
   const [loaded, setLoaded] = useState<PanelSettings | null>(null)
   const [form, setForm] = useState<PanelSettings | null>(null)
@@ -187,7 +196,7 @@ export default function Settings() {
   if (!form || !loaded) {
     return (
       <div className="flex flex-col gap-4">
-        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+        <div className="h-64 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       </div>
     )
   }
@@ -196,83 +205,116 @@ export default function Settings() {
   const dirty = Object.keys(patch).length > 0
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3">
       {!isAdmin && (
         <p className="rounded-(--radius-card) border border-border bg-surface px-3 py-2 text-xs text-muted">
           面板设置为只读;修改需要 admin 角色。
         </p>
       )}
 
-      <SectionCard
-        icon={<ShieldCheck size={16} className="text-online" />}
-        title="登录安全"
-        desc="爆破防护:登录失败上限、封禁时长与入口探测限制。"
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <NumberField
-            label="登录失败上限"
-            value={form.login_max_attempts}
-            disabled={!isAdmin}
-            onChange={(v) => setField('login_max_attempts', v)}
-          />
-          <NumberField
-            label="IP 封禁时长(小时)"
-            value={form.ip_ban_hours}
-            disabled={!isAdmin}
-            onChange={(v) => setField('ip_ban_hours', v)}
-          />
-          <NumberField
-            label="入口探测上限"
-            value={form.entry_probe_max}
-            disabled={!isAdmin}
-            onChange={(v) => setField('entry_probe_max', v)}
-          />
-          <NumberField
-            label="入口探测窗口(分钟)"
-            value={form.entry_probe_window_minutes}
-            disabled={!isAdmin}
-            onChange={(v) => setField('entry_probe_window_minutes', v)}
-          />
-        </div>
-      </SectionCard>
+      <Card className="flex flex-col gap-0 p-0 sm:flex-row sm:items-stretch">
+        {/* 左竖 tab */}
+        <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-border p-2 sm:w-48 sm:flex-col sm:overflow-x-visible sm:border-b-0 sm:border-r">
+          {TABS.map((t) => {
+            const on = t.key === tab
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                className={`relative flex h-9 shrink-0 items-center gap-2 rounded-(--radius-sm) border px-3 text-left text-sm font-medium outline-none transition-colors duration-(--dur-micro) ease-(--ease-out) focus-visible:ring-2 focus-visible:ring-brand/60 ${
+                  on ? 'nav-active text-text' : 'border-transparent text-muted hover:bg-surface-2/60 hover:text-text'
+                }`}
+              >
+                {t.icon}
+                {t.label}
+              </button>
+            )
+          })}
+        </nav>
 
-      <SectionCard
-        icon={<Network size={16} className="text-brand" />}
-        title="网络"
-        desc="可信代理:位于面板前的反代 IP / 网段,用于解析真实客户端来源。"
-      >
-        <ProxyList
-          values={form.trusted_proxies}
-          disabled={!isAdmin}
-          onChange={(list) => setField('trusted_proxies', list)}
-        />
-      </SectionCard>
+        {/* 右侧行式配置 */}
+        <div className="min-w-0 flex-1 p-3 sm:p-4">
+          {tab === 'security' && (
+            <SettingRows>
+              <NumberRow
+                label="登录失败上限"
+                desc="连续登录失败达到此次数后封禁来源 IP。"
+                value={form.login_max_attempts}
+                disabled={!isAdmin}
+                onChange={(v) => setField('login_max_attempts', v)}
+              />
+              <NumberRow
+                label="IP 封禁时长"
+                unit="小时"
+                desc="触发封禁后,来源 IP 被拒绝访问的时长。"
+                value={form.ip_ban_hours}
+                disabled={!isAdmin}
+                onChange={(v) => setField('ip_ban_hours', v)}
+              />
+              <NumberRow
+                label="入口探测上限"
+                desc="窗口期内对错误入口路径的最大探测次数。"
+                value={form.entry_probe_max}
+                disabled={!isAdmin}
+                onChange={(v) => setField('entry_probe_max', v)}
+              />
+              <NumberRow
+                label="入口探测窗口"
+                unit="分钟"
+                desc="统计入口探测次数的滑动窗口长度。"
+                value={form.entry_probe_window_minutes}
+                disabled={!isAdmin}
+                onChange={(v) => setField('entry_probe_window_minutes', v)}
+                last
+              />
+            </SettingRows>
+          )}
 
-      <SectionCard
-        icon={<DoorOpen size={16} className="text-warn" />}
-        title="入口与监听"
-        desc="面板访问入口路径与监听地址。"
-        warn="修改需重启生效"
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Input
-            label="面板入口路径"
-            value={form.entry_path}
-            disabled={!isAdmin}
-            spellCheck={false}
-            placeholder="/xpanel"
-            onChange={(e) => setField('entry_path', e.target.value)}
-          />
-          <Input
-            label="监听地址"
-            value={form.addr}
-            disabled={!isAdmin}
-            spellCheck={false}
-            placeholder="0.0.0.0:8765"
-            onChange={(e) => setField('addr', e.target.value)}
-          />
+          {tab === 'network' && (
+            <SettingRows>
+              <Row
+                label="可信代理"
+                desc="位于面板前的反代 IP / 网段,用于解析真实客户端来源。"
+                stacked
+                last
+              >
+                <ProxyList
+                  values={form.trusted_proxies}
+                  disabled={!isAdmin}
+                  onChange={(list) => setField('trusted_proxies', list)}
+                />
+              </Row>
+            </SettingRows>
+          )}
+
+          {tab === 'entry' && (
+            <SettingRows>
+              <div className="mb-2 inline-flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-2 py-0.5 text-[0.6875rem] font-medium text-warn">
+                <AlertTriangle size={12} />
+                修改需重启生效
+              </div>
+              <TextRow
+                label="面板入口路径"
+                desc="访问面板需附加的隐藏路径前缀。"
+                value={form.entry_path}
+                placeholder="/xpanel"
+                disabled={!isAdmin}
+                onChange={(v) => setField('entry_path', v)}
+              />
+              <TextRow
+                label="监听地址"
+                desc="面板 HTTP 服务绑定的地址与端口。"
+                value={form.addr}
+                placeholder="0.0.0.0:8765"
+                disabled={!isAdmin}
+                onChange={(v) => setField('addr', v)}
+                last
+              />
+            </SettingRows>
+          )}
         </div>
-      </SectionCard>
+      </Card>
 
       {saveErr && <p className="text-sm text-crit">{saveErr}</p>}
 
@@ -323,65 +365,105 @@ export default function Settings() {
   )
 }
 
-function SectionCard({
-  icon,
-  title,
+function SettingRows({ children }: { children: ReactNode }) {
+  return <div className="flex flex-col">{children}</div>
+}
+
+/** 单条配置行:label + 说明在左,control 在右;stacked 时 control 换行铺满。底部 hairline 分隔,last 去掉。 */
+function Row({
+  label,
   desc,
-  warn,
   children,
+  stacked,
+  last,
 }: {
-  icon: ReactNode
-  title: string
-  desc: string
-  warn?: string
+  label: string
+  desc?: string
   children: ReactNode
+  stacked?: boolean
+  last?: boolean
 }) {
   return (
-    <Card className="flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          {icon}
-          <h2 className="font-[family-name:var(--font-display)] text-base font-semibold text-text">
-            {title}
-          </h2>
-        </div>
-        {warn && (
-          <span className="inline-flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-2 py-0.5 text-[0.6875rem] font-medium text-warn">
-            <AlertTriangle size={12} />
-            {warn}
-          </span>
-        )}
+    <div
+      className={`${last ? '' : 'border-b border-border/60'} py-3 ${
+        stacked ? 'flex flex-col gap-2.5' : 'flex flex-wrap items-center justify-between gap-x-4 gap-y-2'
+      }`}
+    >
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-text">{label}</div>
+        {desc && <p className="mt-0.5 text-xs text-muted">{desc}</p>}
       </div>
-      <p className="-mt-2 text-xs text-muted">{desc}</p>
-      {children}
-    </Card>
+      <div className={stacked ? '' : 'shrink-0'}>{children}</div>
+    </div>
   )
 }
 
-function NumberField({
+function NumberRow({
   label,
+  desc,
+  unit,
   value,
   disabled,
   onChange,
+  last,
 }: {
   label: string
+  desc?: string
+  unit?: string
   value: number
   disabled: boolean
   onChange: (v: number) => void
+  last?: boolean
 }) {
   return (
-    <Input
-      label={label}
-      type="number"
-      min={0}
-      inputMode="numeric"
-      value={Number.isFinite(value) ? String(value) : ''}
-      disabled={disabled}
-      onChange={(e) => {
-        const n = e.target.valueAsNumber
-        onChange(Number.isNaN(n) ? 0 : n)
-      }}
-    />
+    <Row label={label} desc={desc} last={last}>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={0}
+          inputMode="numeric"
+          value={Number.isFinite(value) ? String(value) : ''}
+          disabled={disabled}
+          onChange={(e) => {
+            const n = e.target.valueAsNumber
+            onChange(Number.isNaN(n) ? 0 : n)
+          }}
+          className="h-9 w-28 rounded-(--radius-sm) border border-border bg-surface-2/70 px-3 text-sm text-text outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-[border-color,box-shadow,background-color] duration-(--dur-micro) ease-(--ease-out) hover:border-border-strong focus:border-brand focus:bg-surface-2 focus:shadow-[0_0_0_3px_var(--color-brand-soft),inset_0_1px_2px_rgba(0,0,0,0.25)] disabled:cursor-not-allowed disabled:opacity-40"
+        />
+        {unit && <span className="text-xs text-muted">{unit}</span>}
+      </div>
+    </Row>
+  )
+}
+
+function TextRow({
+  label,
+  desc,
+  value,
+  placeholder,
+  disabled,
+  onChange,
+  last,
+}: {
+  label: string
+  desc?: string
+  value: string
+  placeholder?: string
+  disabled: boolean
+  onChange: (v: string) => void
+  last?: boolean
+}) {
+  return (
+    <Row label={label} desc={desc} last={last}>
+      <input
+        value={value}
+        disabled={disabled}
+        spellCheck={false}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-9 w-full min-w-0 rounded-(--radius-sm) border border-border bg-surface-2/70 px-3 font-[family-name:var(--font-mono)] text-sm text-text outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition-[border-color,box-shadow,background-color] duration-(--dur-micro) ease-(--ease-out) placeholder:text-faint hover:border-border-strong focus:border-brand focus:bg-surface-2 focus:shadow-[0_0_0_3px_var(--color-brand-soft),inset_0_1px_2px_rgba(0,0,0,0.25)] disabled:cursor-not-allowed disabled:opacity-40 sm:w-72"
+      />
+    </Row>
   )
 }
 
@@ -436,14 +518,14 @@ function ProxyList({
             spellCheck={false}
             placeholder="10.0.0.0/8 或 192.168.1.1"
             onChange={(e) => update(i, e.target.value)}
-            className="h-10 flex-1 rounded-(--radius-card) border border-border bg-surface-2 px-3 font-[family-name:var(--font-mono)] text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-40"
+            className="h-9 flex-1 rounded-(--radius-sm) border border-border bg-surface-2/70 px-3 font-[family-name:var(--font-mono)] text-sm text-text outline-none shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)] transition placeholder:text-faint hover:border-border-strong focus:border-brand focus:bg-surface-2 focus:shadow-[0_0_0_3px_var(--color-brand-soft),inset_0_1px_2px_rgba(0,0,0,0.25)] disabled:cursor-not-allowed disabled:opacity-40"
           />
           <button
             type="button"
             disabled={disabled}
             aria-label="删除此项"
             onClick={() => remove(i)}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-(--radius-card) border border-border text-muted transition hover:border-crit/50 hover:text-crit disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-sm) border border-border text-muted transition hover:border-crit/50 hover:text-crit disabled:cursor-not-allowed disabled:opacity-40"
           >
             <X size={15} />
           </button>

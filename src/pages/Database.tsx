@@ -9,12 +9,12 @@ import { SettingsModal } from './database/SettingsModal'
 
 type Tab = 'mysql' | 'postgres' | 'redis' | 'backups'
 
-const TABS: { key: Tab | 'settings'; label: string }[] = [
+// 引擎切换对齐 aaPanel 顶部 tab(MySQL / PgSQL / Redis …);连接设置是工具栏动作,不进 tab。
+const TABS: { key: Tab; label: string }[] = [
   { key: 'mysql', label: 'MySQL' },
-  { key: 'postgres', label: 'PostgreSQL' },
+  { key: 'postgres', label: 'PgSQL' },
   { key: 'redis', label: 'Redis' },
   { key: 'backups', label: '备份记录' },
-  { key: 'settings', label: '连接设置' },
 ]
 
 /** Database 数据库:MySQL/PostgreSQL 库与用户管理(紧凑 Table + 弹窗操作)、库级备份恢复、Redis info 与清库、连接设置。 */
@@ -36,17 +36,23 @@ export default function Database() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Tabs
-        tabs={TABS}
-        active={tab}
-        onChange={(k) => (k === 'settings' ? setSettingsOpen(true) : setTab(k))}
-      />
+      <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
       {tab === 'mysql' && (
-        <SqlEnginePanel engine="mysql" refreshKey={refreshKey} onBackupDone={() => setBackupsKey((k) => k + 1)} />
+        <SqlEnginePanel
+          engine="mysql"
+          refreshKey={refreshKey}
+          onBackupDone={() => setBackupsKey((k) => k + 1)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
       )}
       {tab === 'postgres' && (
-        <SqlEnginePanel engine="postgres" refreshKey={refreshKey} onBackupDone={() => setBackupsKey((k) => k + 1)} />
+        <SqlEnginePanel
+          engine="postgres"
+          refreshKey={refreshKey}
+          onBackupDone={() => setBackupsKey((k) => k + 1)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
       )}
       {tab === 'redis' && <RedisPanel />}
       {tab === 'backups' && <BackupsPanel refreshKey={backupsKey} />}

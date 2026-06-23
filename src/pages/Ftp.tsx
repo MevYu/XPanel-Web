@@ -9,8 +9,9 @@ import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
-import { Plus, Search, FolderSymlink } from 'lucide-react'
+import { Plus, Search, FolderSymlink, Info, Inbox } from 'lucide-react'
 import { uid } from '../lib/uid'
 
 function errorText(e: unknown): string {
@@ -234,8 +235,19 @@ export default function Ftp() {
         header: '用户名',
         cell: (a) => (
           <span className="inline-flex items-center gap-2 font-medium text-text">
-            <FolderSymlink size={15} className="shrink-0 text-warn" />
+            <FolderSymlink size={15} className="shrink-0 text-gold" />
             <span className="truncate">{a.user}</span>
+          </span>
+        ),
+      },
+      {
+        key: 'password',
+        header: '密码',
+        width: '110px',
+        // 凭证不回显:仅占位掩码,改密走 Operate 列。
+        cell: () => (
+          <span className="font-[family-name:var(--font-mono)] text-muted tracking-widest select-none">
+            ••••••••
           </span>
         ),
       },
@@ -265,20 +277,20 @@ export default function Ftp() {
         ),
       },
       {
-        key: 'access',
-        header: '权限',
-        width: '88px',
-        cell: (a) => (
-          <Badge status={a.readonly ? 'neutral' : 'online'}>{a.readonly ? '只读' : '读写'}</Badge>
-        ),
-      },
-      {
         key: 'quota',
         header: '配额',
         width: '90px',
         align: 'right',
         cell: (a) => (
           <span className="text-xs text-muted tabular-nums">{a.quota_mb > 0 ? `${a.quota_mb} MB` : '不限'}</span>
+        ),
+      },
+      {
+        key: 'access',
+        header: '权限',
+        width: '96px',
+        cell: (a) => (
+          <Badge status={a.readonly ? 'neutral' : 'online'}>{a.readonly ? '只读' : '读写'}</Badge>
         ),
       },
       {
@@ -329,8 +341,19 @@ export default function Ftp() {
   return (
     <InstallGate moduleId="ftp">
     <div className="flex flex-col gap-4">
+      {/* aaPanel 顶部信息条:展示 FTP 服务根路径(无 host/port 字段,不杜撰地址)。 */}
+      {settings && (
+        <div className="flex items-center gap-2 rounded-(--radius-card) border border-border bg-surface-2/60 px-3 py-2 text-sm text-muted">
+          <Info size={15} className="shrink-0 text-brand" />
+          <span>FTP 家目录基路径:</span>
+          <span className="font-[family-name:var(--font-mono)] text-xs text-text">
+            {settings.home_base}
+          </span>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="md" disabled={!isAdmin} onClick={openAdd}>
             <Plus size={15} />
             添加 FTP 账户
@@ -383,16 +406,15 @@ export default function Ftp() {
           rows={visible}
           rowKey={(a) => a.user}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {accounts.length === 0 ? '还没有 FTP 账户' : '没有匹配的账户'}
-              </span>
-              <span className="text-xs text-muted">
-                {accounts.length === 0
+            <EmptyState
+              icon={<Inbox />}
+              title={accounts.length === 0 ? '还没有 FTP 账户' : '没有匹配的账户'}
+              hint={
+                accounts.length === 0
                   ? '点击「添加 FTP 账户」创建第一个虚拟用户。'
-                  : '换个关键词试试。'}
-              </span>
-            </span>
+                  : '换个关键词试试。'
+              }
+            />
           }
         />
       )}

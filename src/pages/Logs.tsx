@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
-import { Search } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Search, ScrollText } from 'lucide-react'
 import { apiFetch } from '../api/client'
-import { Card } from '../components/Card'
 import { Button } from '../components/Button'
 import { Table, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { formatTime } from '../lib/formatTime'
 
 interface Entry {
@@ -19,12 +19,13 @@ interface Resp {
 }
 const PAGE = 50
 
-/** Logs 审计日志:面板操作流水(对标设计稿 Logs 的 Operation 视图),时间/操作/用户/详情/来源 IP + 前缀过滤 + 分页。 */
+/** Logs 审计日志:aaPanel 风格 —— 工具栏(操作类型下拉 + 前缀搜索)+ 紧凑表 + EmptyState + 分页。后端 action 走前缀过滤,admin-only。 */
 export default function Logs() {
   const [entries, setEntries] = useState<Entry[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const [action, setAction] = useState('')
+  const [scope, setScope] = useState('')
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -43,6 +44,16 @@ export default function Logs() {
       .finally(() => setLoading(false))
   }, [offset, action])
 
+  // 操作类型下拉:后端无 distinct 端点,故从当前页 action 的顶层命名空间(首个 `.` 前)归集,贴合前缀过滤。
+  const scopes = useMemo(() => {
+    const set = new Set<string>()
+    for (const e of entries) {
+      const top = e.action.split('.')[0]
+      if (top) set.add(top)
+    }
+    return [...set].sort()
+  }, [entries])
+
   const columns: Column<Entry>[] = [
     {
       key: 'ts',
@@ -53,6 +64,12 @@ export default function Logs() {
       ),
     },
     {
+      key: 'user',
+      header: '用户',
+      width: '80px',
+      cell: (e) => <span className="text-xs text-muted">{e.user_id ?? '系统'}</span>,
+    },
+    {
       key: 'action',
       header: '操作',
       width: '200px',
@@ -61,12 +78,6 @@ export default function Logs() {
           {e.action}
         </span>
       ),
-    },
-    {
-      key: 'user',
-      header: '用户',
-      width: '80px',
-      cell: (e) => <span className="text-xs text-muted">{e.user_id ?? '系统'}</span>,
     },
     {
       key: 'detail',
@@ -90,27 +101,58 @@ export default function Logs() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="text-sm text-muted">审计日志 · 共 {total} 条</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={scope}
+            onChange={(ev) => {
+              const v = ev.target.value
+              setScope(v)
+              setQuery('')
+              setOffset(0)
+              setAction(v)
+            }}
+            className="h-10 rounded-(--radius-sm) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            aria-label="按操作类型过滤"
+          >
+            <option value="">全部操作</option>
+            {scopes.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <span className="text-sm text-muted">共 {total} 条</span>
+        </div>
         <form
           className="relative w-72"
           onSubmit={(ev) => {
             ev.preventDefault()
+            setScope('')
             setOffset(0)
             setAction(query.trim())
           }}
         >
-          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+          />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="按操作前缀过滤,如 files / database,回车"
-            className="h-9 w-full rounded-(--radius-sm) border border-border bg-surface-2/70 pl-9 pr-3 text-sm text-text outline-none focus:border-brand"
+            spellCheck={false}
+            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           />
         </form>
       </div>
-      {err ? (
-        <Card className="text-sm text-crit">{err}</Card>
-      ) : loading ? (
+
+      {err && (
+        <p className="rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {err}
+        </p>
+      )}
+
+      {loading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
         <>
@@ -118,10 +160,21 @@ export default function Logs() {
             columns={columns}
             rows={entries}
             rowKey={(e) => `${e.ts}-${e.action}-${e.source_ip}-${e.detail.slice(0, 16)}`}
-            emptyText="暂无日志"
+            emptyText={
+              <EmptyState
+                icon={<ScrollText />}
+                title={action ? '没有匹配的日志' : '暂无审计日志'}
+                hint={action ? '换个操作类型或前缀试试。' : '面板操作产生后会记录在此。'}
+              />
+            }
           />
           <div className="flex items-center justify-end gap-2">
-            <Button size="sm" variant="ghost" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={offset === 0}
+              onClick={() => setOffset(Math.max(0, offset - PAGE))}
+            >
               上一页
             </Button>
             <span className="text-xs tabular-nums text-muted">

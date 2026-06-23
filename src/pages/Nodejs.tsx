@@ -6,7 +6,10 @@ import { Badge } from '../components/Badge'
 import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
+import { IconButton } from '../components/IconButton'
+import { EmptyState } from '../components/EmptyState'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { InstallGate } from '../components/InstallGate'
 import { Plus, Settings2, Search, Hexagon } from 'lucide-react'
 
 function errorText(e: unknown): string {
@@ -329,9 +332,10 @@ export default function Nodejs() {
   )
 
   return (
+    <InstallGate moduleId="nodejs">
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="md"
             disabled={!isAdmin}
@@ -344,22 +348,25 @@ export default function Nodejs() {
             <Plus size={15} />
             添加项目
           </Button>
-          <Button variant="ghost" size="md" onClick={() => void openSettings()}>
-            <Settings2 size={15} />
-            设置
-          </Button>
         </div>
-        <div className="relative w-56">
-          <Search
-            size={15}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-          />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索项目名或路径"
-            spellCheck={false}
-            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        <div className="flex items-center gap-2">
+          <div className="relative w-56">
+            <Search
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+            />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索项目名或路径"
+              spellCheck={false}
+              className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            />
+          </div>
+          <IconButton
+            aria-label="Node 设置"
+            icon={<Settings2 size={16} />}
+            onClick={() => void openSettings()}
           />
         </div>
       </div>
@@ -381,16 +388,15 @@ export default function Nodejs() {
           rows={visible}
           rowKey={(p) => p.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {projects.length === 0 ? '还没有项目' : '没有匹配的项目'}
-              </span>
-              <span className="text-xs text-muted">
-                {projects.length === 0
+            <EmptyState
+              icon={<Hexagon />}
+              title={projects.length === 0 ? '还没有项目' : '没有匹配的项目'}
+              hint={
+                projects.length === 0
                   ? '点击「添加项目」托管你的第一个 Node 进程。'
-                  : '换个关键词试试。'}
-              </span>
-            </span>
+                  : '换个关键词试试。'
+              }
+            />
           }
         />
       )}
@@ -560,5 +566,6 @@ export default function Nodejs() {
         </Modal>
       )}
     </div>
+    </InstallGate>
   )
 }

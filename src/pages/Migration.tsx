@@ -7,6 +7,8 @@ import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { Tabs } from '../components/Tabs'
+import { EmptyState } from '../components/EmptyState'
 import { uid } from '../lib/uid'
 import {
   Plus,
@@ -123,6 +125,14 @@ const emptyImport: ImportForm = { package_id: '', site_dest: '', import_db: fals
 
 const dbLabel: Record<string, string> = { mysql: 'MySQL', postgres: 'PostgreSQL' }
 
+type Tab = 'packages' | 'tasks'
+
+// 类别切换对齐 aaPanel 顶部 tab;新建/导入/设置是工具栏动作,不进 tab。
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'packages', label: '迁移包' },
+  { key: 'tasks', label: '迁移任务' },
+]
+
 function fmtBytes(n: number): string {
   if (n < 1024) return `${n} B`
   const units = ['KB', 'MB', 'GB', 'TB']
@@ -147,6 +157,7 @@ export default function Migration() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
 
+  const [tab, setTab] = useState<Tab>('packages')
   const [packages, setPackages] = useState<Package[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -360,8 +371,10 @@ export default function Migration() {
 
   return (
     <div className="flex flex-col gap-4">
+      <Tabs tabs={TABS} active={tab} onChange={setTab} />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="md" onClick={() => setExporting(true)}>
             <Plus size={15} />
             新建迁移包
@@ -379,20 +392,34 @@ export default function Migration() {
             刷新
           </Button>
         </div>
-        <div className="relative w-56">
-          <Search
-            size={15}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
-          />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索迁移包名或文件名"
-            spellCheck={false}
-            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-          />
-        </div>
+        {tab === 'packages' && (
+          <div className="relative w-56">
+            <Search
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+            />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索迁移包名或文件名"
+              spellCheck={false}
+              className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            />
+          </div>
+        )}
       </div>
+
+      {feedback && (
+        <p
+          className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+            feedback.kind === 'ok'
+              ? 'border-online/40 bg-online/10 text-online'
+              : 'border-crit/40 bg-crit/10 text-crit'
+          }`}
+        >
+          {feedback.text}
+        </p>
+      )}
 
       {loadErr && packages.length === 0 && !loading && (
         <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
@@ -403,42 +430,31 @@ export default function Migration() {
         </p>
       )}
 
-      {loading ? (
-        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
-      ) : (
-        <Table
-          columns={columns}
-          rows={visible}
-          rowKey={(p) => p.id}
-          emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {packages.length === 0 ? '还没有迁移包' : '没有匹配的迁移包'}
-              </span>
-              <span className="text-xs text-muted">
-                {packages.length === 0
-                  ? '点击「新建迁移包」打包一个站点。'
-                  : '换个关键词试试。'}
-              </span>
-            </span>
-          }
-        />
-      )}
+      {activeTask && <ActiveTaskPanel task={activeTask} onClose={() => setActiveTask(null)} />}
 
-      {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
-          {feedback.text}
-        </p>
-      )}
+      {tab === 'packages' &&
+        (loading ? (
+          <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+        ) : (
+          <Table
+            columns={columns}
+            rows={visible}
+            rowKey={(p) => p.id}
+            emptyText={
+              <EmptyState
+                icon={<Boxes />}
+                title={packages.length === 0 ? '还没有迁移包' : '没有匹配的迁移包'}
+                hint={
+                  packages.length === 0
+                    ? '点击「新建迁移包」打包一个站点。'
+                    : '换个关键词试试。'
+                }
+              />
+            }
+          />
+        ))}
 
-      {activeTask && (
-        <ActiveTaskPanel
-          task={activeTask}
-          onClose={() => setActiveTask(null)}
-        />
-      )}
-
-      <TasksSection tasks={tasks} loading={loading} />
+      {tab === 'tasks' && <TasksSection tasks={tasks} loading={loading} />}
 
       {exporting && (
         <ExportModal
@@ -615,28 +631,22 @@ function TasksSection({ tasks, loading }: { tasks: Task[]; loading: boolean }) {
     [],
   )
 
+  if (loading) {
+    return <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+  }
   return (
-    <section className="flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <ListChecks size={15} className="text-muted" />
-        <h2 className="text-sm font-semibold text-text">迁移任务</h2>
-      </div>
-      {loading ? (
-        <div className="h-32 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
-      ) : (
-        <Table
-          columns={columns}
-          rows={tasks}
-          rowKey={(t) => t.id || uid()}
-          emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">还没有迁移任务</span>
-              <span className="text-xs text-muted">导出或导入后,任务进度会显示在这里。</span>
-            </span>
-          }
+    <Table
+      columns={columns}
+      rows={tasks}
+      rowKey={(t) => t.id || uid()}
+      emptyText={
+        <EmptyState
+          icon={<ListChecks />}
+          title="还没有迁移任务"
+          hint="导出或导入后,任务进度会显示在这里。"
         />
-      )}
-    </section>
+      }
+    />
   )
 }
 

@@ -6,10 +6,12 @@ import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
+import { Stat } from '../components/Stat'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
-import { Settings2, UserPlus, GitBranch, RefreshCw, Database, Server } from 'lucide-react'
+import { EmptyState } from '../components/EmptyState'
+import { Settings2, UserPlus, GitBranch, RefreshCw, Database, Server, Info } from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -56,18 +58,18 @@ function runBadge(v: string): 'online' | 'warn' | 'crit' {
   return v === 'Yes' ? 'online' : v === 'Connecting' ? 'warn' : 'crit'
 }
 
-/** 状态总览卡:暖色图标 + 角色标题 + 一组状态/数值行。 */
+/** 状态总览卡:节点图标 + 角色标题 + 主机端点 + 一组状态/数值行,右上角单卡查询。 */
 function StatusCard({
   icon,
   title,
-  role,
+  endpoint,
   onRefresh,
   busy,
   children,
 }: {
   icon: ReactNode
   title: string
-  role: string
+  endpoint: string
   onRefresh: () => void
   busy: boolean
   children: ReactNode
@@ -76,12 +78,12 @@ function StatusCard({
     <Card className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-(--radius-sm) bg-warn-soft text-warn">
+          <span className="flex h-8 w-8 items-center justify-center rounded-(--radius-sm) bg-surface-2 text-muted">
             {icon}
           </span>
           <div className="flex flex-col">
             <span className="text-sm font-medium text-text">{title}</span>
-            <span className="text-xs text-muted">{role}</span>
+            <span className="font-[family-name:var(--font-mono)] text-xs text-muted">{endpoint}</span>
           </div>
         </div>
         <Button size="sm" variant="ghost" onClick={onRefresh} disabled={busy}>
@@ -241,6 +243,23 @@ export default function MysqlRepl() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* aaPanel 顶部信息条:主从连接端点一览 */}
+      {settings && (
+        <div className="flex flex-wrap items-center gap-2 rounded-(--radius-card) border border-border bg-surface-2/60 px-3 py-2 text-sm text-muted">
+          <Info size={15} className="shrink-0 text-brand" />
+          <span>主库</span>
+          <span className="font-[family-name:var(--font-mono)] text-xs text-text">
+            {settings.master_host}:{settings.master_port}
+          </span>
+          <span className="text-faint">·</span>
+          <span>从库</span>
+          <span className="font-[family-name:var(--font-mono)] text-xs text-text">
+            {settings.slave_host}:{settings.slave_port}
+          </span>
+        </div>
+      )}
+
+      {/* aaPanel 工具栏:左侧动作组 + 右侧刷新 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <Button size="md" onClick={() => setDialog('configure')}>
@@ -270,6 +289,17 @@ export default function MysqlRepl() {
         </Button>
       </div>
 
+      {feedback && (
+        <p
+          className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+            feedback.kind === 'ok'
+              ? 'border-online/40 bg-online/10 text-online'
+              : 'border-crit/40 bg-crit/10 text-crit'
+          }`}
+        >
+          {feedback.text}
+        </p>
+      )}
       {loadErr && (
         <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
           {loadErr}
@@ -278,44 +308,33 @@ export default function MysqlRepl() {
           </Button>
         </p>
       )}
-      {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
-          {feedback.text}
-        </p>
-      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <StatusCard
           icon={<Server size={16} />}
           title="主库"
-          role={settings ? `${settings.master_host}:${settings.master_port}` : '—'}
+          endpoint={settings ? `${settings.master_host}:${settings.master_port}` : '—'}
           onRefresh={() => void loadMaster()}
           busy={busy}
         >
           {master ? (
-            <dl className="grid gap-2 sm:grid-cols-2">
-              <div className="flex flex-col rounded-(--radius-card) bg-surface-2 px-3 py-2">
-                <dt className="text-xs text-muted">Binlog File</dt>
-                <dd className="truncate font-[family-name:var(--font-mono)] text-sm text-text">
-                  {master.file || '—'}
-                </dd>
-              </div>
-              <div className="flex flex-col rounded-(--radius-card) bg-surface-2 px-3 py-2">
-                <dt className="text-xs text-muted">Position</dt>
-                <dd className="font-[family-name:var(--font-mono)] text-sm text-text">{master.position}</dd>
-              </div>
-            </dl>
+            <div className="grid gap-3 rounded-(--radius-card) bg-surface-2 px-4 py-3 sm:grid-cols-2">
+              <Stat value={master.file || '—'} label="binlog file" />
+              <Stat value={master.position} label="position" />
+            </div>
           ) : (
-            <p className="rounded-(--radius-card) border border-dashed border-border px-3 py-6 text-center text-sm text-muted">
-              点击「查询」获取 SHOW MASTER STATUS
-            </p>
+            <EmptyState
+              icon={<Server />}
+              title="未查询主库状态"
+              hint="点击「查询」获取 SHOW MASTER STATUS。"
+            />
           )}
         </StatusCard>
 
         <StatusCard
           icon={<Database size={16} />}
           title="从库"
-          role={settings ? `${settings.slave_host}:${settings.slave_port}` : '—'}
+          endpoint={settings ? `${settings.slave_host}:${settings.slave_port}` : '—'}
           onRefresh={() => void loadSlave()}
           busy={busy}
         >
@@ -327,9 +346,11 @@ export default function MysqlRepl() {
               <span className="text-xs text-muted">IO + SQL 线程均运行视为健康</span>
             </div>
           ) : (
-            <p className="rounded-(--radius-card) border border-dashed border-border px-3 py-6 text-center text-sm text-muted">
-              点击「查询」获取 SHOW SLAVE STATUS
-            </p>
+            <EmptyState
+              icon={<Database />}
+              title="未查询从库状态"
+              hint="点击「查询」获取 SHOW SLAVE STATUS。"
+            />
           )}
         </StatusCard>
       </div>
@@ -358,14 +379,12 @@ export default function MysqlRepl() {
             {slave.last_sql_error && <p className="text-xs text-crit">SQL 错误: {slave.last_sql_error}</p>}
           </>
         ) : (
-          <div className="flex flex-col items-center gap-3 rounded-(--radius-card) border border-dashed border-border px-4 py-10 text-center">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-warn-soft text-warn">
-              <GitBranch size={20} />
-            </span>
-            <p className="text-sm text-text">尚未配置主从复制</p>
-            <p className="max-w-md text-xs text-muted">
-              先在「连接设置」填好主从连接,再用「建复制用户」在主库建账号,最后「搭建从库」指向主库并启动复制。
-            </p>
+          <>
+            <EmptyState
+              icon={<GitBranch />}
+              title="尚未配置主从复制"
+              hint="先在「连接设置」填好主从连接,再用「建复制用户」在主库建账号,最后「搭建从库」指向主库并启动复制。"
+            />
             <div className="flex flex-wrap items-center justify-center gap-2">
               <Button size="sm" onClick={() => setDialog('configure')}>
                 <GitBranch size={14} />
@@ -375,7 +394,7 @@ export default function MysqlRepl() {
                 查询状态
               </Button>
             </div>
-          </div>
+          </>
         )}
       </Card>
 

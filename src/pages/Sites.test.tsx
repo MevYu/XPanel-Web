@@ -73,7 +73,7 @@ describe('Sites list', () => {
     await screen.findByText('example.com')
     expect(screen.getAllByText('api.example.com').length).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getByRole('button', { name: 'PHP' }))
+    fireEvent.click(screen.getByRole('button', { name: 'PHP 项目' }))
     await screen.findByText('没有匹配的站点')
     expect(screen.queryByText('example.com')).not.toBeInTheDocument()
   })

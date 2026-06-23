@@ -7,7 +7,9 @@ import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
+import { Tabs } from '../components/Tabs'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { Plus, BellRing, History, SlidersHorizontal, SendHorizontal, Radio } from 'lucide-react'
 import { formatTime } from '../lib/formatTime'
 
@@ -119,11 +121,21 @@ function metricLabel(m: string): string {
   return METRICS.find((x) => x.value === m)?.label ?? m
 }
 
-/** 监控告警:告警规则(operator+)、通知渠道(admin,凭证只写,可测试发送)、告警历史、评估设置;aaPanel 风格紧凑表 + 固定弹窗。 */
+type Tab = 'rules' | 'channels' | 'history'
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'rules', label: '告警规则' },
+  { key: 'channels', label: '通知渠道' },
+  { key: 'history', label: '告警历史' },
+]
+
+/** 监控告警:告警规则(operator+)、通知渠道(admin,凭证只写,可测试发送)、告警历史、评估设置;aaPanel 风格顶部 tab + 紧凑表 + 固定弹窗。 */
 export default function Alert() {
   const { role } = useAuth()
   const canWriteRule = role === 'admin' || role === 'operator'
   const isAdmin = role === 'admin'
+
+  const [tab, setTab] = useState<Tab>('rules')
 
   const [rules, setRules] = useState<Rule[]>([])
   const [channels, setChannels] = useState<Channel[]>([])
@@ -132,9 +144,16 @@ export default function Alert() {
   const [loadErr, setLoadErr] = useState<string | null>(null)
 
   const [editingRule, setEditingRule] = useState<Rule | 'new' | null>(null)
-  const [channelsOpen, setChannelsOpen] = useState(false)
-  const [historyOpen, setHistoryOpen] = useState(false)
+  const [editingChannel, setEditingChannel] = useState<Channel | 'new' | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+
+  // 渠道页 test/delete 的就地反馈与忙碌行(原 ChannelsModal 内部状态上提)。
+  const [channelBusyId, setChannelBusyId] = useState<number | null>(null)
+  const [channelFeedback, setChannelFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+
+  // 告警历史按需加载:首次进入 history tab 时拉取(原 HistoryModal 的 onMount 逻辑)。
+  const [history, setHistory] = useState<AlertHistory[] | null>(null)
+  const [historyErr, setHistoryErr] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -157,6 +176,20 @@ export default function Alert() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const loadHistory = useCallback(async () => {
+    setHistoryErr(null)
+    setHistory(null)
+    try {
+      setHistory(await apiFetch<AlertHistory[]>('/api/m/alert/history'))
+    } catch (e) {
+      setHistoryErr(errorText(e))
+    }
+  }, [])
+
+  useEffect(() => {
+    if (tab === 'history' && history === null && historyErr === null) void loadHistory()
+  }, [tab, history, historyErr, loadHistory])
 
   const channelName = useCallback(
     (id: number): string => channels.find((c) => c.id === id)?.name ?? `渠道 #${id}`,
@@ -195,7 +228,37 @@ export default function Alert() {
     }
   }
 
-  const columns: Column<Rule>[] = useMemo(
+  async function testChannel(c: Channel) {
+    if (!isAdmin) return
+    setChannelBusyId(c.id)
+    setChannelFeedback(null)
+    try {
+      await apiFetch(`/api/m/alert/channels/${c.id}/test`, { method: 'POST' })
+      setChannelFeedback({ kind: 'ok', text: `测试消息已发送至 ${c.name}` })
+    } catch (e) {
+      setChannelFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setChannelBusyId(null)
+    }
+  }
+
+  async function removeChannel(c: Channel) {
+    if (!isAdmin) return
+    if (!window.confirm(`确认删除渠道「${c.name}」?引用它的规则将失效。`)) return
+    setChannelBusyId(c.id)
+    setChannelFeedback(null)
+    try {
+      await apiFetch(`/api/m/alert/channels/${c.id}`, { method: 'DELETE', headers: DANGER })
+      setChannelFeedback({ kind: 'ok', text: '渠道已删除' })
+      await load()
+    } catch (e) {
+      setChannelFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setChannelBusyId(null)
+    }
+  }
+
+  const ruleColumns: Column<Rule>[] = useMemo(
     () => [
       {
         key: 'name',
@@ -269,62 +332,254 @@ export default function Alert() {
     [canWriteRule, channelName],
   )
 
+  const channelColumns: Column<Channel>[] = useMemo(
+    () => [
+      {
+        key: 'name',
+        header: '渠道名',
+        cell: (c) => (
+          <div className="flex min-w-0 items-center gap-2">
+            <SendHorizontal size={15} className="shrink-0 text-warn" />
+            <span className="truncate font-medium text-text">{c.name}</span>
+          </div>
+        ),
+      },
+      {
+        key: 'kind',
+        header: '类型',
+        width: '96px',
+        cell: (c) => <span className="text-muted">{KIND_LABEL[c.kind] ?? c.kind}</span>,
+      },
+      {
+        key: 'secret',
+        header: '凭证',
+        width: '110px',
+        cell: (c) =>
+          c.has_secret ? <Badge status="online">已配置</Badge> : <Badge status="neutral">未配置</Badge>,
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '170px',
+        align: 'right',
+        cell: (c) => (
+          <ActionLinks>
+            <ActionLink disabled={!isAdmin || channelBusyId === c.id} onClick={() => void testChannel(c)}>
+              {channelBusyId === c.id ? '处理中' : '测试'}
+            </ActionLink>
+            <ActionLink disabled={!isAdmin} onClick={() => setEditingChannel(c)}>
+              编辑
+            </ActionLink>
+            <ActionLink
+              danger
+              disabled={!isAdmin}
+              aria-label="删除渠道"
+              title={isAdmin ? '删除渠道' : '需要 admin 角色'}
+              onClick={() => void removeChannel(c)}
+            >
+              删除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    [isAdmin, channelBusyId],
+  )
+
+  const historyColumns: Column<AlertHistory>[] = useMemo(
+    () => [
+      {
+        key: 'rule',
+        header: '规则',
+        cell: (h) => <span className="truncate font-medium text-text">{h.rule_name}</span>,
+      },
+      {
+        key: 'metric',
+        header: '触发条件',
+        width: '220px',
+        cell: (h) => (
+          <span className="font-[family-name:var(--font-mono)] text-xs text-muted">
+            {metricLabel(h.metric)} · 实测 {h.value} / 阈值 {h.threshold}
+          </span>
+        ),
+      },
+      {
+        key: 'notified',
+        header: '通知',
+        width: '90px',
+        cell: (h) => (
+          <Badge status={h.notified ? 'online' : 'warn'}>{h.notified ? '已通知' : '未通知'}</Badge>
+        ),
+      },
+      {
+        key: 'fired',
+        header: '触发时间',
+        width: '180px',
+        align: 'right',
+        cell: (h) => <span className="text-xs text-muted">{fmtTime(h.fired_at)}</span>,
+      },
+    ],
+    [],
+  )
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Button size="md" disabled={!canWriteRule} onClick={() => setEditingRule('new')}>
-            <Plus size={15} />
-            添加规则
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" size="md" onClick={() => setChannelsOpen(true)}>
-            <Radio size={15} />
-            通知渠道
-          </Button>
-          <Button variant="ghost" size="md" onClick={() => setHistoryOpen(true)}>
-            <History size={15} />
-            告警历史
-          </Button>
-          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
-            <SlidersHorizontal size={15} />
-            评估设置
-          </Button>
-        </div>
-      </div>
+      <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
-      {loadErr && rules.length === 0 && !loading && (
-        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
-          {loadErr}
-          <Button size="sm" variant="ghost" onClick={() => void load()}>
-            重试
-          </Button>
-        </p>
+      {tab === 'rules' && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="md" disabled={!canWriteRule} onClick={() => setEditingRule('new')}>
+                <Plus size={15} />
+                添加规则
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
+                刷新
+              </Button>
+              <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+                <SlidersHorizontal size={15} />
+                评估设置
+              </Button>
+            </div>
+          </div>
+
+          {loadErr && rules.length === 0 && !loading && (
+            <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+              {loadErr}
+              <Button size="sm" variant="ghost" onClick={() => void load()}>
+                重试
+              </Button>
+            </p>
+          )}
+
+          {loading ? (
+            <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+          ) : (
+            <Table
+              columns={ruleColumns}
+              rows={rules}
+              rowKey={(rule) => rule.id}
+              emptyText={
+                <EmptyState
+                  icon={<BellRing />}
+                  title="还没有告警规则"
+                  hint={
+                    channels.length === 0
+                      ? '先在「通知渠道」创建一个渠道,再「添加规则」。'
+                      : '点击「添加规则」创建你的第一条告警规则。'
+                  }
+                />
+              }
+            />
+          )}
+
+          {!canWriteRule && (
+            <p className="text-xs text-muted">
+              规则写操作需要 operator 或 admin 角色,渠道与设置需要 admin。
+            </p>
+          )}
+        </>
       )}
 
-      {loading ? (
-        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
-      ) : (
-        <Table
-          columns={columns}
-          rows={rules}
-          rowKey={(rule) => rule.id}
-          emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">还没有告警规则</span>
-              <span className="text-xs text-muted">
-                {channels.length === 0
-                  ? '先在「通知渠道」创建一个渠道,再「添加规则」。'
-                  : '点击「添加规则」创建你的第一条告警规则。'}
-              </span>
-            </span>
-          }
-        />
+      {tab === 'channels' && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="md" disabled={!isAdmin} onClick={() => setEditingChannel('new')}>
+                <Plus size={15} />
+                新增渠道
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
+                刷新
+              </Button>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted">凭证只写不回显;新建后可「测试」验证可达性。</p>
+
+          {channelFeedback && (
+            <p
+              className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+                channelFeedback.kind === 'ok'
+                  ? 'border-online/40 bg-online/10 text-online'
+                  : 'border-crit/40 bg-crit/10 text-crit'
+              }`}
+            >
+              {channelFeedback.text}
+            </p>
+          )}
+
+          {loadErr && channels.length === 0 && !loading && (
+            <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+              {loadErr}
+              <Button size="sm" variant="ghost" onClick={() => void load()}>
+                重试
+              </Button>
+            </p>
+          )}
+
+          {loading ? (
+            <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+          ) : (
+            <Table
+              columns={channelColumns}
+              rows={channels}
+              rowKey={(c) => c.id}
+              emptyText={
+                <EmptyState
+                  icon={<Radio />}
+                  title="还没有通知渠道"
+                  hint="点击「新增渠道」配置邮件 / Webhook / Telegram / 钉钉 / 企业微信 / 飞书。"
+                />
+              }
+            />
+          )}
+
+          {!isAdmin && <p className="text-xs text-muted">通知渠道操作需要 admin 角色。</p>}
+        </>
       )}
 
-      {!canWriteRule && (
-        <p className="text-xs text-muted">规则写操作需要 operator 或 admin 角色,渠道与设置需要 admin。</p>
+      {tab === 'history' && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="ghost" size="md" onClick={() => void loadHistory()}>
+                <History size={15} />
+                刷新
+              </Button>
+            </div>
+          </div>
+
+          {historyErr ? (
+            <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+              {historyErr}
+              <Button size="sm" variant="ghost" onClick={() => void loadHistory()}>
+                重试
+              </Button>
+            </p>
+          ) : history === null ? (
+            <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+          ) : (
+            <Table
+              columns={historyColumns}
+              rows={history}
+              rowKey={(h) => h.id}
+              emptyText={
+                <EmptyState
+                  icon={<History />}
+                  title="暂无告警记录"
+                  hint="规则触发后,这里会出现历史记录。"
+                />
+              }
+            />
+          )}
+        </>
       )}
 
       {editingRule && (
@@ -339,15 +594,17 @@ export default function Alert() {
           }}
         />
       )}
-      {channelsOpen && (
-        <ChannelsModal
-          channels={channels}
+      {editingChannel && (
+        <ChannelEditModal
+          channel={editingChannel === 'new' ? null : editingChannel}
           isAdmin={isAdmin}
-          onClose={() => setChannelsOpen(false)}
-          onChanged={() => void load()}
+          onClose={() => setEditingChannel(null)}
+          onSaved={() => {
+            setEditingChannel(null)
+            void load()
+          }}
         />
       )}
-      {historyOpen && <HistoryModal onClose={() => setHistoryOpen(false)} />}
       {settingsOpen && settings && (
         <SettingsModal
           settings={settings}
@@ -612,152 +869,6 @@ function channelToForm(c: Channel | null): ChannelFormState {
   }
 }
 
-/** ChannelsModal 通知渠道管理弹窗:渠道紧凑表 + 新建/编辑弹窗(凭证只写,可测试发送)。 */
-function ChannelsModal({
-  channels,
-  isAdmin,
-  onClose,
-  onChanged,
-}: {
-  channels: Channel[]
-  isAdmin: boolean
-  onClose: () => void
-  onChanged: () => void
-}) {
-  const [editing, setEditing] = useState<Channel | 'new' | null>(null)
-  const [busyId, setBusyId] = useState<number | null>(null)
-  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
-
-  async function test(c: Channel) {
-    if (!isAdmin) return
-    setBusyId(c.id)
-    setFeedback(null)
-    try {
-      await apiFetch(`/api/m/alert/channels/${c.id}/test`, { method: 'POST' })
-      setFeedback({ kind: 'ok', text: `测试消息已发送至 ${c.name}` })
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  async function remove(c: Channel) {
-    if (!isAdmin) return
-    if (!window.confirm(`确认删除渠道「${c.name}」?引用它的规则将失效。`)) return
-    setBusyId(c.id)
-    setFeedback(null)
-    try {
-      await apiFetch(`/api/m/alert/channels/${c.id}`, { method: 'DELETE', headers: DANGER })
-      setFeedback({ kind: 'ok', text: '渠道已删除' })
-      onChanged()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const columns: Column<Channel>[] = [
-    {
-      key: 'name',
-      header: '渠道名',
-      cell: (c) => (
-        <div className="flex min-w-0 items-center gap-2">
-          <SendHorizontal size={15} className="shrink-0 text-warn" />
-          <span className="truncate font-medium text-text">{c.name}</span>
-        </div>
-      ),
-    },
-    {
-      key: 'kind',
-      header: '类型',
-      width: '96px',
-      cell: (c) => <span className="text-muted">{KIND_LABEL[c.kind] ?? c.kind}</span>,
-    },
-    {
-      key: 'secret',
-      header: '凭证',
-      width: '110px',
-      cell: (c) =>
-        c.has_secret ? <Badge status="online">已配置</Badge> : <Badge status="neutral">未配置</Badge>,
-    },
-    {
-      key: 'actions',
-      header: '操作',
-      width: '170px',
-      align: 'right',
-      cell: (c) => (
-        <ActionLinks>
-          <ActionLink disabled={!isAdmin || busyId === c.id} onClick={() => void test(c)}>
-            {busyId === c.id ? '处理中' : '测试'}
-          </ActionLink>
-          <ActionLink disabled={!isAdmin} onClick={() => setEditing(c)}>
-            编辑
-          </ActionLink>
-          <ActionLink
-            danger
-            disabled={!isAdmin}
-            aria-label="删除渠道"
-            title={isAdmin ? '删除渠道' : '需要 admin 角色'}
-            onClick={() => void remove(c)}
-          >
-            删除
-          </ActionLink>
-        </ActionLinks>
-      ),
-    },
-  ]
-
-  if (editing) {
-    return (
-      <ChannelEditModal
-        channel={editing === 'new' ? null : editing}
-        isAdmin={isAdmin}
-        onClose={() => setEditing(null)}
-        onSaved={() => {
-          setEditing(null)
-          onChanged()
-        }}
-      />
-    )
-  }
-
-  return (
-    <Modal title="通知渠道" onClose={onClose} size="lg">
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-muted">凭证只写不回显;新建后可「测试」验证可达性。</p>
-          <Button size="sm" disabled={!isAdmin} onClick={() => setEditing('new')}>
-            <Plus size={14} />
-            新增渠道
-          </Button>
-        </div>
-
-        {feedback && (
-          <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
-            {feedback.text}
-          </p>
-        )}
-
-        <Table
-          columns={columns}
-          rows={channels}
-          rowKey={(c) => c.id}
-          emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">还没有通知渠道</span>
-              <span className="text-xs text-muted">点击「新增渠道」配置邮件 / Webhook / Telegram / 钉钉 / 企业微信 / 飞书。</span>
-            </span>
-          }
-        />
-
-        {!isAdmin && <p className="text-xs text-muted">通知渠道操作需要 admin 角色。</p>}
-      </div>
-    </Modal>
-  )
-}
-
 /** ChannelEditModal 新建/编辑通知渠道弹窗:类型切换展开对应字段,密钥只写(留空保持不变)。 */
 function ChannelEditModal({
   channel,
@@ -937,79 +1048,6 @@ function ChannelEditModal({
           </Button>
         </div>
       </div>
-    </Modal>
-  )
-}
-
-/** HistoryModal 告警历史弹窗:触发记录紧凑表,展示规则 / 指标实测值 / 是否已通知 / 触发时间。 */
-function HistoryModal({ onClose }: { onClose: () => void }) {
-  const [history, setHistory] = useState<AlertHistory[] | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    apiFetch<AlertHistory[]>('/api/m/alert/history')
-      .then((d) => alive && setHistory(d))
-      .catch((e) => alive && setErr(errorText(e)))
-    return () => {
-      alive = false
-    }
-  }, [])
-
-  const columns: Column<AlertHistory>[] = [
-    {
-      key: 'rule',
-      header: '规则',
-      cell: (h) => <span className="truncate font-medium text-text">{h.rule_name}</span>,
-    },
-    {
-      key: 'metric',
-      header: '触发条件',
-      width: '220px',
-      cell: (h) => (
-        <span className="font-[family-name:var(--font-mono)] text-xs text-muted">
-          {metricLabel(h.metric)} · 实测 {h.value} / 阈值 {h.threshold}
-        </span>
-      ),
-    },
-    {
-      key: 'notified',
-      header: '通知',
-      width: '90px',
-      cell: (h) => (
-        <Badge status={h.notified ? 'online' : 'warn'}>{h.notified ? '已通知' : '未通知'}</Badge>
-      ),
-    },
-    {
-      key: 'fired',
-      header: '触发时间',
-      width: '180px',
-      align: 'right',
-      cell: (h) => <span className="text-xs text-muted">{fmtTime(h.fired_at)}</span>,
-    },
-  ]
-
-  return (
-    <Modal title="告警历史" onClose={onClose} size="lg">
-      {err ? (
-        <p className="text-sm text-crit">{err}</p>
-      ) : history === null ? (
-        <div className="flex h-32 items-center justify-center">
-          <Spinner size={24} />
-        </div>
-      ) : (
-        <Table
-          columns={columns}
-          rows={history}
-          rowKey={(h) => h.id}
-          emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">暂无告警记录</span>
-              <span className="text-xs text-muted">规则触发后,这里会出现历史记录。</span>
-            </span>
-          }
-        />
-      )}
     </Modal>
   )
 }

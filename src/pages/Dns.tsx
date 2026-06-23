@@ -6,7 +6,8 @@ import { Modal } from '../components/Modal'
 import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
-import { Plus, Settings2, RefreshCw, Globe, X } from 'lucide-react'
+import { EmptyState } from '../components/EmptyState'
+import { Plus, Settings2, RefreshCw, Search, Globe, X } from 'lucide-react'
 import {
   type Domain,
   type DnsRecord,
@@ -30,6 +31,7 @@ export default function Dns() {
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [recordsLoading, setRecordsLoading] = useState(false)
   const [recErr, setRecErr] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
 
   const [addDomainOpen, setAddDomainOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -103,6 +105,18 @@ export default function Dns() {
     () => domains.find((d) => d.id === selected) ?? null,
     [domains, selected],
   )
+
+  const visible = useMemo(() => {
+    if (selected === null) return []
+    const q = query.trim().toLowerCase()
+    if (!q) return records
+    return records.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        r.value.toLowerCase().includes(q) ||
+        r.type.toLowerCase().includes(q),
+    )
+  }, [records, selected, query])
 
   const columns: Column<DnsRecord>[] = useMemo(
     () => [
@@ -188,15 +202,30 @@ export default function Dns() {
           </Button>
         </div>
         {selected !== null && (
-          <Button
-            variant="ghost"
-            size="md"
-            onClick={() => void loadRecords(selected)}
-            disabled={recordsLoading}
-          >
-            <RefreshCw size={15} className={recordsLoading ? 'animate-spin' : ''} />
-            刷新
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="relative w-56">
+              <Search
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+              />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜索主机记录、类型或记录值"
+                spellCheck={false}
+                className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="md"
+              onClick={() => void loadRecords(selected)}
+              disabled={recordsLoading}
+            >
+              <RefreshCw size={15} className={recordsLoading ? 'animate-spin' : ''} />
+              刷新
+            </Button>
+          </div>
         )}
       </div>
 
@@ -261,21 +290,28 @@ export default function Dns() {
       ) : (
         <Table
           columns={columns}
-          rows={selected === null ? [] : records}
+          rows={visible}
           rowKey={(r) => r.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {domains.length === 0 ? '还没有域名' : '该域名暂无解析记录'}
-              </span>
-              <span className="text-xs text-muted">
-                {domains.length === 0
+            <EmptyState
+              icon={<Globe />}
+              title={
+                domains.length === 0
+                  ? '还没有域名'
+                  : query.trim() && records.length > 0
+                    ? '没有匹配的记录'
+                    : '该域名暂无解析记录'
+              }
+              hint={
+                domains.length === 0
                   ? '点击「添加域名」开始管理你的 DNS。'
-                  : isAdmin
-                    ? '点击「添加记录」创建第一条解析。'
-                    : '记录的写操作需要 admin 角色。'}
-              </span>
-            </span>
+                  : query.trim() && records.length > 0
+                    ? '换个关键词试试。'
+                    : isAdmin
+                      ? '点击「添加记录」创建第一条解析。'
+                      : '记录的写操作需要 admin 角色。'
+              }
+            />
           }
         />
       )}

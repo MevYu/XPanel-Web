@@ -6,7 +6,8 @@ import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
-import { Search, ServerCog } from 'lucide-react'
+import { EmptyState } from '../components/EmptyState'
+import { RefreshCw, Search, ServerCog } from 'lucide-react'
 import { uid } from '../lib/uid'
 
 // 危险操作(停止服务)请求头,与各页约定一致;后端 admin 校验为权威。
@@ -217,6 +218,12 @@ export default function Service() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Button size="md" onClick={() => void load()} disabled={loading}>
+            <RefreshCw size={15} />
+            刷新
+          </Button>
+        </div>
         <div className="relative w-64">
           <Search
             size={15}
@@ -233,9 +240,6 @@ export default function Service() {
             className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           />
         </div>
-        <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
-          刷新
-        </Button>
       </div>
 
       {feedback && (
@@ -261,16 +265,15 @@ export default function Service() {
           rows={visible}
           rowKey={(s) => s.name}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {services.length === 0 ? '暂无服务' : '没有匹配的服务'}
-              </span>
-              <span className="text-xs text-muted">
-                {services.length === 0
+            <EmptyState
+              icon={<ServerCog />}
+              title={services.length === 0 ? '暂无服务' : '没有匹配的服务'}
+              hint={
+                services.length === 0
                   ? 'systemctl 未返回任何服务,或当前环境不支持。'
-                  : '换个关键词试试。'}
-              </span>
-            </span>
+                  : '换个关键词试试。'
+              }
+            />
           }
         />
       )}

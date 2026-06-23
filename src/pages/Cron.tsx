@@ -9,7 +9,7 @@ import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Plus, Clock } from 'lucide-react'
+import { Plus, Clock, Search } from 'lucide-react'
 import type {
   CronJob,
   CronJobType,
@@ -234,6 +234,7 @@ export default function Cron() {
   const isAdmin = role === 'admin'
 
   const [jobs, setJobs] = useState<CronJob[]>([])
+  const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [editing, setEditing] = useState<FormState | null>(null)
@@ -254,6 +255,16 @@ export default function Cron() {
   useEffect(() => {
     void load()
   }, [load])
+
+  const filteredJobs = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return jobs
+    return jobs.filter(
+      (j) =>
+        (j.comment || '').toLowerCase().includes(q) ||
+        TYPE_LABEL[j.type].toLowerCase().includes(q),
+    )
+  }, [jobs, query])
 
   async function toggle(job: CronJob, next: boolean) {
     if (readonly) return
@@ -309,6 +320,24 @@ export default function Cron() {
         ),
       },
       {
+        key: 'status',
+        header: '状态',
+        width: '150px',
+        cell: (job) => (
+          <div className="flex items-center gap-2.5">
+            <Switch
+              checked={job.enabled}
+              onChange={(next) => void toggle(job, next)}
+              disabled={readonly}
+              aria-label={`${job.enabled ? '停用' : '启用'} 任务 ${job.id}`}
+            />
+            <Badge status={job.enabled ? 'online' : 'neutral'}>
+              {job.enabled ? '运行中' : '已停用'}
+            </Badge>
+          </div>
+        ),
+      },
+      {
         key: 'type',
         header: '类型',
         width: '96px',
@@ -326,26 +355,13 @@ export default function Cron() {
       },
       {
         key: 'last',
-        header: '上次执行',
+        header: '最近执行',
         width: '210px',
         cell: (job) => (
           <span className="text-xs text-muted">
             {fmtTime(job.last_run_at)}
             {job.last_result ? <span className="text-text/60"> · {job.last_result}</span> : null}
           </span>
-        ),
-      },
-      {
-        key: 'status',
-        header: '状态',
-        width: '64px',
-        cell: (job) => (
-          <Switch
-            checked={job.enabled}
-            onChange={(next) => void toggle(job, next)}
-            disabled={readonly}
-            aria-label={`${job.enabled ? '停用' : '启用'} 任务 ${job.id}`}
-          />
         ),
       },
       {
@@ -380,11 +396,29 @@ export default function Cron() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button size="md" disabled={readonly} onClick={() => setEditing(emptyForm)}>
-          <Plus size={15} />
-          添加任务
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Button size="md" disabled={readonly} onClick={() => setEditing(emptyForm)}>
+            <Plus size={15} />
+            添加任务
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
+            刷新
+          </Button>
+        </div>
+        <div className="relative w-56">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索任务名或类型"
+            spellCheck={false}
+            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          />
+        </div>
       </div>
 
       {loadErr && jobs.length === 0 && !loading && (
@@ -401,14 +435,18 @@ export default function Cron() {
       ) : (
         <Table
           columns={columns}
-          rows={jobs}
+          rows={filteredJobs}
           rowKey={(job) => job.id}
           emptyText={
-            <EmptyState
-              icon={<Clock />}
-              title="还没有定时任务"
-              hint="点击「添加任务」创建你的第一个计划任务。"
-            />
+            query.trim() ? (
+              <EmptyState icon={<Search />} title="没有匹配的任务" hint="换个关键词再试。" />
+            ) : (
+              <EmptyState
+                icon={<Clock />}
+                title="还没有定时任务"
+                hint="点击「添加任务」创建你的第一个计划任务。"
+              />
+            )
           }
         />
       )}

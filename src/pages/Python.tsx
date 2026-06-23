@@ -4,6 +4,8 @@ import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
+import { InstallGate } from '../components/InstallGate'
 import { Plus, Settings2, Search, Code2 } from 'lucide-react'
 import {
   type Project,
@@ -227,6 +229,7 @@ export default function Python() {
   const logsProject = logsId == null ? null : (projects.find((p) => p.id === logsId) ?? null)
 
   return (
+    <InstallGate moduleId="python">
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -276,16 +279,15 @@ export default function Python() {
           rows={visible}
           rowKey={(p) => p.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {projects.length === 0 ? '还没有 Python 项目' : '没有匹配的项目'}
-              </span>
-              <span className="text-xs text-muted">
-                {projects.length === 0
+            <EmptyState
+              icon={<Code2 />}
+              title={projects.length === 0 ? '还没有 Python 项目' : '没有匹配的项目'}
+              hint={
+                projects.length === 0
                   ? '点击「添加项目」创建第一个 venv 项目。'
-                  : '换个关键词试试。'}
-              </span>
-            </span>
+                  : '换个关键词试试。'
+              }
+            />
           }
         />
       )}
@@ -313,5 +315,6 @@ export default function Python() {
       {settingsOpen && <SettingsModal isAdmin={isAdmin} onClose={() => setSettingsOpen(false)} />}
       {logsProject && <LogsModal project={logsProject} onClose={() => setLogsId(null)} />}
     </div>
+    </InstallGate>
   )
 }

@@ -8,7 +8,19 @@ import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Input } from '../components/Input'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
-import { ScanSearch, Play, SlidersHorizontal, ShieldAlert, Eye, RefreshCw } from 'lucide-react'
+import { EmptyState } from '../components/EmptyState'
+import {
+  ScanSearch,
+  Play,
+  SlidersHorizontal,
+  ShieldAlert,
+  ShieldCheck,
+  Eye,
+  RefreshCw,
+  History,
+  Inbox,
+  ListChecks,
+} from 'lucide-react'
 import { formatTime } from '../lib/formatTime'
 
 function errorText(e: unknown): string {
@@ -22,6 +34,22 @@ function fmtTime(unix: number | null): string {
 
 const DANGER = { 'X-Confirm-Danger': '1' }
 type Feedback = { kind: 'ok' | 'err'; text: string } | null
+
+/** FeedbackBanner 操作反馈条:对齐 Ftp/Sites 的带边框底色横幅。 */
+function FeedbackBanner({ feedback }: { feedback: Feedback }) {
+  if (!feedback) return null
+  return (
+    <p
+      className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+        feedback.kind === 'ok'
+          ? 'border-online/40 bg-online/10 text-online'
+          : 'border-crit/40 bg-crit/10 text-crit'
+      }`}
+    >
+      {feedback.text}
+    </p>
+  )
+}
 
 interface Task {
   id: number
@@ -263,11 +291,7 @@ function ScanBar({
       {canWrite && !isAdmin && (
         <p className="text-xs text-muted">隔离与还原需要 admin 角色,忽略需要 operator。</p>
       )}
-      {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
-          {feedback.text}
-        </p>
-      )}
+      <FeedbackBanner feedback={feedback} />
     </div>
   )
 }
@@ -486,23 +510,16 @@ function HitsTable({
           rows={hits}
           rowKey={(h) => h.id}
           emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">
-                {taskId == null ? '还没有扫描记录' : '未发现可疑文件'}
-              </span>
-              <span className="text-xs text-muted">
-                {taskId == null ? '在上方填写目录并开始扫描。' : '该次扫描很干净,继续保持。'}
-              </span>
-            </span>
+            <EmptyState
+              icon={taskId == null ? <ScanSearch /> : <ShieldCheck />}
+              title={taskId == null ? '还没有扫描记录' : '未发现可疑文件'}
+              hint={taskId == null ? '在上方填写目录并开始扫描。' : '该次扫描很干净,继续保持。'}
+            />
           }
         />
       )}
 
-      {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
-          {feedback.text}
-        </p>
-      )}
+      <FeedbackBanner feedback={feedback} />
 
       {detail && <HitDetail hit={detail} time={hitTime} onClose={() => setDetail(null)} />}
     </div>
@@ -643,7 +660,13 @@ function HistoryTable({
           rows={tasks}
           rowKey={(t) => t.id}
           onRowClick={(t) => onSelect(t.id)}
-          emptyText="暂无扫描任务,发起一次扫描试试。"
+          emptyText={
+            <EmptyState
+              icon={<History />}
+              title="暂无扫描任务"
+              hint="在上方发起一次扫描,记录会出现在这里。"
+            />
+          }
         />
       )}
       {selectedId != null && tasks.length > 0 && (
@@ -754,13 +777,16 @@ function Quarantines({ isAdmin }: { isAdmin: boolean }) {
           {loadErr}
         </p>
       ) : (
-        <Table columns={columns} rows={active} rowKey={(q) => q.id} emptyText="隔离区为空。" />
+        <Table
+          columns={columns}
+          rows={active}
+          rowKey={(q) => q.id}
+          emptyText={
+            <EmptyState icon={<Inbox />} title="隔离区为空" hint="被隔离的文件会出现在这里,可随时还原。" />
+          }
+        />
       )}
-      {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
-          {feedback.text}
-        </p>
-      )}
+      <FeedbackBanner feedback={feedback} />
     </div>
   )
 }
@@ -853,11 +879,7 @@ function SettingsModal({ canEdit, onClose }: { canEdit: boolean; onClose: () => 
             />
           </div>
           {!canEdit && <p className="text-xs text-muted">修改扫描配置需要 admin 角色。</p>}
-          {feedback && (
-            <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
-              {feedback.text}
-            </p>
-          )}
+          <FeedbackBanner feedback={feedback} />
           <div className="flex items-center justify-end gap-2">
             <Button variant="ghost" onClick={onClose}>
               关闭
@@ -922,7 +944,12 @@ function Rules() {
           {loadErr}
         </p>
       ) : (
-        <Table columns={columns} rows={rules} rowKey={(r) => r.id} emptyText="无内置规则。" />
+        <Table
+          columns={columns}
+          rows={rules}
+          rowKey={(r) => r.id}
+          emptyText={<EmptyState icon={<ListChecks />} title="无内置规则" />}
+        />
       )}
     </div>
   )

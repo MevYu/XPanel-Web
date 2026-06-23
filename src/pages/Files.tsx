@@ -30,10 +30,13 @@ import {
   WrapText,
   Maximize2,
   Minimize2,
+  FolderOpen,
 } from 'lucide-react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
+import { ActionLink, ActionLinks } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { IconButton } from '../components/IconButton'
@@ -719,11 +722,11 @@ export default function Files() {
           <p className="p-5 text-sm text-crit">{err}</p>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <table className="w-full border-collapse text-sm">
+            <table className="w-full border-collapse text-[13px]">
               <thead className="sticky top-0 z-20 bg-surface">
-                <tr className="border-b border-border text-xs text-muted">
+                <tr className="border-b border-border">
                 {canWrite && (
-                  <th className="w-10 px-4 py-2.5 text-left font-medium">
+                  <th className="h-10 w-10 px-3 text-left text-xs font-medium text-muted">
                     <input
                       type="checkbox"
                       checked={visible.length > 0 && selected.size === visible.length}
@@ -735,29 +738,29 @@ export default function Files() {
                     />
                   </th>
                 )}
-                <th className="px-4 py-2.5 text-left font-medium">名称</th>
-                <th className="hidden w-52 px-4 py-2.5 text-left font-medium md:table-cell">
+                <th className="h-10 px-3 text-left text-xs font-medium text-muted">名称</th>
+                <th className="hidden h-10 w-52 px-3 text-left text-xs font-medium text-muted md:table-cell">
                   权限 · 属主
                 </th>
-                <th className="hidden w-28 px-4 py-2.5 text-right font-medium sm:table-cell">
+                <th className="hidden h-10 w-28 px-3 text-right text-xs font-medium text-muted sm:table-cell">
                   大小
                 </th>
-                <th className="hidden w-44 px-4 py-2.5 text-left font-medium lg:table-cell">
+                <th className="hidden h-10 w-44 px-3 text-left text-xs font-medium text-muted lg:table-cell">
                   修改时间
                 </th>
-                <th className="px-4 py-2.5 text-right font-medium">操作</th>
+                <th className="h-10 px-3 text-right text-xs font-medium text-muted">操作</th>
               </tr>
             </thead>
             <tbody>
               {cwd && (
                 <tr
-                  className="cursor-pointer border-b border-border/60 hover:bg-surface-2"
+                  className="cursor-pointer border-b border-border/60 hover:bg-surface-2/60"
                   onClick={() => setCwd(parentPath(cwd))}
                   title="返回上级"
                 >
-                  {canWrite && <td className="sticky top-[37px] z-10 bg-surface px-4 py-2.5" />}
+                  {canWrite && <td className="sticky top-[40px] z-10 h-[38px] bg-surface px-3" />}
                   <td
-                    className="sticky top-[37px] z-10 bg-surface px-4 py-2.5"
+                    className="sticky top-[40px] z-10 h-[38px] bg-surface px-3"
                     colSpan={5}
                   >
                     <span className="font-[family-name:var(--font-mono)] text-muted">
@@ -768,15 +771,19 @@ export default function Files() {
               )}
               {visible.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-center text-muted" colSpan={canWrite ? 6 : 5}>
-                    空目录。
+                  <td colSpan={canWrite ? 6 : 5}>
+                    <EmptyState
+                      icon={<FolderOpen />}
+                      title="空目录"
+                      hint="此目录下还没有文件。"
+                    />
                   </td>
                 </tr>
               ) : (
                 visible.map((entry) => (
                   <tr
                     key={entry.name}
-                    className="group cursor-pointer border-b border-border/60 hover:bg-surface-2"
+                    className="group cursor-pointer border-b border-border/60 last:border-b-0 hover:bg-surface-2/60"
                     onContextMenu={(e) => ctxMenu(e, entry)}
                     onClick={() => {
                       // 目录单击即进入(对齐 aaPanel);文件单击选中,双击进编辑器。
@@ -788,7 +795,7 @@ export default function Files() {
                     }}
                   >
                     {canWrite && (
-                      <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                      <td className="h-[38px] px-3" onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
                           checked={selected.has(entry.name)}
@@ -796,7 +803,7 @@ export default function Files() {
                         />
                       </td>
                     )}
-                    <td className="px-4 py-2.5">
+                    <td className="h-[38px] px-3">
                       <div
                         className="flex min-w-0 items-center gap-2.5 text-left"
                         title={entry.is_dir ? '单击进入目录' : '双击编辑'}
@@ -809,14 +816,14 @@ export default function Files() {
                         </span>
                       </div>
                     </td>
-                    <td className="hidden whitespace-nowrap px-4 py-2.5 font-[family-name:var(--font-mono)] text-xs text-muted md:table-cell">
+                    <td className="hidden h-[38px] whitespace-nowrap px-3 font-[family-name:var(--font-mono)] text-xs text-muted md:table-cell">
                       {modeOctal(entry.mode)}
                       {'  '}
                       <span className="text-faint">
                         {entry.owner}:{entry.group}
                       </span>
                     </td>
-                    <td className="hidden px-4 py-2.5 text-right font-[family-name:var(--font-mono)] text-xs text-muted sm:table-cell">
+                    <td className="hidden h-[38px] px-3 text-right font-[family-name:var(--font-mono)] text-xs text-muted sm:table-cell">
                       {entry.is_dir ? (
                         dirSizes[entry.name] ? (
                           formatBytes(dirSizes[entry.name].bytes)
@@ -832,31 +839,35 @@ export default function Files() {
                         formatBytes(entry.size)
                       )}
                     </td>
-                    <td className="hidden px-4 py-2.5 text-xs text-muted lg:table-cell">
+                    <td className="hidden h-[38px] px-3 text-xs text-muted lg:table-cell">
                       {fmtTime(entry.mod_time)}
                     </td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center justify-end gap-2 opacity-0 transition group-hover:opacity-100 [&>*+*]:before:mr-2 [&>*+*]:before:text-border [&>*+*]:before:content-['|']">
-                        {!entry.is_dir && (
-                          <RowLink onClick={() => void download(entry)}>下载</RowLink>
-                        )}
-                        {!entry.is_dir && canWrite && (
-                          <RowLink onClick={() => void openEditor(entry)}>编辑</RowLink>
-                        )}
-                        {canWrite && (
-                          <>
-                            <RowLink onClick={() => setDialog({ kind: 'chmod', entries: [entry] })}>
+                    <td className="h-[38px] px-3">
+                      <span className="flex justify-end opacity-0 transition group-hover:opacity-100">
+                        <ActionLinks>
+                          {!entry.is_dir && (
+                            <ActionLink onClick={() => void download(entry)}>下载</ActionLink>
+                          )}
+                          {!entry.is_dir && canWrite && (
+                            <ActionLink onClick={() => void openEditor(entry)}>编辑</ActionLink>
+                          )}
+                          {canWrite && (
+                            <ActionLink onClick={() => setDialog({ kind: 'chmod', entries: [entry] })}>
                               权限
-                            </RowLink>
-                            <RowLink onClick={() => setDialog({ kind: 'rename', entry })}>
+                            </ActionLink>
+                          )}
+                          {canWrite && (
+                            <ActionLink onClick={() => setDialog({ kind: 'rename', entry })}>
                               重命名
-                            </RowLink>
-                            <RowLink danger onClick={() => void remove(entry)}>
+                            </ActionLink>
+                          )}
+                          {canWrite && (
+                            <ActionLink danger onClick={() => void remove(entry)}>
                               删除
-                            </RowLink>
-                          </>
-                        )}
-                      </div>
+                            </ActionLink>
+                          )}
+                        </ActionLinks>
+                      </span>
                     </td>
                   </tr>
                 ))
@@ -1208,31 +1219,6 @@ function MenuItem({
     >
       <span className="text-muted">{icon}</span>
       {label}
-    </button>
-  )
-}
-
-function RowLink({
-  onClick,
-  children,
-  danger,
-}: {
-  onClick: () => void
-  children: React.ReactNode
-  danger?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation()
-        onClick()
-      }}
-      className={`text-[13px] outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60 ${
-        danger ? 'text-muted hover:text-crit' : 'text-muted hover:text-brand'
-      }`}
-    >
-      {children}
     </button>
   )
 }
@@ -2008,7 +1994,7 @@ function TrashModal({
                     </td>
                     <td className="px-3 py-2 text-xs text-muted">{fmtTime(it.deleted_at)}</td>
                     <td className="px-3 py-2 text-right">
-                      <RowLink onClick={() => void restore(it.id)}>还原</RowLink>
+                      <ActionLink onClick={() => void restore(it.id)}>还原</ActionLink>
                     </td>
                   </tr>
                 ))}

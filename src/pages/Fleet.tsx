@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
@@ -6,6 +6,9 @@ import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
+import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+import { EmptyState } from '../components/EmptyState'
+import { KeyRound, Search, Server } from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -74,6 +77,7 @@ export default function Fleet() {
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [query, setQuery] = useState('')
 
   const [enrollToken, setEnrollToken] = useState<string | null>(null)
 
@@ -99,36 +103,42 @@ export default function Fleet() {
     void load()
   }, [load])
 
-  async function approve(n: Node) {
-    if (busy || !isAdmin) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      await apiFetch(`/api/m/fleet/nodes/${encodeURIComponent(n.id)}/approve`, { method: 'POST' })
-      setFeedback({ kind: 'ok', text: `节点 ${n.id} 已审批` })
-      await load()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
+  const approve = useCallback(
+    async (n: Node) => {
+      if (busy || !isAdmin) return
+      setBusy(true)
+      setFeedback(null)
+      try {
+        await apiFetch(`/api/m/fleet/nodes/${encodeURIComponent(n.id)}/approve`, { method: 'POST' })
+        setFeedback({ kind: 'ok', text: `节点 ${n.id} 已审批` })
+        await load()
+      } catch (e) {
+        setFeedback({ kind: 'err', text: errorText(e) })
+      } finally {
+        setBusy(false)
+      }
+    },
+    [busy, isAdmin, load],
+  )
 
-  async function remove(n: Node) {
-    if (busy || !isAdmin) return
-    if (!window.confirm(`确认移除节点 ${n.id}?`)) return
-    setBusy(true)
-    setFeedback(null)
-    try {
-      await apiFetch(`/api/m/fleet/nodes/${encodeURIComponent(n.id)}`, { method: 'DELETE' })
-      setFeedback({ kind: 'ok', text: `节点 ${n.id} 已移除` })
-      await load()
-    } catch (e) {
-      setFeedback({ kind: 'err', text: errorText(e) })
-    } finally {
-      setBusy(false)
-    }
-  }
+  const remove = useCallback(
+    async (n: Node) => {
+      if (busy || !isAdmin) return
+      if (!window.confirm(`确认移除节点 ${n.id}?`)) return
+      setBusy(true)
+      setFeedback(null)
+      try {
+        await apiFetch(`/api/m/fleet/nodes/${encodeURIComponent(n.id)}`, { method: 'DELETE' })
+        setFeedback({ kind: 'ok', text: `节点 ${n.id} 已移除` })
+        await load()
+      } catch (e) {
+        setFeedback({ kind: 'err', text: errorText(e) })
+      } finally {
+        setBusy(false)
+      }
+    },
+    [busy, isAdmin, load],
+  )
 
   async function genToken() {
     if (busy || !isAdmin) return
@@ -196,94 +206,180 @@ export default function Fleet() {
     })
   }
 
-  if (loading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <Spinner size={24} />
-      </div>
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return nodes
+    return nodes.filter(
+      (n) =>
+        n.id.toLowerCase().includes(q) ||
+        n.name.toLowerCase().includes(q) ||
+        n.tags.toLowerCase().includes(q),
     )
-  }
+  }, [nodes, query])
+
+  const columns: Column<Node>[] = useMemo(
+    () => [
+      {
+        key: 'name',
+        header: '名称',
+        cell: (n) => (
+          <span className="inline-flex items-center gap-2 font-medium text-text">
+            <Server size={15} className="shrink-0 text-brand" />
+            <span className="truncate">{n.name || n.id}</span>
+          </span>
+        ),
+      },
+      {
+        key: 'id',
+        header: '节点 ID',
+        cell: (n) => (
+          <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
+            {n.id}
+          </span>
+        ),
+      },
+      {
+        key: 'status',
+        header: '状态',
+        width: '96px',
+        cell: (n) =>
+          n.status === 'pending' ? (
+            <Badge status="warn">待审批</Badge>
+          ) : isOnline(n) ? (
+            <Badge status="online">在线</Badge>
+          ) : (
+            <Badge status="neutral">离线</Badge>
+          ),
+      },
+      {
+        key: 'tags',
+        header: '标签',
+        width: '140px',
+        cell: (n) => (
+          <span className="truncate text-xs text-muted">{n.tags || '—'}</span>
+        ),
+      },
+      {
+        key: 'version',
+        header: '版本',
+        width: '80px',
+        cell: (n) => (
+          <span className="font-[family-name:var(--font-mono)] text-xs text-muted">
+            v{n.version || '—'}
+          </span>
+        ),
+      },
+      {
+        key: 'actions',
+        header: '操作',
+        width: '130px',
+        align: 'right',
+        cell: (n) => (
+          <ActionLinks>
+            {n.status === 'pending' && (
+              <ActionLink
+                disabled={busy || !isAdmin}
+                title={isAdmin ? '审批节点' : '需要 admin 角色'}
+                onClick={() => void approve(n)}
+              >
+                审批
+              </ActionLink>
+            )}
+            <ActionLink
+              danger
+              disabled={busy || !isAdmin}
+              aria-label="移除节点"
+              title={isAdmin ? '移除节点' : '需要 admin 角色'}
+              onClick={() => void remove(n)}
+            >
+              移除
+            </ActionLink>
+          </ActionLinks>
+        ),
+      },
+    ],
+    [isAdmin, busy, approve, remove],
+  )
 
   return (
     <div className="flex flex-col gap-4">
-      {loadErr && <p className="text-sm text-crit">{loadErr}</p>}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Button size="md" disabled={busy || !isAdmin} onClick={() => void genToken()}>
+            <KeyRound size={15} />
+            生成入网 token
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => void load()} disabled={busy}>
+            刷新
+          </Button>
+        </div>
+        <div className="relative w-56">
+          <Search
+            size={15}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索名称、ID 或标签"
+            spellCheck={false}
+            className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+          />
+        </div>
+      </div>
+
+      {enrollToken && (
+        <div className="flex flex-col gap-1.5 rounded-(--radius-card) border border-warn/40 bg-warn/10 p-3">
+          <span className="text-xs text-warn">入网 token 仅展示一次,请立即复制保存。</span>
+          <code className="break-all font-[family-name:var(--font-mono)] text-xs text-text">
+            {enrollToken}
+          </code>
+        </div>
+      )}
+
       {feedback && (
-        <p className={`text-sm ${feedback.kind === 'ok' ? 'text-online' : 'text-crit'}`}>
+        <p
+          className={`rounded-(--radius-card) border px-3 py-2 text-sm ${
+            feedback.kind === 'ok'
+              ? 'border-online/40 bg-online/10 text-online'
+              : 'border-crit/40 bg-crit/10 text-crit'
+          }`}
+        >
           {feedback.text}
         </p>
       )}
 
-      <Card className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-text">入网 token</h2>
-          <Button size="sm" onClick={() => void genToken()} disabled={busy || !isAdmin}>
-            生成 token
+      {loadErr && nodes.length === 0 && !loading && (
+        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+          {loadErr}
+          <Button size="sm" variant="ghost" onClick={() => void load()}>
+            重试
           </Button>
-        </div>
-        {enrollToken ? (
-          <div className="flex flex-col gap-1.5 rounded-(--radius-card) bg-surface-2 p-3">
-            <span className="text-xs text-warn">此 token 仅展示一次,请立即复制保存。</span>
-            <code className="break-all font-[family-name:var(--font-mono)] text-xs text-text">
-              {enrollToken}
-            </code>
-          </div>
-        ) : (
-          <p className="text-xs text-muted">生成一次性入网 token 供新 agent 加入集群。</p>
-        )}
-        {!isAdmin && <p className="text-xs text-muted">节点审批与命令下发需要 admin 角色。</p>}
-      </Card>
+        </p>
+      )}
 
-      <Card className="p-0">
-        <div className="flex items-center justify-between px-5 py-3">
-          <span className="text-sm font-medium text-text">节点列表</span>
-          <Button size="sm" variant="ghost" onClick={() => void load()} disabled={busy}>
-            刷新
-          </Button>
-        </div>
-        {nodes.length === 0 ? (
-          <p className="px-5 pb-4 text-sm text-muted">暂无节点。</p>
-        ) : (
-          <div className="divide-y divide-border border-t border-border">
-            {nodes.map((n) => (
-              <div key={n.id} className="flex items-center gap-3 px-5 py-3.5">
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-text">
-                      {n.name || n.id}
-                    </span>
-                    {n.status === 'pending' ? (
-                      <Badge status="warn">待审批</Badge>
-                    ) : isOnline(n) ? (
-                      <Badge status="online">在线</Badge>
-                    ) : (
-                      <Badge status="neutral">离线</Badge>
-                    )}
-                    {n.tags && <Badge status="neutral">{n.tags}</Badge>}
-                  </div>
-                  <span className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">
-                    {n.id} · v{n.version || '—'}
-                  </span>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {n.status === 'pending' && (
-                    <Button size="sm" onClick={() => void approve(n)} disabled={busy || !isAdmin}>
-                      审批
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => void remove(n)}
-                    disabled={busy || !isAdmin}
-                  >
-                    移除
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      {loading ? (
+        <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
+      ) : (
+        <Table
+          columns={columns}
+          rows={visible}
+          rowKey={(n) => n.id}
+          emptyText={
+            <EmptyState
+              icon={<Server />}
+              title={nodes.length === 0 ? '还没有节点' : '没有匹配的节点'}
+              hint={
+                nodes.length === 0
+                  ? '点击「生成入网 token」让新 agent 加入集群。'
+                  : '换个关键词试试。'
+              }
+            />
+          }
+        />
+      )}
+
+      {!isAdmin && <p className="text-xs text-muted">节点审批、移除与命令下发需要 admin 角色。</p>}
 
       <Card className="flex flex-col gap-4">
         <h2 className="text-sm font-medium text-text">执行命令</h2>
@@ -343,42 +439,78 @@ export default function Fleet() {
             <Badge status="crit">失败 {job.summary.failed}</Badge>
             <Badge status="warn">超时 {job.summary.timeout}</Badge>
           </div>
-          {job.results.length === 0 ? (
-            <p className="text-sm text-muted">该任务无目标节点。</p>
-          ) : (
-            <div className="divide-y divide-border rounded-(--radius-card) border border-border">
-              {job.results.map((r) => {
-                const meta = resultStatus[r.status] ?? resultStatus.pending
-                const open = openRows.has(r.node_id)
-                return (
-                  <div key={r.node_id} className="flex flex-col gap-2 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <span className="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-sm text-text">
-                        {r.node_id}
-                      </span>
-                      <Badge status={meta.badge}>{meta.label}</Badge>
-                      <span className="font-[family-name:var(--font-mono)] text-xs text-muted">
-                        exit {r.exit_code} · {r.duration_ms}ms
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => toggleRow(r.node_id)}
-                        disabled={!r.output}
-                      >
-                        {open ? '收起' : '输出'}
-                      </Button>
-                    </div>
-                    {open && r.output && (
-                      <pre className="overflow-x-auto rounded-(--radius-card) bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs text-muted">
-                        {r.output}
-                      </pre>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
+          <Table
+            columns={[
+              {
+                key: 'node_id',
+                header: '节点 ID',
+                cell: (r: JobResult) => (
+                  <span className="truncate font-[family-name:var(--font-mono)] text-xs text-text">
+                    {r.node_id}
+                  </span>
+                ),
+              },
+              {
+                key: 'status',
+                header: '状态',
+                width: '96px',
+                cell: (r: JobResult) => {
+                  const meta = resultStatus[r.status] ?? resultStatus.pending
+                  return <Badge status={meta.badge}>{meta.label}</Badge>
+                },
+              },
+              {
+                key: 'exit',
+                header: '退出码',
+                width: '80px',
+                align: 'right',
+                cell: (r: JobResult) => (
+                  <span className="font-[family-name:var(--font-mono)] text-xs text-muted tabular-nums">
+                    {r.exit_code}
+                  </span>
+                ),
+              },
+              {
+                key: 'duration',
+                header: '耗时',
+                width: '90px',
+                align: 'right',
+                cell: (r: JobResult) => (
+                  <span className="font-[family-name:var(--font-mono)] text-xs text-muted tabular-nums">
+                    {r.duration_ms}ms
+                  </span>
+                ),
+              },
+              {
+                key: 'actions',
+                header: '操作',
+                width: '70px',
+                align: 'right',
+                cell: (r: JobResult) => (
+                  <ActionLinks>
+                    <ActionLink disabled={!r.output} onClick={() => toggleRow(r.node_id)}>
+                      {openRows.has(r.node_id) ? '收起' : '输出'}
+                    </ActionLink>
+                  </ActionLinks>
+                ),
+              },
+            ]}
+            rows={job.results}
+            rowKey={(r) => r.node_id}
+            emptyText="该任务无目标节点。"
+          />
+          {job.results
+            .filter((r) => openRows.has(r.node_id) && r.output)
+            .map((r) => (
+              <div key={r.node_id} className="flex flex-col gap-1.5">
+                <span className="font-[family-name:var(--font-mono)] text-xs text-muted">
+                  {r.node_id}
+                </span>
+                <pre className="overflow-x-auto rounded-(--radius-card) border border-border bg-surface-2 p-3 font-[family-name:var(--font-mono)] text-xs text-muted">
+                  {r.output}
+                </pre>
+              </div>
+            ))}
         </Card>
       )}
     </div>
