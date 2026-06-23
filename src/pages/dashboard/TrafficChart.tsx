@@ -50,6 +50,7 @@ export default function TrafficChart({ series, labelA, labelB }: Props) {
           tickLine={false}
           width={64}
           domain={[0, 'auto']}
+          tickCount={6}
         />
         <Tooltip
           isAnimationActive={false}

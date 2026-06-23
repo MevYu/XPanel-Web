@@ -53,9 +53,9 @@ export function Gauge({ pct, reading, unit, label, detail, size = 164 }: GaugePr
   const level = levelFor(pct)
   const clamped = clampPct(pct)
 
-  // 超细描边对齐 aaPanel(大环 4px);小环略增厚保持可见。读数字号随直径缩放。
+  // 大环描边 7px;小环略增厚保持可见。读数字号随直径缩放。
   const compact = size < 120
-  const stroke = compact ? 6 : 4
+  const stroke = compact ? 6 : 7
   const readingClass = compact ? 'text-xl' : 'text-[2.6rem]'
   const unitClass = compact ? 'text-xs' : 'text-lg'
 

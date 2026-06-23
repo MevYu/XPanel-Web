@@ -1,5 +1,6 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { apiFetch } from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 import { useModules } from '../hooks/useModules'
 import { Card } from '../components/Card'
 import { Switch } from '../components/Switch'
@@ -21,11 +22,42 @@ const ALL = '全部'
 /** Modules 模块管理:工具栏(搜索 + 分类筛选)+ 紧凑表,逐行开关启用/停用。 */
 export default function Modules() {
   const { all, loading, error, reload } = useModules()
+  const { role } = useAuth()
+  const isAdmin = role === 'admin'
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState(ALL)
   // 逐行启停的进行中/失败态,按模块 id 索引。
   const [busy, setBusy] = useState<Record<string, boolean>>({})
   const [rowErr, setRowErr] = useState<Record<string, string>>({})
+  // 「展示到首页」有序 id 列表(home-apps 配置);开关切换即整列表回存。
+  const [homeApps, setHomeApps] = useState<string[]>([])
+  const [homeBusy, setHomeBusy] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    apiFetch<{ modules: string[] }>('/api/m/dashboard/home-apps')
+      .then((res) => setHomeApps(res.modules ?? []))
+      .catch(() => setHomeApps([]))
+  }, [])
+
+  async function toggleHome(m: ModuleView, next: boolean) {
+    if (homeBusy[m.id]) return
+    const updated = next
+      ? [...homeApps.filter((id) => id !== m.id), m.id]
+      : homeApps.filter((id) => id !== m.id)
+    const prev = homeApps
+    setHomeApps(updated)
+    setHomeBusy((b) => ({ ...b, [m.id]: true }))
+    try {
+      await apiFetch('/api/m/dashboard/home-apps', {
+        method: 'PUT',
+        body: JSON.stringify({ modules: updated }),
+      })
+    } catch {
+      setHomeApps(prev) // 回滚:保存失败不留下乐观态
+    } finally {
+      setHomeBusy((b) => ({ ...b, [m.id]: false }))
+    }
+  }
 
   const categories = useMemo(() => {
     const out: string[] = []
@@ -112,6 +144,24 @@ export default function Modules() {
         },
       },
       {
+        key: 'home',
+        header: '展示到首页',
+        width: '120px',
+        align: 'right',
+        cell: (m) =>
+          // 仅已启用模块可上首页;非 admin 不显示开关。
+          isAdmin && m.enabled ? (
+            <Switch
+              checked={homeApps.includes(m.id)}
+              onChange={(next) => void toggleHome(m, next)}
+              disabled={!!homeBusy[m.id]}
+              aria-label={`${homeApps.includes(m.id) ? '从首页移除' : '展示到首页'} ${m.name}`}
+            />
+          ) : (
+            <span className="text-xs text-muted">—</span>
+          ),
+      },
+      {
         key: 'status',
         header: '状态',
         width: '120px',
@@ -129,8 +179,8 @@ export default function Modules() {
         ),
       },
     ],
-    // toggle/状态闭包依赖 busy/rowErr,随之刷新。
-    [busy, rowErr],
+    // toggle/状态闭包依赖 busy/rowErr/homeApps/homeBusy/isAdmin,随之刷新。
+    [busy, rowErr, homeApps, homeBusy, isAdmin],
   )
 
   if (loading && all.length === 0) {

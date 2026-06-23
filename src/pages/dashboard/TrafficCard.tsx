@@ -31,6 +31,9 @@ type Tab = 'net' | 'disk'
 // 下拉「全部」聚合所有设备的哨兵值(空串避免与真实设备名冲突)。
 const ALL = ''
 
+// 只保留真实块设备:剔除 loop/ram/fd 等伪设备,仅列 nvme/sd/vd/dm-/xvd 这类真盘。
+export const isRealDisk = (name: string) => /^(nvme|sd|vd|xvd|dm-)/.test(name)
+
 /** TrafficCard aaPanel Traffic 卡:实时上下行/读写折线 + 累计总量,可切流量/磁盘 IO、选具体设备。 */
 export function TrafficCard({ detail, net, history, error }: Props) {
   const [tab, setTab] = useState<Tab>('net')
@@ -45,12 +48,12 @@ export function TrafficCard({ detail, net, history, error }: Props) {
 
   const devices = isNet
     ? detail?.network.map((n) => n.name) ?? []
-    : detail?.disk_io.map((d) => d.name) ?? []
+    : detail?.disk_io.map((d) => d.name).filter(isRealDisk) ?? []
 
   return (
     <Card className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-6">
           <TabButton active={isNet} onClick={() => switchTab('net')}>
             流量
           </TabButton>
@@ -139,7 +142,7 @@ function Body({
         <Cell label={isNet ? '累计发送' : '累计写'} value={formatBytes(totalA)} />
         <Cell label={isNet ? '累计接收' : '累计读'} value={formatBytes(totalB)} />
       </div>
-      <div className="h-44">
+      <div className="h-56">
         <Suspense
           fallback={
             <div className="flex h-full items-center justify-center">
@@ -167,11 +170,17 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`border-b-2 px-1 pb-1.5 text-sm font-medium transition-colors ${
-        active ? 'border-brand text-text' : 'border-transparent text-muted hover:text-text'
+      className={`relative px-1 pb-2 text-sm font-medium transition-colors ${
+        active ? 'text-text' : 'text-muted hover:text-text'
       }`}
     >
       {children}
+      {active && (
+        <span
+          className="absolute bottom-0 left-1/2 h-0.5 w-4 -translate-x-1/2 rounded-full bg-brand"
+          aria-hidden
+        />
+      )}
     </button>
   )
 }

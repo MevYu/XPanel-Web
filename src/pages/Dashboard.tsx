@@ -10,7 +10,7 @@ import { OverviewStats } from './dashboard/OverviewStats'
 import { SoftwareCard } from './dashboard/SoftwareCard'
 import { SysStatusCard } from './dashboard/SysStatusCard'
 import { DiskCard } from './dashboard/DiskCard'
-import { TrafficCard } from './dashboard/TrafficCard'
+import { TrafficCard, isRealDisk } from './dashboard/TrafficCard'
 import type { TrafficHistory } from './dashboard/TrafficCard'
 import type { RatePoint } from './dashboard/TrafficChart'
 
@@ -71,15 +71,18 @@ function diffDisk(
   const dt = (now - prev.t) / 1000
   if (dt <= 0) return []
   const prevDisk = new Map(prev.detail.disk_io.map((d) => [d.name, d]))
-  return curr.disk_io.map((d) => {
-    const p = prevDisk.get(d.name)
-    // 计数器回绕或重启会出现负差,夹到 0 而非显示负速率。
-    return {
-      name: d.name,
-      read: p ? Math.max(0, d.read_bytes - p.read_bytes) / dt : 0,
-      write: p ? Math.max(0, d.write_bytes - p.write_bytes) / dt : 0,
-    }
-  })
+  // 只保留真实块设备且累计计数非 0(剔除 loop/ram/fd 及全程无读写的设备)。
+  return curr.disk_io
+    .filter((d) => isRealDisk(d.name) && (d.read_bytes > 0 || d.write_bytes > 0))
+    .map((d) => {
+      const p = prevDisk.get(d.name)
+      // 计数器回绕或重启会出现负差,夹到 0 而非显示负速率。
+      return {
+        name: d.name,
+        read: p ? Math.max(0, d.read_bytes - p.read_bytes) / dt : 0,
+        write: p ? Math.max(0, d.write_bytes - p.write_bytes) / dt : 0,
+      }
+    })
 }
 
 // pushWindow 向滑动窗口追加一个采样点并截断到 HISTORY_LEN。
