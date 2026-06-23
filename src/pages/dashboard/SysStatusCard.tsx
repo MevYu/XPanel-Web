@@ -5,8 +5,8 @@ import { Gauge, GaugeDetailRow, MiniBar, clampPct, levelFor } from './Gauge'
 
 const pct = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0)
 
-// 紧凑细线环,对齐 aaPanel Sys Status 三环紧凑形态。
-const RING = 112
+// 大号细线环,对齐 aaPanel Sys Status 三环形态(直径 ~148、描边 6)。
+const RING = 148
 
 // 负载相对核数 <0.7 视为平稳,对应 aaPanel "Smooth operation"。
 function loadText(load1: number, cores: number): string {

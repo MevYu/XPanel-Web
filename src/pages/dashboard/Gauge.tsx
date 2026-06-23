@@ -42,22 +42,22 @@ interface GaugeProps {
   label: string
   /** hover/focus 时就地展开的细节内容;无则不展开。 */
   detail?: ReactNode
-  /** 环直径(px),默认 128;紧凑排布传 ~100。 */
+  /** 环直径(px),默认 148(对齐 aaPanel 大号细环);紧凑排布传 ~100。 */
   size?: number
 }
 
 /** Gauge 圆形状态球:SVG 环按百分比填充 + 阈值染色 + 柔和辉光,hover/focus 放大并显出细节面板。 */
-export function Gauge({ pct, reading, unit, label, detail, size = 128 }: GaugeProps) {
+export function Gauge({ pct, reading, unit, label, detail, size = 148 }: GaugeProps) {
   const [open, setOpen] = useState(false)
   const titleId = useId()
   const level = levelFor(pct)
   const clamped = clampPct(pct)
 
-  // 描边与读数字号随直径缩放,小环也保持比例协调。
+  // 细描边对齐 aaPanel(大环 6px);小环略增厚保持可见。读数字号随直径缩放。
   const compact = size < 120
-  const stroke = compact ? 8 : 10
-  const readingClass = compact ? 'text-xl' : 'text-3xl'
-  const unitClass = compact ? 'text-xs' : 'text-lg'
+  const stroke = compact ? 7 : 6
+  const readingClass = compact ? 'text-xl' : 'text-[1.9rem]'
+  const unitClass = compact ? 'text-xs' : 'text-base'
 
   const r = (size - stroke) / 2
   const circ = 2 * Math.PI * r
@@ -128,7 +128,7 @@ export function Gauge({ pct, reading, unit, label, detail, size = 128 }: GaugePr
           {/* 中心读数 */}
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <span
-              className={`font-[family-name:var(--font-mono)] ${readingClass} font-medium tabular-nums tracking-tight`}
+              className={`font-[family-name:var(--font-mono)] ${readingClass} font-bold tabular-nums tracking-tight`}
             >
               <span className={levelText[level]}>{reading}</span>
               {unit && <span className={`${unitClass} text-muted`}>{unit}</span>}

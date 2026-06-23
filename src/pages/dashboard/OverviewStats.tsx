@@ -57,15 +57,15 @@ export function OverviewStats() {
           const n = counts[s.id]
           return (
             <Link key={s.id} to={s.path} className="group outline-none">
-              <div className="flex items-center gap-3 rounded-(--radius-card) border border-border/60 bg-surface-2/40 px-3 py-3 transition-colors group-hover:border-brand/40 group-hover:bg-surface-2">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-sm) bg-surface-2 text-muted transition-colors group-hover:text-brand">
-                  <Icon size={18} />
+              <div className="flex items-center gap-4 rounded-(--radius-card) border border-border bg-surface-2/40 px-4 py-4 transition-colors group-hover:border-brand/50 group-hover:bg-surface-2">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-(--radius-sm) bg-surface-2 text-muted transition-colors group-hover:text-brand">
+                  <Icon size={20} />
                 </span>
                 <div className="flex min-w-0 flex-col">
-                  <span className="font-[family-name:var(--font-mono)] text-2xl font-medium leading-none tabular-nums text-text">
+                  <span className="font-[family-name:var(--font-mono)] text-[1.75rem] font-semibold leading-none tabular-nums text-text">
                     {n == null ? '—' : n}
                   </span>
-                  <span className="mt-1 truncate text-xs text-muted">{s.label}</span>
+                  <span className="mt-1.5 truncate text-xs text-muted">{s.label}</span>
                 </div>
               </div>
             </Link>
