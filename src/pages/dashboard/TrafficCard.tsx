@@ -32,6 +32,13 @@ export function TrafficCard({ detail, net, history, error }: Props) {
   const totalSent = detail ? detail.network.reduce((s, n) => s + n.bytes_sent, 0) : 0
   const totalRecv = detail ? detail.network.reduce((s, n) => s + n.bytes_recv, 0) : 0
 
+  // 磁盘瞬时速率取 history.disk 最新点(a=写、b=读,与图一致);累计读写按 detail.disk_io 求和。
+  const lastDisk = history.disk[history.disk.length - 1]
+  const diskWrite = lastDisk?.a ?? 0
+  const diskRead = lastDisk?.b ?? 0
+  const totalWrite = detail ? detail.disk_io.reduce((s, d) => s + d.write_bytes, 0) : 0
+  const totalRead = detail ? detail.disk_io.reduce((s, d) => s + d.read_bytes, 0) : 0
+
   const isNet = tab === 'net'
   const series = isNet ? history.net : history.disk
   const labelA = isNet ? '上行' : '写'
@@ -50,10 +57,24 @@ export function TrafficCard({ detail, net, history, error }: Props) {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-4">
-            <Cell label="上行" value={formatRate(tx)} dot="brand" />
-            <Cell label="下行" value={formatRate(rx)} dot="online" />
-            <Cell label="累计发送" value={formatBytes(totalSent)} />
-            <Cell label="累计接收" value={formatBytes(totalRecv)} />
+            <Cell
+              label={isNet ? '上行' : '写'}
+              value={formatRate(isNet ? tx : diskWrite)}
+              dot="brand"
+            />
+            <Cell
+              label={isNet ? '下行' : '读'}
+              value={formatRate(isNet ? rx : diskRead)}
+              dot="online"
+            />
+            <Cell
+              label={isNet ? '累计发送' : '累计写'}
+              value={formatBytes(isNet ? totalSent : totalWrite)}
+            />
+            <Cell
+              label={isNet ? '累计接收' : '累计读'}
+              value={formatBytes(isNet ? totalRecv : totalRead)}
+            />
           </div>
           <div className="h-44">
             <Suspense
