@@ -234,9 +234,10 @@ export default function Settings() {
         </nav>
 
         {/* 右侧行式配置 */}
-        <div className="min-w-0 flex-1 p-3 sm:p-4">
+        <div className="min-w-0 flex-1 px-3 py-1 sm:px-5 sm:py-2">
           {tab === 'security' && (
             <SettingRows>
+              <SectionHead label="登录防护" />
               <NumberRow
                 label="登录失败上限"
                 desc="连续登录失败达到此次数后封禁来源 IP。"
@@ -251,7 +252,9 @@ export default function Settings() {
                 value={form.ip_ban_hours}
                 disabled={!isAdmin}
                 onChange={(v) => setField('ip_ban_hours', v)}
+                last
               />
+              <SectionHead label="入口探测防护" />
               <NumberRow
                 label="入口探测上限"
                 desc="窗口期内对错误入口路径的最大探测次数。"
@@ -290,10 +293,15 @@ export default function Settings() {
 
           {tab === 'entry' && (
             <SettingRows>
-              <div className="mb-2 inline-flex items-center gap-1 rounded-full border border-warn/40 bg-warn/10 px-2 py-0.5 text-[0.6875rem] font-medium text-warn">
-                <AlertTriangle size={12} />
-                修改需重启生效
-              </div>
+              <SectionHead
+                label="入口与监听"
+                hint={
+                  <span className="inline-flex items-center gap-1 text-warn">
+                    <AlertTriangle size={12} />
+                    修改需重启生效
+                  </span>
+                }
+              />
               <TextRow
                 label="面板入口路径"
                 desc="访问面板需附加的隐藏路径前缀。"
@@ -369,6 +377,18 @@ function SettingRows({ children }: { children: ReactNode }) {
   return <div className="flex flex-col">{children}</div>
 }
 
+/** tab 内的小节标题:对标 aaPanel 行式配置的分组带,左侧标签 + 可选右侧提示。 */
+function SectionHead({ label, hint }: { label: string; hint?: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 pb-1.5 pt-4 first:pt-1">
+      <span className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted">
+        {label}
+      </span>
+      {hint && <span className="text-[0.6875rem] font-medium">{hint}</span>}
+    </div>
+  )
+}
+
 /** 单条配置行:label + 说明在左,control 在右;stacked 时 control 换行铺满。底部 hairline 分隔,last 去掉。 */
 function Row({
   label,
@@ -385,7 +405,7 @@ function Row({
 }) {
   return (
     <div
-      className={`${last ? '' : 'border-b border-border/60'} py-3 ${
+      className={`${last ? '' : 'border-b border-border/60'} py-2.5 ${
         stacked ? 'flex flex-col gap-2.5' : 'flex flex-wrap items-center justify-between gap-x-4 gap-y-2'
       }`}
     >

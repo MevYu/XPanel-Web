@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Plus, RefreshCw, Search, ShieldCheck, ShieldOff, Network, Wifi } from 'lucide-react'
+import {
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  ShieldOff,
+  Network,
+  Wifi,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Card } from '../components/Card'
@@ -10,12 +20,15 @@ import { Badge } from '../components/Badge'
 import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
+import { IconButton } from '../components/IconButton'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
 import { uid } from '../lib/uid'
 
 const DANGER = { 'X-Confirm-Danger': '1' }
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -95,6 +108,9 @@ export default function Firewall() {
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [query, setQuery] = useState('')
+
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   const [portModal, setPortModal] = useState(false)
   const [ipModal, setIPModal] = useState(false)
@@ -257,6 +273,19 @@ export default function Firewall() {
     if (!q) return ipRows
     return ipRows.filter((r) => r.ip.toLowerCase().includes(q) || r.comment.toLowerCase().includes(q))
   }, [ipRows, query])
+
+  // 当前 tab 的可见行数驱动底部分页;搜索/切 tab/缩减行数时把页码夹回有效范围,避免停在空页。
+  const total = tab === 'port' ? visiblePorts.length : visibleIPs.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const start = page * pageSize
+  const pagePorts = useMemo(
+    () => visiblePorts.slice(start, start + pageSize),
+    [visiblePorts, start, pageSize],
+  )
+  const pageIPs = useMemo(() => visibleIPs.slice(start, start + pageSize), [visibleIPs, start, pageSize])
 
   const portColumns: Column<PortRule>[] = useMemo(
     () => [
@@ -430,6 +459,7 @@ export default function Firewall() {
           onChange={(k) => {
             setTab(k)
             setQuery('')
+            setPage(0)
           }}
         />
 
@@ -456,7 +486,10 @@ export default function Firewall() {
               />
               <input
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value)
+                  setPage(0)
+                }}
                 placeholder={tab === 'port' ? '搜索端口 / 来源 / 备注' : '搜索 IP / 备注'}
                 spellCheck={false}
                 className="h-9 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
@@ -476,7 +509,7 @@ export default function Firewall() {
           <Table
             bare
             columns={portColumns}
-            rows={visiblePorts}
+            rows={pagePorts}
             rowKey={(r) => `${r.action}-${r.proto}-${r.port}-${r.source}`}
             emptyText={
               <EmptyState
@@ -490,7 +523,7 @@ export default function Firewall() {
           <Table
             bare
             columns={ipColumns}
-            rows={visibleIPs}
+            rows={pageIPs}
             rowKey={(r) => r.id}
             emptyText={
               <EmptyState
@@ -504,6 +537,47 @@ export default function Firewall() {
               />
             }
           />
+        )}
+
+        {/* 底部分页:对齐 aaPanel「< 1/N > N条/页 共 M 条」,贴合面板底边 */}
+        {!loading && total > 0 && (
+          <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border px-3 py-2.5 text-xs text-muted">
+            <span className="tabular-nums">共 {total} 条</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value))
+                setPage(0)
+              }}
+              aria-label="每页条数"
+              className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+            >
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>
+                  {n} 条/页
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-1">
+              <IconButton
+                aria-label="上一页"
+                className="h-8 w-8"
+                disabled={page === 0}
+                icon={<ChevronLeft size={16} />}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+              />
+              <span className="tabular-nums px-1">
+                {page + 1} / {pageCount}
+              </span>
+              <IconButton
+                aria-label="下一页"
+                className="h-8 w-8"
+                disabled={page >= pageCount - 1}
+                icon={<ChevronRight size={16} />}
+                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              />
+            </div>
+          </div>
         )}
       </Card>
 
