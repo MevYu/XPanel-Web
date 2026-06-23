@@ -12,6 +12,7 @@ import { SysStatusCard } from './dashboard/SysStatusCard'
 import { DiskCard } from './dashboard/DiskCard'
 import { TrafficCard } from './dashboard/TrafficCard'
 import type { TrafficHistory } from './dashboard/TrafficCard'
+import type { RatePoint } from './dashboard/TrafficChart'
 
 const POLL_MS = 2500
 // 速率历史滑动窗口长度(约 50 个采样,2.5s/次 ≈ 2 分钟)。
@@ -53,32 +54,51 @@ function diffNet(
   })
 }
 
-// diffDisk 差分每磁盘设备 read/write 速率(B/s);无前次或 Δt<=0 返回全机聚合零值。
+// 每磁盘设备的 read/write 字节速率(B/s),由相邻两次累计计数差分得出。
+export interface DiskRate {
+  name: string
+  read: number
+  write: number
+}
+
+// diffDisk 差分每磁盘设备 read/write 速率(B/s);无前次或 Δt<=0 返回空。
 function diffDisk(
   prev: { t: number; detail: DetailMetrics } | null,
   curr: DetailMetrics,
   now: number,
-): { read: number; write: number } {
-  if (!prev) return { read: 0, write: 0 }
+): DiskRate[] {
+  if (!prev) return []
   const dt = (now - prev.t) / 1000
-  if (dt <= 0) return { read: 0, write: 0 }
+  if (dt <= 0) return []
   const prevDisk = new Map(prev.detail.disk_io.map((d) => [d.name, d]))
-  let read = 0
-  let write = 0
-  for (const d of curr.disk_io) {
+  return curr.disk_io.map((d) => {
     const p = prevDisk.get(d.name)
-    if (!p) continue
-    // 计数器回绕或重启会出现负差,夹到 0。
-    read += Math.max(0, d.read_bytes - p.read_bytes) / dt
-    write += Math.max(0, d.write_bytes - p.write_bytes) / dt
-  }
-  return { read, write }
+    // 计数器回绕或重启会出现负差,夹到 0 而非显示负速率。
+    return {
+      name: d.name,
+      read: p ? Math.max(0, d.read_bytes - p.read_bytes) / dt : 0,
+      write: p ? Math.max(0, d.write_bytes - p.write_bytes) / dt : 0,
+    }
+  })
 }
 
 // pushWindow 向滑动窗口追加一个采样点并截断到 HISTORY_LEN。
-function pushWindow<T>(window: T[], point: T): T[] {
+function pushWindow(window: RatePoint[], point: RatePoint): RatePoint[] {
   const next = window.length >= HISTORY_LEN ? window.slice(1) : window.slice()
   next.push(point)
+  return next
+}
+
+// pushDevices 向各设备的滑动窗口追加本次采样点(以 name 索引),返回新的 per-device map。
+// 设备首次出现自动建窗口;消失的设备保留其历史(随窗口滑动自然淡出)。
+function pushDevices(
+  prev: Record<string, RatePoint[]>,
+  points: { name: string; t: number; a: number; b: number }[],
+): Record<string, RatePoint[]> {
+  const next: Record<string, RatePoint[]> = { ...prev }
+  for (const p of points) {
+    next[p.name] = pushWindow(next[p.name] ?? [], { t: p.t, a: p.a, b: p.b })
+  }
   return next
 }
 
@@ -87,7 +107,12 @@ export default function Dashboard() {
   const { data, error, loading } = usePoll(fetchMetrics, POLL_MS)
   const detail = usePoll(fetchDetail, POLL_MS)
   const [net, setNet] = useState<NetRate[]>([])
-  const [history, setHistory] = useState<TrafficHistory>({ net: [], disk: [] })
+  const [history, setHistory] = useState<TrafficHistory>({
+    net: [],
+    disk: [],
+    netByDevice: {},
+    diskByDevice: {},
+  })
   // 主机静态信息变化极慢,启动拉一次供 TopBar 标题与 CPU 浮层用。
   const [sysinfo, setSysinfo] = useState<SysInfo | null>(null)
   // 上一次 detail 采样(含时间戳),供差分算网络/磁盘速率。
@@ -103,14 +128,24 @@ export default function Dashboard() {
     const now = Date.now()
     const rates = diffNet(prevDetail.current, d, now)
     setNet(rates)
-    // 全机聚合:网络上/下行四条计数器之和差分,磁盘读/写同理,push 进滑动窗口。
+    // 聚合窗口 + per-device 窗口:网络 a=上行 b=下行,磁盘 a=写 b=读。
     if (prevDetail.current) {
       const tx = rates.reduce((s, n) => s + n.tx, 0)
       const rx = rates.reduce((s, n) => s + n.rx, 0)
-      const disk = diffDisk(prevDetail.current, d, now)
+      const diskRates = diffDisk(prevDetail.current, d, now)
+      const writeSum = diskRates.reduce((s, dr) => s + dr.write, 0)
+      const readSum = diskRates.reduce((s, dr) => s + dr.read, 0)
       setHistory((h) => ({
         net: pushWindow(h.net, { t: now, a: tx, b: rx }),
-        disk: pushWindow(h.disk, { t: now, a: disk.write, b: disk.read }),
+        disk: pushWindow(h.disk, { t: now, a: writeSum, b: readSum }),
+        netByDevice: pushDevices(
+          h.netByDevice,
+          rates.map((n) => ({ name: n.name, t: now, a: n.tx, b: n.rx })),
+        ),
+        diskByDevice: pushDevices(
+          h.diskByDevice,
+          diskRates.map((dr) => ({ name: dr.name, t: now, a: dr.write, b: dr.read })),
+        ),
       }))
     }
     prevDetail.current = { t: now, detail: d }
