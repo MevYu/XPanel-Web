@@ -5,8 +5,8 @@ import { Gauge, GaugeDetailRow, MiniBar, clampPct, levelFor } from './Gauge'
 
 const pct = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0)
 
-// 大号细线环,对齐 aaPanel Sys Status 三环形态(直径 ~148、描边 6)。
-const RING = 148
+// 大号超细线环,对齐 aaPanel Sys Status 三环形态(直径 ~164、描边 4)。
+const RING = 164
 
 // 负载相对核数 <0.7 视为平稳,对应 aaPanel "Smooth operation"。
 function loadText(load1: number, cores: number): string {
@@ -25,9 +25,9 @@ export function SysStatusCard({ m, detail }: { m: Metrics; detail: DetailMetrics
   const memPct = clampPct(pct(m.mem_used, m.mem_total))
 
   return (
-    <Card className="flex flex-col gap-4">
+    <Card className="flex flex-col gap-6">
       <h3 className="text-sm font-medium text-text">系统状态</h3>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-3 gap-6 py-2">
         <RingCell
           gauge={
             <Gauge
@@ -89,9 +89,9 @@ function RingCell({
   secondary: string
 }) {
   return (
-    <div className="flex flex-col items-center gap-1">
+    <div className="flex flex-col items-center gap-1.5">
       {gauge}
-      <span className="text-xs text-text">{primary}</span>
+      <span className="text-sm text-text">{primary}</span>
       <span className="font-[family-name:var(--font-mono)] text-[0.7rem] tabular-nums text-muted">
         {secondary}
       </span>

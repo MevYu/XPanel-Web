@@ -11,8 +11,11 @@ import { ServicesCard } from './dashboard/ServicesCard'
 import { SysStatusCard } from './dashboard/SysStatusCard'
 import { DiskCard } from './dashboard/DiskCard'
 import { TrafficCard } from './dashboard/TrafficCard'
+import type { TrafficHistory } from './dashboard/TrafficCard'
 
 const POLL_MS = 2500
+// 速率历史滑动窗口长度(约 50 个采样,2.5s/次 ≈ 2 分钟)。
+const HISTORY_LEN = 50
 
 function fetchMetrics() {
   return apiFetch<Metrics>('/api/m/dashboard/metrics')
@@ -50,19 +53,60 @@ function diffNet(
   })
 }
 
+// diffDisk 差分每磁盘设备 read/write 速率(B/s);无前次或 Δt<=0 返回全机聚合零值。
+function diffDisk(
+  prev: { t: number; detail: DetailMetrics } | null,
+  curr: DetailMetrics,
+  now: number,
+): { read: number; write: number } {
+  if (!prev) return { read: 0, write: 0 }
+  const dt = (now - prev.t) / 1000
+  if (dt <= 0) return { read: 0, write: 0 }
+  const prevDisk = new Map(prev.detail.disk_io.map((d) => [d.name, d]))
+  let read = 0
+  let write = 0
+  for (const d of curr.disk_io) {
+    const p = prevDisk.get(d.name)
+    if (!p) continue
+    // 计数器回绕或重启会出现负差,夹到 0。
+    read += Math.max(0, d.read_bytes - p.read_bytes) / dt
+    write += Math.max(0, d.write_bytes - p.write_bytes) / dt
+  }
+  return { read, write }
+}
+
+// pushWindow 向滑动窗口追加一个采样点并截断到 HISTORY_LEN。
+function pushWindow<T>(window: T[], point: T): T[] {
+  const next = window.length >= HISTORY_LEN ? window.slice(1) : window.slice()
+  next.push(point)
+  return next
+}
+
 /** Dashboard 系统总览:对齐 aaPanel 首页——系统状态(三环)+磁盘 / 概览计数 / 服务状态+流量。 */
 export default function Dashboard() {
   const { data, error, loading } = usePoll(fetchMetrics, POLL_MS)
   const detail = usePoll(fetchDetail, POLL_MS)
   const [net, setNet] = useState<NetRate[]>([])
-  // 上一次 detail 采样(含时间戳),供差分算网络速率。
+  const [history, setHistory] = useState<TrafficHistory>({ net: [], disk: [] })
+  // 上一次 detail 采样(含时间戳),供差分算网络/磁盘速率。
   const prevDetail = useRef<{ t: number; detail: DetailMetrics } | null>(null)
 
   useEffect(() => {
     const d = detail.data
     if (!d) return
     const now = Date.now()
-    setNet(diffNet(prevDetail.current, d, now))
+    const rates = diffNet(prevDetail.current, d, now)
+    setNet(rates)
+    // 全机聚合:网络上/下行四条计数器之和差分,磁盘读/写同理,push 进滑动窗口。
+    if (prevDetail.current) {
+      const tx = rates.reduce((s, n) => s + n.tx, 0)
+      const rx = rates.reduce((s, n) => s + n.rx, 0)
+      const disk = diffDisk(prevDetail.current, d, now)
+      setHistory((h) => ({
+        net: pushWindow(h.net, { t: now, a: tx, b: rx }),
+        disk: pushWindow(h.disk, { t: now, a: disk.write, b: disk.read }),
+      }))
+    }
     prevDetail.current = { t: now, detail: d }
   }, [detail.data])
 
@@ -85,11 +129,11 @@ export default function Dashboard() {
   const m = data!
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <TopBar uptimeSec={detail.data?.uptime_sec ?? null} />
 
       {/* aaPanel 首页第一行:系统状态(三环) + 磁盘(分区列表) */}
-      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+      <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
         <SysStatusCard m={m} detail={detail.data} />
         <DiskCard m={m} />
       </div>
@@ -98,9 +142,9 @@ export default function Dashboard() {
       <OverviewStats />
 
       {/* aaPanel 首页:服务状态(软件) + 流量 */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-5 lg:grid-cols-2">
         <ServicesCard />
-        <TrafficCard detail={detail.data} net={net} error={!!detail.error} />
+        <TrafficCard detail={detail.data} net={net} history={history} error={!!detail.error} />
       </div>
     </div>
   )

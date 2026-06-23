@@ -57,7 +57,7 @@ export function OverviewStats() {
           const n = counts[s.id]
           return (
             <Link key={s.id} to={s.path} className="group outline-none">
-              <div className="flex items-center gap-4 rounded-(--radius-card) border border-border bg-surface-2/40 px-4 py-4 transition-colors group-hover:border-brand/50 group-hover:bg-surface-2">
+              <div className="flex items-center gap-4 rounded-(--radius-card) border border-border/40 bg-surface-2/40 px-5 py-5 transition-colors group-hover:border-brand/50 group-hover:bg-surface-2">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-(--radius-sm) bg-surface-2 text-muted transition-colors group-hover:text-brand">
                   <Icon size={20} />
                 </span>

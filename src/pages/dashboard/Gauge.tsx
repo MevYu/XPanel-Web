@@ -42,22 +42,22 @@ interface GaugeProps {
   label: string
   /** hover/focus 时就地展开的细节内容;无则不展开。 */
   detail?: ReactNode
-  /** 环直径(px),默认 148(对齐 aaPanel 大号细环);紧凑排布传 ~100。 */
+  /** 环直径(px),默认 164(对齐 aaPanel 大号超细环);紧凑排布传 ~100。 */
   size?: number
 }
 
 /** Gauge 圆形状态球:SVG 环按百分比填充 + 阈值染色 + 柔和辉光,hover/focus 放大并显出细节面板。 */
-export function Gauge({ pct, reading, unit, label, detail, size = 148 }: GaugeProps) {
+export function Gauge({ pct, reading, unit, label, detail, size = 164 }: GaugeProps) {
   const [open, setOpen] = useState(false)
   const titleId = useId()
   const level = levelFor(pct)
   const clamped = clampPct(pct)
 
-  // 细描边对齐 aaPanel(大环 6px);小环略增厚保持可见。读数字号随直径缩放。
+  // 超细描边对齐 aaPanel(大环 4px);小环略增厚保持可见。读数字号随直径缩放。
   const compact = size < 120
-  const stroke = compact ? 7 : 6
-  const readingClass = compact ? 'text-xl' : 'text-[1.9rem]'
-  const unitClass = compact ? 'text-xs' : 'text-base'
+  const stroke = compact ? 6 : 4
+  const readingClass = compact ? 'text-xl' : 'text-[2.6rem]'
+  const unitClass = compact ? 'text-xs' : 'text-lg'
 
   const r = (size - stroke) / 2
   const circ = 2 * Math.PI * r
@@ -81,7 +81,7 @@ export function Gauge({ pct, reading, unit, label, detail, size = 148 }: GaugePr
         onBlur={() => setOpen(false)}
         className={[
           'relative flex flex-col items-center rounded-full p-2 outline-none',
-          compact ? 'gap-2' : 'gap-3',
+          compact ? 'gap-2' : 'gap-4',
           'transition-transform duration-(--dur-base) ease-(--ease-out)',
           'motion-safe:group-hover:scale-[1.05] motion-safe:focus-visible:scale-[1.05]',
           'focus-visible:ring-2 focus-visible:ring-brand/60',

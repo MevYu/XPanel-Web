@@ -34,20 +34,20 @@
   --color-gold: #F2C261;
   --color-gold-soft: rgba(242, 194, 97, 0.14);
 
-  /* 圆角梯度。对齐 aaPanel 偏方的"工具感",保留比它略圆。 */
+  /* 圆角梯度。对齐 aaPanel 卡片 10px。 */
   --radius-sm: 6px;
-  --radius-card: 8px;
-  --radius-lg: 12px;
+  --radius-card: 10px;
+  --radius-lg: 14px;
 
   /* 过渡时长:micro 用于 hover/active,base 用于较大位移/抬升。 */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --dur-micro: 150ms;
   --dur-base: 200ms;
 
-  /* 精致阴影:由柔和扩散 + 紧贴投影叠出深度。 */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-card: 0 1px 1px rgba(0, 0, 0, 0.3), 0 8px 24px -14px rgba(0, 0, 0, 0.7);
-  --shadow-elevated: 0 2px 4px rgba(0, 0, 0, 0.35), 0 16px 40px -18px rgba(0, 0, 0, 0.8);
+  /* 精致阴影:深色版对标 aaPanel 极柔和卡片阴影——很淡的暗投影,无硬边框感。 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-card: 0 4px 16px -8px rgba(0, 0, 0, 0.45);
+  --shadow-elevated: 0 8px 28px -12px rgba(0, 0, 0, 0.6);
   /* 品牌微辉光:仅关键元素(主按钮、选中、focus)使用。 */
   --shadow-glow: 0 8px 24px -10px rgba(110, 139, 255, 0.5);
   /* 顶边内高光:1px 半透明白,模拟受光面。 */
