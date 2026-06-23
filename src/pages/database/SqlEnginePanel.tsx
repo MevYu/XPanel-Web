@@ -4,6 +4,7 @@ import { Button } from '../../components/Button'
 import { Switch } from '../../components/Switch'
 import { Table, ActionLink, ActionLinks, type Column } from '../../components/Table'
 import { EmptyState } from '../../components/EmptyState'
+import { IconButton } from '../../components/IconButton'
 import {
   Plus,
   UserPlus,
@@ -14,6 +15,8 @@ import {
   KeyRound,
   Settings2,
   Info,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { type Engine, type DbInfo, type DbUser, DANGER, errorText } from './shared'
 import {
@@ -26,6 +29,8 @@ import {
   MaintainModal,
 } from './modals'
 import { ManageModal } from './ManageModal'
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 type Modal =
   | { kind: 'create-db' }
@@ -61,6 +66,10 @@ export function SqlEnginePanel({
   const [filter, setFilter] = useState<'all' | 'db' | 'user'>('all')
   const [autoBackup, setAutoBackup] = useState(false)
   const [modal, setModal] = useState<Modal>(null)
+  const [dbPageSize, setDbPageSize] = useState<number>(PAGE_SIZES[0])
+  const [dbPage, setDbPage] = useState(0)
+  const [userPageSize, setUserPageSize] = useState<number>(PAGE_SIZES[0])
+  const [userPage, setUserPage] = useState(0)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -132,6 +141,25 @@ export function SqlEnginePanel({
   const visibleUsers = useMemo(
     () => (q ? users.filter((u) => u.user.toLowerCase().includes(q) || u.host.toLowerCase().includes(q)) : users),
     [users, q],
+  )
+
+  // 搜索/每页条数变化或行数缩减时,把当前页夹回有效范围,避免停在空页。
+  const dbPageCount = Math.max(1, Math.ceil(visibleDbs.length / dbPageSize))
+  useEffect(() => {
+    if (dbPage > dbPageCount - 1) setDbPage(dbPageCount - 1)
+  }, [dbPage, dbPageCount])
+  const dbRows = useMemo(
+    () => visibleDbs.slice(dbPage * dbPageSize, dbPage * dbPageSize + dbPageSize),
+    [visibleDbs, dbPage, dbPageSize],
+  )
+
+  const userPageCount = Math.max(1, Math.ceil(visibleUsers.length / userPageSize))
+  useEffect(() => {
+    if (userPage > userPageCount - 1) setUserPage(userPageCount - 1)
+  }, [userPage, userPageCount])
+  const userRows = useMemo(
+    () => visibleUsers.slice(userPage * userPageSize, userPage * userPageSize + userPageSize),
+    [visibleUsers, userPage, userPageSize],
   )
 
   const dbColumns: Column<DbInfo>[] = useMemo(
@@ -319,18 +347,31 @@ export function SqlEnginePanel({
           {loading ? (
             <div className="h-40 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
           ) : (
-            <Table
-              columns={dbColumns}
-              rows={visibleDbs}
-              rowKey={(d) => d.name}
-              emptyText={
-                <EmptyState
-                  icon={<DatabaseIcon />}
-                  title={databases.length === 0 ? '还没有数据库' : '没有匹配的数据库'}
-                  hint={databases.length === 0 ? '点击「新建库」创建第一个数据库。' : '换个关键词试试。'}
-                />
-              }
-            />
+            <>
+              <Table
+                columns={dbColumns}
+                rows={dbRows}
+                rowKey={(d) => d.name}
+                emptyText={
+                  <EmptyState
+                    icon={<DatabaseIcon />}
+                    title={databases.length === 0 ? '还没有数据库' : '没有匹配的数据库'}
+                    hint={databases.length === 0 ? '点击「新建库」创建第一个数据库。' : '换个关键词试试。'}
+                  />
+                }
+              />
+              <Pagination
+                total={visibleDbs.length}
+                page={dbPage}
+                pageCount={dbPageCount}
+                pageSize={dbPageSize}
+                onPage={setDbPage}
+                onPageSize={(n) => {
+                  setDbPageSize(n)
+                  setDbPage(0)
+                }}
+              />
+            </>
           )}
         </div>
       )}
@@ -341,18 +382,31 @@ export function SqlEnginePanel({
           {loading ? (
             <div className="h-28 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
           ) : (
-            <Table
-              columns={userColumns}
-              rows={visibleUsers}
-              rowKey={(u) => `${u.user}@${u.host}`}
-              emptyText={
-                <EmptyState
-                  icon={<User />}
-                  title={users.length === 0 ? '还没有用户' : '没有匹配的用户'}
-                  hint={users.length === 0 ? '点击「新建用户」创建数据库账号。' : '换个关键词试试。'}
-                />
-              }
-            />
+            <>
+              <Table
+                columns={userColumns}
+                rows={userRows}
+                rowKey={(u) => `${u.user}@${u.host}`}
+                emptyText={
+                  <EmptyState
+                    icon={<User />}
+                    title={users.length === 0 ? '还没有用户' : '没有匹配的用户'}
+                    hint={users.length === 0 ? '点击「新建用户」创建数据库账号。' : '换个关键词试试。'}
+                  />
+                }
+              />
+              <Pagination
+                total={visibleUsers.length}
+                page={userPage}
+                pageCount={userPageCount}
+                pageSize={userPageSize}
+                onPage={setUserPage}
+                onPageSize={(n) => {
+                  setUserPageSize(n)
+                  setUserPage(0)
+                }}
+              />
+            </>
           )}
         </div>
       )}
@@ -401,6 +455,61 @@ export function SqlEnginePanel({
           onDone={() => void load()}
         />
       )}
+    </div>
+  )
+}
+
+/** Pagination 表格底部分页:总数 + 每页条数 + 上/下页,对齐 aaPanel 列表底栏与 Sites 页风格。 */
+function Pagination({
+  total,
+  page,
+  pageCount,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  total: number
+  page: number
+  pageCount: number
+  pageSize: number
+  onPage: (p: number) => void
+  onPageSize: (n: number) => void
+}) {
+  if (total === 0) return null
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => onPageSize(Number(e.target.value))}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => onPage(Math.max(0, page - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => onPage(Math.min(pageCount - 1, page + 1))}
+        />
+      </div>
     </div>
   )
 }

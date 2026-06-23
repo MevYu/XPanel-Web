@@ -9,7 +9,8 @@ import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Plus, Clock, Search } from 'lucide-react'
+import { IconButton } from '../components/IconButton'
+import { Plus, Clock, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import type {
   CronJob,
   CronJobType,
@@ -69,6 +70,8 @@ const SCHEDULE_OPTIONS: { value: CronScheduleKind; label: string }[] = [
 ]
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
@@ -240,6 +243,8 @@ export default function Cron() {
   const [editing, setEditing] = useState<FormState | null>(null)
   const [runningId, setRunningId] = useState<number | null>(null)
   const [runsJob, setRunsJob] = useState<CronJob | null>(null)
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -265,6 +270,17 @@ export default function Cron() {
         TYPE_LABEL[j.type].toLowerCase().includes(q),
     )
   }, [jobs, query])
+
+  // 搜索或每页条数变化、行数缩减时,把当前页夹回有效范围,避免停在空页。
+  const total = filteredJobs.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => filteredJobs.slice(page * pageSize, page * pageSize + pageSize),
+    [filteredJobs, page, pageSize],
+  )
 
   async function toggle(job: CronJob, next: boolean) {
     if (readonly) return
@@ -433,22 +449,63 @@ export default function Cron() {
       {loading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <Table
-          columns={columns}
-          rows={filteredJobs}
-          rowKey={(job) => job.id}
-          emptyText={
-            query.trim() ? (
-              <EmptyState icon={<Search />} title="没有匹配的任务" hint="换个关键词再试。" />
-            ) : (
-              <EmptyState
-                icon={<Clock />}
-                title="还没有定时任务"
-                hint="点击「添加任务」创建你的第一个计划任务。"
-              />
-            )
-          }
-        />
+        <>
+          <Table
+            columns={columns}
+            rows={pageRows}
+            rowKey={(job) => job.id}
+            emptyText={
+              query.trim() ? (
+                <EmptyState icon={<Search />} title="没有匹配的任务" hint="换个关键词再试。" />
+              ) : (
+                <EmptyState
+                  icon={<Clock />}
+                  title="还没有定时任务"
+                  hint="点击「添加任务」创建你的第一个计划任务。"
+                />
+              )
+            }
+          />
+          {total > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+              <span className="tabular-nums">共 {total} 条</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value))
+                  setPage(0)
+                }}
+                aria-label="每页条数"
+                className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} 条/页
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <IconButton
+                  aria-label="上一页"
+                  className="h-8 w-8"
+                  disabled={page === 0}
+                  icon={<ChevronLeft size={16} />}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                />
+                <span className="tabular-nums px-1">
+                  {page + 1} / {pageCount}
+                </span>
+                <IconButton
+                  aria-label="下一页"
+                  className="h-8 w-8"
+                  disabled={page >= pageCount - 1}
+                  icon={<ChevronRight size={16} />}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {readonly && (

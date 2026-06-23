@@ -12,8 +12,26 @@ import { Tabs } from '../components/Tabs'
 import { InstallGate } from '../components/InstallGate'
 import { EmptyState } from '../components/EmptyState'
 import { uid } from '../lib/uid'
-import { Container, Layers, GitBranch, Network, HardDrive, KeyRound, Plus, Download, Trash2, Search } from 'lucide-react'
+import { IconButton } from '../components/IconButton'
+import {
+  Container,
+  Layers,
+  GitBranch,
+  Network,
+  HardDrive,
+  KeyRound,
+  Plus,
+  Download,
+  Trash2,
+  Search,
+  Play,
+  Square,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -184,6 +202,77 @@ function ListBody({
   return <>{children}</>
 }
 
+// 客户端分页:筛选/搜索/行数缩减时把当前页夹回有效范围,避免停在空页。
+function usePagination<T>(rows: T[]) {
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
+  const total = rows.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => rows.slice(page * pageSize, page * pageSize + pageSize),
+    [rows, page, pageSize],
+  )
+  return { pageRows, total, page, setPage, pageCount, pageSize, setPageSize }
+}
+
+// 底部分页条:总条数 + 每页条数 + 上/下页,对齐 Sites 页样式。
+function Pagination({
+  total,
+  page,
+  pageCount,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  total: number
+  page: number
+  pageCount: number
+  pageSize: number
+  onPage: (p: number) => void
+  onPageSize: (n: number) => void
+}) {
+  if (total === 0) return null
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => onPageSize(Number(e.target.value))}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => onPage(Math.max(0, page - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => onPage(Math.min(pageCount - 1, page + 1))}
+        />
+      </div>
+    </div>
+  )
+}
+
 function useDockerList(path: string, canRead: boolean) {
   const [rows, setRows] = useState<DockerRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -312,6 +401,8 @@ function Containers({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boo
     )
   }, [data, query])
 
+  const pg = usePagination(filtered)
+
   const columns: Column<ContainerView>[] = useMemo(
     () => [
       {
@@ -340,10 +431,43 @@ function Containers({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boo
       {
         key: 'status',
         header: '状态',
-        width: '120px',
+        width: '150px',
         cell: (row) => {
+          const id = s(row, 'ID')
+          const name = s(row, 'Names', 'Name')
+          const ref = name || id
           const state = s(row, 'State', 'Status')
-          return <Badge status={stateBadge(state)}>{s(row, 'Status') || state || '未知'}</Badge>
+          const status = stateBadge(state)
+          const running = status === 'online'
+          const paused = state.toLowerCase().includes('paused')
+          // 运行中(非暂停)点击停止,已停止点击启动;暂停态不在此切换(用操作列恢复)。
+          const toggleable = isOperator && !paused
+          const label = s(row, 'Status') || state || '未知'
+          return (
+            <button
+              type="button"
+              disabled={!toggleable || busy}
+              title={
+                !isOperator
+                  ? '需要 operator 角色'
+                  : paused
+                    ? '已暂停,用操作列恢复'
+                    : running
+                      ? '运行中,点击停止'
+                      : '已停止,点击启动'
+              }
+              onClick={() => void act(ref, running ? 'stop' : 'start')}
+              className="inline-flex items-center gap-1.5 rounded-sm outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60 disabled:cursor-not-allowed enabled:hover:opacity-80"
+            >
+              <Badge status={status}>{label}</Badge>
+              {toggleable &&
+                (running ? (
+                  <Square size={11} className="text-muted" />
+                ) : (
+                  <Play size={11} className="text-online" />
+                ))}
+            </button>
+          )
         },
       },
       {
@@ -422,7 +546,7 @@ function Containers({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boo
       <ListBody loading={loading} error={error}>
         <Table
           columns={columns}
-          rows={filtered}
+          rows={pg.pageRows}
           rowKey={(r) => r._key}
           emptyText={
             <EmptyState
@@ -431,6 +555,17 @@ function Containers({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boo
               hint={rows.length === 0 ? '拉取镜像后即可创建并启动容器。' : '换个关键词试试。'}
             />
           }
+        />
+        <Pagination
+          total={pg.total}
+          page={pg.page}
+          pageCount={pg.pageCount}
+          pageSize={pg.pageSize}
+          onPage={pg.setPage}
+          onPageSize={(n) => {
+            pg.setPageSize(n)
+            pg.setPage(0)
+          }}
         />
       </ListBody>
       {!isOperator && <p className="text-xs text-muted">容器管理需要 operator 角色;删除与资源限制需要 admin。</p>}
@@ -688,6 +823,8 @@ function Images({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolean
     return data.filter((row) => row._ref.toLowerCase().includes(q))
   }, [data, query])
 
+  const pg = usePagination(filtered)
+
   const columns: Column<ImageView>[] = useMemo(
     () => [
       {
@@ -749,7 +886,7 @@ function Images({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolean
       <ListBody loading={loading} error={error}>
         <Table
           columns={columns}
-          rows={filtered}
+          rows={pg.pageRows}
           rowKey={(r) => r._key}
           emptyText={
             <EmptyState
@@ -758,6 +895,17 @@ function Images({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolean
               hint={rows.length === 0 ? '点击「拉取镜像」从仓库获取第一个镜像。' : '换个关键词试试。'}
             />
           }
+        />
+        <Pagination
+          total={pg.total}
+          page={pg.page}
+          pageCount={pg.pageCount}
+          pageSize={pg.pageSize}
+          onPage={pg.setPage}
+          onPageSize={(n) => {
+            pg.setPageSize(n)
+            pg.setPage(0)
+          }}
         />
       </ListBody>
       {!isOperator && <p className="text-xs text-muted">拉取/tag 需要 operator 角色;删除与清理需要 admin。</p>}
@@ -930,6 +1078,8 @@ function Compose({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolea
     return data.filter((row) => s(row, 'Name').toLowerCase().includes(q))
   }, [data, query])
 
+  const pg = usePagination(filtered)
+
   const columns: Column<ComposeView>[] = useMemo(
     () => [
       {
@@ -978,7 +1128,7 @@ function Compose({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolea
       <ListBody loading={loading} error={error}>
         <Table
           columns={columns}
-          rows={filtered}
+          rows={pg.pageRows}
           rowKey={(r) => r._key}
           emptyText={
             <EmptyState
@@ -987,6 +1137,17 @@ function Compose({ isOperator, isAdmin }: { isOperator: boolean; isAdmin: boolea
               hint={rows.length === 0 ? '在主机上 docker compose up 后即可在此查看与管理。' : '换个关键词试试。'}
             />
           }
+        />
+        <Pagination
+          total={pg.total}
+          page={pg.page}
+          pageCount={pg.pageCount}
+          pageSize={pg.pageSize}
+          onPage={pg.setPage}
+          onPageSize={(n) => {
+            pg.setPageSize(n)
+            pg.setPage(0)
+          }}
         />
       </ListBody>
       {!isOperator && <p className="text-xs text-muted">up/重启 需要 operator 角色;down 需要 admin。</p>}
@@ -1067,6 +1228,8 @@ function ResourceList({
     return data.filter((row) => `${row.primary} ${row.secondary}`.toLowerCase().includes(q))
   }, [data, query])
 
+  const pg = usePagination(filtered)
+
   const columns: Column<ResourceView>[] = useMemo(
     () => [
       {
@@ -1116,7 +1279,7 @@ function ResourceList({
       <ListBody loading={loading} error={error}>
         <Table
           columns={columns}
-          rows={filtered}
+          rows={pg.pageRows}
           rowKey={(r) => r._key}
           emptyText={
             rows.length === 0 ? (
@@ -1125,6 +1288,17 @@ function ResourceList({
               <EmptyState icon={<Icon />} title={`没有匹配的${title}`} hint="换个关键词试试。" />
             )
           }
+        />
+        <Pagination
+          total={pg.total}
+          page={pg.page}
+          pageCount={pg.pageCount}
+          pageSize={pg.pageSize}
+          onPage={pg.setPage}
+          onPageSize={(n) => {
+            pg.setPageSize(n)
+            pg.setPage(0)
+          }}
         />
       </ListBody>
       {!isOperator && <p className="text-xs text-muted">新建需要 operator 角色;删除需要 admin。</p>}
@@ -1261,6 +1435,8 @@ function Registries({ isAdmin }: { isAdmin: boolean }) {
     return rows.filter((row) => `${row.name} ${row.server} ${row.username}`.toLowerCase().includes(q))
   }, [rows, query])
 
+  const pg = usePagination(filtered)
+
   const columns: Column<RegistryRow>[] = useMemo(
     () => [
       {
@@ -1323,7 +1499,7 @@ function Registries({ isAdmin }: { isAdmin: boolean }) {
       <ListBody loading={loading} error={error}>
         <Table
           columns={columns}
-          rows={filtered}
+          rows={pg.pageRows}
           rowKey={(r) => r.name}
           emptyText={
             <EmptyState
@@ -1332,6 +1508,17 @@ function Registries({ isAdmin }: { isAdmin: boolean }) {
               hint={rows.length === 0 ? '点击「添加仓库」录入私有镜像仓库的登录凭证。' : '换个关键词试试。'}
             />
           }
+        />
+        <Pagination
+          total={pg.total}
+          page={pg.page}
+          pageCount={pg.pageCount}
+          pageSize={pg.pageSize}
+          onPage={pg.setPage}
+          onPageSize={(n) => {
+            pg.setPageSize(n)
+            pg.setPage(0)
+          }}
         />
       </ListBody>
       {adding && (
