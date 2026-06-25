@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search, ScrollText } from 'lucide-react'
+import { Search, ScrollText, ChevronLeft, ChevronRight } from 'lucide-react'
 import { apiFetch } from '../api/client'
-import { Button } from '../components/Button'
+import { IconButton } from '../components/IconButton'
 import { Table, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
 import { formatTime } from '../lib/formatTime'
@@ -17,13 +17,14 @@ interface Resp {
   entries: Entry[]
   total: number
 }
-const PAGE = 50
+const PAGE_SIZES = [20, 50, 100] as const
 
-/** Logs 审计日志:aaPanel 风格 —— 工具栏(操作类型下拉 + 前缀搜索)+ 紧凑表 + EmptyState + 分页。后端 action 走前缀过滤,admin-only。 */
+/** Logs 审计日志:aaPanel 风格 —— 工具栏(操作类型下拉 + 前缀搜索)+ 紧凑表 + EmptyState + 底部分页(共 N 条/每页条数/上下页)。后端 action 走前缀过滤,admin-only。 */
 export default function Logs() {
   const [entries, setEntries] = useState<Entry[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[1])
   const [action, setAction] = useState('')
   const [scope, setScope] = useState('')
   const [query, setQuery] = useState('')
@@ -34,7 +35,7 @@ export default function Logs() {
     setLoading(true)
     setErr(null)
     apiFetch<Resp>(
-      `/api/audit?limit=${PAGE}&offset=${offset}${action ? `&action=${encodeURIComponent(action)}` : ''}`,
+      `/api/audit?limit=${pageSize}&offset=${offset}${action ? `&action=${encodeURIComponent(action)}` : ''}`,
     )
       .then((r) => {
         setEntries(r.entries ?? [])
@@ -42,7 +43,7 @@ export default function Logs() {
       })
       .catch((e) => setErr(e instanceof Error ? e.message : '加载失败'))
       .finally(() => setLoading(false))
-  }, [offset, action])
+  }, [offset, action, pageSize])
 
   // 操作类型下拉:后端无 distinct 端点,故从当前页 action 的顶层命名空间(首个 `.` 前)归集,贴合前缀过滤。
   const scopes = useMemo(() => {
@@ -121,7 +122,6 @@ export default function Logs() {
               </option>
             ))}
           </select>
-          <span className="text-sm text-muted">共 {total} 条</span>
         </div>
         <form
           className="relative w-72"
@@ -168,27 +168,45 @@ export default function Logs() {
               />
             }
           />
-          <div className="flex items-center justify-end gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={offset === 0}
-              onClick={() => setOffset(Math.max(0, offset - PAGE))}
-            >
-              上一页
-            </Button>
-            <span className="text-xs tabular-nums text-muted">
-              {total === 0 ? 0 : offset + 1}–{Math.min(offset + entries.length, total)} / {total}
-            </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={offset + entries.length >= total}
-              onClick={() => setOffset(offset + PAGE)}
-            >
-              下一页
-            </Button>
-          </div>
+          {total > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+              <span className="tabular-nums">共 {total} 条</span>
+              <select
+                value={pageSize}
+                onChange={(ev) => {
+                  setPageSize(Number(ev.target.value))
+                  setOffset(0)
+                }}
+                aria-label="每页条数"
+                className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} 条/页
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <IconButton
+                  aria-label="上一页"
+                  className="h-8 w-8"
+                  disabled={offset === 0}
+                  icon={<ChevronLeft size={16} />}
+                  onClick={() => setOffset(Math.max(0, offset - pageSize))}
+                />
+                <span className="tabular-nums px-1">
+                  {Math.floor(offset / pageSize) + 1} / {Math.max(1, Math.ceil(total / pageSize))}
+                </span>
+                <IconButton
+                  aria-label="下一页"
+                  className="h-8 w-8"
+                  disabled={offset + entries.length >= total}
+                  icon={<ChevronRight size={16} />}
+                  onClick={() => setOffset(offset + pageSize)}
+                />
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
