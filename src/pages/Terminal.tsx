@@ -9,7 +9,7 @@ const TerminalView = lazy(() => import('./TerminalView'))
 export default function Terminal() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <header className="flex flex-wrap items-center gap-3">
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="flex items-center gap-2 font-[family-name:var(--font-display)] text-lg font-semibold text-text">
           <TerminalSquare size={18} className="text-brand" aria-hidden />
           Web 终端

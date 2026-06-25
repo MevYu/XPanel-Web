@@ -11,7 +11,8 @@ import { Stat } from '../components/Stat'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Activity, Globe, Plus, RefreshCw, BarChart3, Search } from 'lucide-react'
+import { Activity, Globe, Plus, RefreshCw, BarChart3, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { IconButton } from '../components/IconButton'
 import { uid } from '../lib/uid'
 import { formatTime } from '../lib/formatTime'
 import type { StatusSlice, TrendPoint } from './SiteMonitorCharts'
@@ -49,6 +50,8 @@ interface TargetForm {
   timeout_sec: number
   enabled: boolean
 }
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 const fieldClass =
   'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
@@ -100,6 +103,8 @@ export default function SiteMonitor() {
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [query, setQuery] = useState('')
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   // editing: null=关闭, {id:null}=新建, {id:number}=编辑
   const [editing, setEditing] = useState<{ id: number | null; form: TargetForm } | null>(null)
@@ -196,6 +201,17 @@ export default function SiteMonitor() {
       (t) => t.name.toLowerCase().includes(q) || t.url.toLowerCase().includes(q),
     )
   }, [targets, query])
+
+  // 搜索/每页条数变化或行数缩减时,把当前页夹回有效范围,避免停在空页。
+  const total = visible.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => visible.slice(page * pageSize, page * pageSize + pageSize),
+    [visible, page, pageSize],
+  )
 
   const columns: Column<Target>[] = useMemo(
     () => [
@@ -359,7 +375,7 @@ export default function SiteMonitor() {
 
           <Table
             columns={columns}
-            rows={visible}
+            rows={pageRows}
             rowKey={(t) => t.id}
             emptyText={
               <EmptyState
@@ -375,6 +391,46 @@ export default function SiteMonitor() {
               />
             }
           />
+
+          {total > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+              <span className="tabular-nums">共 {total} 条</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value))
+                  setPage(0)
+                }}
+                aria-label="每页条数"
+                className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} 条/页
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <IconButton
+                  aria-label="上一页"
+                  className="h-8 w-8"
+                  disabled={page === 0}
+                  icon={<ChevronLeft size={16} />}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                />
+                <span className="tabular-nums px-1">
+                  {page + 1} / {pageCount}
+                </span>
+                <IconButton
+                  aria-label="下一页"
+                  className="h-8 w-8"
+                  disabled={page >= pageCount - 1}
+                  icon={<ChevronRight size={16} />}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                />
+              </div>
+            </div>
+          )}
 
           {targets.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">

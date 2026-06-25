@@ -149,18 +149,16 @@ export default function TerminalView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-(--radius-card) border border-border bg-surface shadow-[var(--shadow-card),var(--inset-hl)]">
-      {/* 工具栏:标题 + 连接状态 Badge + 会话操作 */}
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-surface-2/40 px-3 py-2">
+      {/* 工具栏:标题 + 连接状态 Badge + 会话操作,紧凑一行 */}
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-surface-2/40 px-3">
         <span className="inline-flex min-w-0 items-center gap-2 font-medium text-text">
           <TerminalSquare size={15} className="shrink-0 text-muted" aria-hidden />
           <span className="truncate font-[family-name:var(--font-mono)] text-sm">主机终端</span>
         </span>
 
-        <span className="ml-auto">
-          <Badge status={meta.badge}>{meta.label}</Badge>
-        </span>
+        <Badge status={meta.badge}>{meta.label}</Badge>
 
-        <div className="flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-1">
           <Button
             size="sm"
             variant="ghost"

@@ -8,7 +8,8 @@ import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { KeyRound, Search, Server } from 'lucide-react'
+import { IconButton } from '../components/IconButton'
+import { ChevronLeft, ChevronRight, KeyRound, Search, Server } from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -17,6 +18,8 @@ function errorText(e: unknown): string {
 
 // 心跳新鲜窗口:last_seen 在此秒数内视为在线。
 const ONLINE_WINDOW_SEC = 90
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 interface Node {
   id: string
@@ -81,12 +84,17 @@ export default function Fleet() {
 
   const [enrollToken, setEnrollToken] = useState<string | null>(null)
 
+  const [nodePageSize, setNodePageSize] = useState<number>(PAGE_SIZES[0])
+  const [nodePage, setNodePage] = useState(0)
+
   const [argv, setArgv] = useState('')
   const [selKind, setSelKind] = useState<SelectorKind>('all')
   const [selValue, setSelValue] = useState('')
   const [timeout, setTimeoutSec] = useState('30')
   const [job, setJob] = useState<JobResp | null>(null)
   const [openRows, setOpenRows] = useState<Set<string>>(new Set())
+  const [resultPageSize, setResultPageSize] = useState<number>(PAGE_SIZES[0])
+  const [resultPage, setResultPage] = useState(0)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -179,6 +187,7 @@ export default function Fleet() {
     setBusy(true)
     setFeedback(null)
     setOpenRows(new Set())
+    setResultPage(0)
     try {
       const res = await apiFetch<JobResp>('/api/m/fleet/jobs', {
         method: 'POST',
@@ -216,6 +225,27 @@ export default function Fleet() {
         n.tags.toLowerCase().includes(q),
     )
   }, [nodes, query])
+
+  // 搜索/每页条数变化或行数缩减时,把当前页夹回有效范围,避免停在空页。
+  const nodeTotal = visible.length
+  const nodePageCount = Math.max(1, Math.ceil(nodeTotal / nodePageSize))
+  useEffect(() => {
+    if (nodePage > nodePageCount - 1) setNodePage(nodePageCount - 1)
+  }, [nodePage, nodePageCount])
+  const nodeRows = useMemo(
+    () => visible.slice(nodePage * nodePageSize, nodePage * nodePageSize + nodePageSize),
+    [visible, nodePage, nodePageSize],
+  )
+
+  const resultTotal = job?.results.length ?? 0
+  const resultPageCount = Math.max(1, Math.ceil(resultTotal / resultPageSize))
+  useEffect(() => {
+    if (resultPage > resultPageCount - 1) setResultPage(resultPageCount - 1)
+  }, [resultPage, resultPageCount])
+  const resultRows = useMemo(
+    () => (job ? job.results.slice(resultPage * resultPageSize, resultPage * resultPageSize + resultPageSize) : []),
+    [job, resultPage, resultPageSize],
+  )
 
   const columns: Column<Node>[] = useMemo(
     () => [
@@ -361,22 +391,37 @@ export default function Fleet() {
       {loading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <Table
-          columns={columns}
-          rows={visible}
-          rowKey={(n) => n.id}
-          emptyText={
-            <EmptyState
-              icon={<Server />}
-              title={nodes.length === 0 ? '还没有节点' : '没有匹配的节点'}
-              hint={
-                nodes.length === 0
-                  ? '点击「生成入网 token」让新 agent 加入集群。'
-                  : '换个关键词试试。'
-              }
+        <>
+          <Table
+            columns={columns}
+            rows={nodeRows}
+            rowKey={(n) => n.id}
+            emptyText={
+              <EmptyState
+                icon={<Server />}
+                title={nodes.length === 0 ? '还没有节点' : '没有匹配的节点'}
+                hint={
+                  nodes.length === 0
+                    ? '点击「生成入网 token」让新 agent 加入集群。'
+                    : '换个关键词试试。'
+                }
+              />
+            }
+          />
+          {nodeTotal > 0 && (
+            <Pager
+              total={nodeTotal}
+              page={nodePage}
+              pageCount={nodePageCount}
+              pageSize={nodePageSize}
+              onPageSize={(n) => {
+                setNodePageSize(n)
+                setNodePage(0)
+              }}
+              onPage={setNodePage}
             />
-          }
-        />
+          )}
+        </>
       )}
 
       {!isAdmin && <p className="text-xs text-muted">节点审批、移除与命令下发需要 admin 角色。</p>}
@@ -495,11 +540,24 @@ export default function Fleet() {
                 ),
               },
             ]}
-            rows={job.results}
+            rows={resultRows}
             rowKey={(r) => r.node_id}
             emptyText="该任务无目标节点。"
           />
-          {job.results
+          {resultTotal > 0 && (
+            <Pager
+              total={resultTotal}
+              page={resultPage}
+              pageCount={resultPageCount}
+              pageSize={resultPageSize}
+              onPageSize={(n) => {
+                setResultPageSize(n)
+                setResultPage(0)
+              }}
+              onPage={setResultPage}
+            />
+          )}
+          {resultRows
             .filter((r) => openRows.has(r.node_id) && r.output)
             .map((r) => (
               <div key={r.node_id} className="flex flex-col gap-1.5">
@@ -513,6 +571,60 @@ export default function Fleet() {
             ))}
         </Card>
       )}
+    </div>
+  )
+}
+
+/** Pager 表格底部分页:共 N 条 + 每页条数选择 + 上/下页,与 Sites 页一致。 */
+function Pager({
+  total,
+  page,
+  pageCount,
+  pageSize,
+  onPageSize,
+  onPage,
+}: {
+  total: number
+  page: number
+  pageCount: number
+  pageSize: number
+  onPageSize: (n: number) => void
+  onPage: (updater: (p: number) => number) => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => onPageSize(Number(e.target.value))}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => onPage((p) => Math.max(0, p - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => onPage((p) => Math.min(pageCount - 1, p + 1))}
+        />
+      </div>
     </div>
   )
 }
