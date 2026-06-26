@@ -3,11 +3,12 @@ import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
+import { IconButton } from '../components/IconButton'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { RefreshCw, Search, ServerCog } from 'lucide-react'
+import { RefreshCw, Search, ServerCog, ChevronLeft, ChevronRight } from 'lucide-react'
 import { uid } from '../lib/uid'
 
 // 危险操作(停止服务)请求头,与各页约定一致;后端 admin 校验为权威。
@@ -16,7 +17,9 @@ const DANGER = { 'X-Confirm-Danger': '1' }
 // 与后端同款单元名校验,前端先挡掉非法输入避免无谓请求。
 const UNIT_RE = /^[a-zA-Z0-9._@-]{1,128}$/
 
-type Verb = 'start' | 'stop' | 'restart'
+const PAGE_SIZES = [10, 20, 50] as const
+
+type Verb = 'start' | 'stop' | 'restart' | 'reload'
 
 interface ServiceItem {
   name: string
@@ -64,7 +67,12 @@ function statusBadge(s: ServiceItem) {
   return <Badge status="neutral">{s.active || '已停止'}</Badge>
 }
 
-const verbLabel: Record<Verb, string> = { start: '启动', stop: '停止', restart: '重启' }
+const verbLabel: Record<Verb, string> = {
+  start: '启动',
+  stop: '停止',
+  restart: '重启',
+  reload: '重载',
+}
 
 /** Service 服务管理:aaPanel 风格统一服务表,按行 start/stop/restart/查状态(写操作需 operator,停止额外需 admin+确认)。 */
 export default function Service() {
@@ -79,6 +87,9 @@ export default function Service() {
   const [busyUnit, setBusyUnit] = useState<string | null>(null)
   const [output, setOutput] = useState<{ unit: string; text: string } | null>(null)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -104,6 +115,17 @@ export default function Service() {
         s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q),
     )
   }, [services, query])
+
+  // 搜索或每页条数变化、行数缩减时把当前页夹回有效范围,避免停在空页。
+  const total = visible.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => visible.slice(page * pageSize, page * pageSize + pageSize),
+    [visible, page, pageSize],
+  )
 
   const queryStatus = useCallback(async (unit: string) => {
     setBusyUnit(unit)
@@ -162,7 +184,25 @@ export default function Service() {
         key: 'status',
         header: '状态',
         width: '96px',
-        cell: (s) => statusBadge(s),
+        cell: (s) => {
+          const badge = statusBadge(s)
+          if (!isAdmin) return badge
+          // 状态可点切换:运行中 → 点击停止;其余 → 点击启动,复用现有 act 启停。
+          const running = s.active === 'active'
+          const busy = busyUnit === s.name
+          return (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void act(s.name, running ? 'stop' : 'start')}
+              title={running ? '运行中,点击停止' : '已停止,点击启动'}
+              aria-label={running ? '停止服务' : '启动服务'}
+              className="inline-flex items-center rounded-sm outline-none transition hover:opacity-80 focus-visible:ring-2 focus-visible:ring-brand/60 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {badge}
+            </button>
+          )
+        },
       },
       {
         key: 'desc',
@@ -185,7 +225,7 @@ export default function Service() {
       {
         key: 'actions',
         header: '操作',
-        width: '170px',
+        width: '220px',
         align: 'right',
         cell: (s) => {
           const busy = busyUnit === s.name
@@ -202,6 +242,9 @@ export default function Service() {
                   </ActionLink>
                   <ActionLink disabled={busy} onClick={() => void act(s.name, 'restart')}>
                     重启
+                  </ActionLink>
+                  <ActionLink disabled={busy} onClick={() => void act(s.name, 'reload')}>
+                    重载
                   </ActionLink>
                 </ActionLinks>
               ) : (
@@ -260,22 +303,63 @@ export default function Service() {
       {loading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <Table
-          columns={columns}
-          rows={visible}
-          rowKey={(s) => s.name}
-          emptyText={
-            <EmptyState
-              icon={<ServerCog />}
-              title={services.length === 0 ? '暂无服务' : '没有匹配的服务'}
-              hint={
-                services.length === 0
-                  ? 'systemctl 未返回任何服务,或当前环境不支持。'
-                  : '换个关键词试试。'
-              }
-            />
-          }
-        />
+        <>
+          <Table
+            columns={columns}
+            rows={pageRows}
+            rowKey={(s) => s.name}
+            emptyText={
+              <EmptyState
+                icon={<ServerCog />}
+                title={services.length === 0 ? '暂无服务' : '没有匹配的服务'}
+                hint={
+                  services.length === 0
+                    ? 'systemctl 未返回任何服务,或当前环境不支持。'
+                    : '换个关键词试试。'
+                }
+              />
+            }
+          />
+          {total > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+              <span className="tabular-nums">共 {total} 条</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value))
+                  setPage(0)
+                }}
+                aria-label="每页条数"
+                className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} 条/页
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <IconButton
+                  aria-label="上一页"
+                  className="h-8 w-8"
+                  disabled={page === 0}
+                  icon={<ChevronLeft size={16} />}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                />
+                <span className="tabular-nums px-1">
+                  {page + 1} / {pageCount}
+                </span>
+                <IconButton
+                  aria-label="下一页"
+                  className="h-8 w-8"
+                  disabled={page >= pageCount - 1}
+                  icon={<ChevronRight size={16} />}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {!isAdmin && (
@@ -401,6 +485,14 @@ function ManualPanel({
               title={isAdmin ? '重启' : '需要 admin 角色'}
             >
               重启
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => void act('reload')}
+              disabled={!canAct || !isAdmin}
+              title={isAdmin ? '重载配置' : '需要 admin 角色'}
+            >
+              重载
             </Button>
             <Button
               variant="danger"

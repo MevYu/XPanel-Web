@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
@@ -9,9 +9,86 @@ import { Spinner } from '../components/Spinner'
 import { CodeEditor } from '../components/CodeEditor'
 import { Tabs } from '../components/Tabs'
 import { Table, ActionLink, type Column } from '../components/Table'
+import { IconButton } from '../components/IconButton'
 import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
-import { RefreshCw, X, Boxes } from 'lucide-react'
+import { RefreshCw, Boxes, ChevronLeft, ChevronRight } from 'lucide-react'
+
+const PAGE_SIZES = [10, 20, 50] as const
+
+// usePagination 在已加载列表上做客户端分页(后端无分页端点):返回当前页行 + 受控翻页状态。
+function usePagination<T>(rows: T[]) {
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
+  const total = rows.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => rows.slice(page * pageSize, page * pageSize + pageSize),
+    [rows, page, pageSize],
+  )
+  return { pageRows, total, page, setPage, pageCount, pageSize, setPageSize }
+}
+
+// TablePager 表底分页条:对齐 Sites/Database 的「共 N 条 + 每页条数 + 翻页」样式。
+function TablePager({
+  total,
+  page,
+  setPage,
+  pageCount,
+  pageSize,
+  setPageSize,
+}: {
+  total: number
+  page: number
+  setPage: (fn: (p: number) => number) => void
+  pageCount: number
+  pageSize: number
+  setPageSize: (n: number) => void
+}) {
+  if (total === 0) return null
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => {
+          setPageSize(Number(e.target.value))
+          setPage(() => 0)
+        }}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+        />
+      </div>
+    </div>
+  )
+}
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -651,6 +728,7 @@ function ExtensionsTab({ version, canWrite }: { version: string; canWrite: boole
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [newExt, setNewExt] = useState('')
+  const [query, setQuery] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -688,6 +766,34 @@ function ExtensionsTab({ version, canWrite }: { version: string; canWrite: boole
     }
   }
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return q ? exts.filter((e) => e.toLowerCase().includes(q)) : exts
+  }, [exts, query])
+  const pager = usePagination(filtered)
+
+  const columns: Column<string>[] = [
+    {
+      key: 'ext',
+      header: '扩展',
+      cell: (ext) => <span className="font-[family-name:var(--font-mono)] text-xs text-text">{ext}</span>,
+    },
+    {
+      key: 'actions',
+      header: '操作',
+      width: '72px',
+      align: 'right',
+      cell: (ext) =>
+        canWrite ? (
+          <ActionLink danger disabled={busy} onClick={() => void toggle(ext, 'disable')}>
+            禁用
+          </ActionLink>
+        ) : (
+          <span className="text-xs text-faint">—</span>
+        ),
+    },
+  ]
+
   if (loading) return <Loading />
   if (err) return <ErrorLine text={err} />
 
@@ -710,29 +816,23 @@ function ExtensionsTab({ version, canWrite }: { version: string; canWrite: boole
           </div>
         </Section>
       )}
-      <Section title={`已加载扩展 (${exts.length})`}>
-        <div className="flex flex-wrap gap-2">
-          {exts.map((ext) => (
-            <span
-              key={ext}
-              className="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-border bg-surface-2 px-2.5 py-1 text-xs"
-            >
-              <span className="font-[family-name:var(--font-mono)] text-text">{ext}</span>
-              {canWrite && (
-                <button
-                  onClick={() => void toggle(ext, 'disable')}
-                  disabled={busy}
-                  className="text-faint transition hover:text-crit"
-                  aria-label={`禁用 ${ext}`}
-                >
-                  <X size={13} />
-                </button>
-              )}
-            </span>
-          ))}
-          {exts.length === 0 && <p className="text-sm text-muted">无已加载扩展。</p>}
-        </div>
-      </Section>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-xs font-medium uppercase tracking-wide text-muted">已加载扩展 ({exts.length})</h3>
+        <input
+          className={`${fieldClass} w-56`}
+          placeholder="搜索扩展"
+          spellCheck={false}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      <Table
+        columns={columns}
+        rows={pager.pageRows}
+        rowKey={(ext) => ext}
+        emptyText={exts.length === 0 ? '无已加载扩展。' : '没有匹配的扩展。'}
+      />
+      <TablePager {...pager} />
     </div>
   )
 }
@@ -823,6 +923,8 @@ export default function Php() {
     void load()
   }, [load])
 
+  const pager = usePagination(versions)
+
   // aaPanel 工具栏:左侧标题,右侧刷新。
   const toolbar = (
     <div className="flex flex-wrap items-center justify-between gap-3">
@@ -899,18 +1001,21 @@ export default function Php() {
       {loading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <Table
-          columns={columns}
-          rows={versions}
-          rowKey={(v) => v.version}
-          emptyText={
-            <EmptyState
-              icon={<Boxes />}
-              title="未检测到 PHP"
-              hint="系统中没有可管理的 PHP 版本。请前往软件商店安装 PHP 后再回到本页配置。"
-            />
-          }
-        />
+        <>
+          <Table
+            columns={columns}
+            rows={pager.pageRows}
+            rowKey={(v) => v.version}
+            emptyText={
+              <EmptyState
+                icon={<Boxes />}
+                title="未检测到 PHP"
+                hint="系统中没有可管理的 PHP 版本。请前往软件商店安装 PHP 后再回到本页配置。"
+              />
+            }
+          />
+          <TablePager {...pager} />
+        </>
       )}
 
       {cli && versions.length > 0 && (

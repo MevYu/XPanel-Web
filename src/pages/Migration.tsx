@@ -9,6 +9,7 @@ import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Tabs } from '../components/Tabs'
 import { EmptyState } from '../components/EmptyState'
+import { IconButton } from '../components/IconButton'
 import { uid } from '../lib/uid'
 import {
   Plus,
@@ -22,6 +23,8 @@ import {
   Download,
   CheckCircle2,
   XCircle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 
 function errorText(e: unknown): string {
@@ -150,6 +153,82 @@ function fmtTime(unixSec: number): string {
   const d = new Date(unixSec * 1000)
   const pad = (x: number) => String(x).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+const PAGE_SIZES = [10, 20, 50] as const
+
+/** usePaged 把整段数据切成当前页;数据缩减或换每页条数时把页码夹回有效范围。 */
+function usePaged<T>(rows: T[]) {
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
+  const total = rows.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => rows.slice(page * pageSize, page * pageSize + pageSize),
+    [rows, page, pageSize],
+  )
+  return { pageRows, total, page, setPage, pageSize, setPageSize, pageCount }
+}
+
+/** Pagination 表底分页条:对齐 Sites/Malscan——右对齐「共 N 条 + 每页条数 + 翻页」。 */
+function Pagination({
+  total,
+  page,
+  setPage,
+  pageSize,
+  setPageSize,
+  pageCount,
+}: {
+  total: number
+  page: number
+  setPage: (fn: (p: number) => number) => void
+  pageSize: number
+  setPageSize: (n: number) => void
+  pageCount: number
+}) {
+  if (total === 0) return null
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => {
+          setPageSize(Number(e.target.value))
+          setPage(() => 0)
+        }}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+        />
+      </div>
+    </div>
+  )
 }
 
 /** 一键迁移:迁移包紧凑表 + 导出/导入(危险)/详情/设置弹窗,全部需要 admin。 */
@@ -286,6 +365,8 @@ export default function Migration() {
       (p) => p.name.toLowerCase().includes(q) || p.filename.toLowerCase().includes(q),
     )
   }, [packages, query])
+
+  const paged = usePaged(visible)
 
   const columns: Column<Package>[] = useMemo(
     () => [
@@ -436,22 +517,25 @@ export default function Migration() {
         (loading ? (
           <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
         ) : (
-          <Table
-            columns={columns}
-            rows={visible}
-            rowKey={(p) => p.id}
-            emptyText={
-              <EmptyState
-                icon={<Boxes />}
-                title={packages.length === 0 ? '还没有迁移包' : '没有匹配的迁移包'}
-                hint={
-                  packages.length === 0
-                    ? '点击「新建迁移包」打包一个站点。'
-                    : '换个关键词试试。'
-                }
-              />
-            }
-          />
+          <>
+            <Table
+              columns={columns}
+              rows={paged.pageRows}
+              rowKey={(p) => p.id}
+              emptyText={
+                <EmptyState
+                  icon={<Boxes />}
+                  title={packages.length === 0 ? '还没有迁移包' : '没有匹配的迁移包'}
+                  hint={
+                    packages.length === 0
+                      ? '点击「新建迁移包」打包一个站点。'
+                      : '换个关键词试试。'
+                  }
+                />
+              }
+            />
+            <Pagination {...paged} />
+          </>
         ))}
 
       {tab === 'tasks' && <TasksSection tasks={tasks} loading={loading} />}
@@ -631,22 +715,27 @@ function TasksSection({ tasks, loading }: { tasks: Task[]; loading: boolean }) {
     [],
   )
 
+  const paged = usePaged(tasks)
+
   if (loading) {
     return <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
   }
   return (
-    <Table
-      columns={columns}
-      rows={tasks}
-      rowKey={(t) => t.id || uid()}
-      emptyText={
-        <EmptyState
-          icon={<ListChecks />}
-          title="还没有迁移任务"
-          hint="导出或导入后,任务进度会显示在这里。"
-        />
-      }
-    />
+    <>
+      <Table
+        columns={columns}
+        rows={paged.pageRows}
+        rowKey={(t) => t.id || uid()}
+        emptyText={
+          <EmptyState
+            icon={<ListChecks />}
+            title="还没有迁移任务"
+            hint="导出或导入后,任务进度会显示在这里。"
+          />
+        }
+      />
+      <Pagination {...paged} />
+    </>
   )
 }
 

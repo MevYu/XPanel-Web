@@ -6,6 +6,7 @@ import {
   Upload,
   Share2,
   House,
+  ChevronLeft,
   ChevronRight,
   ChevronDown,
   Download,
@@ -60,6 +61,8 @@ const SearchBar = lazy(() =>
 )
 
 const DANGER = { 'X-Confirm-Danger': '1' }
+
+const PAGE_SIZES = [50, 100, 200] as const
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -231,6 +234,8 @@ export default function Files() {
   const [showHidden, setShowHidden] = useState(true)
   const [clipboard, setClipboard] = useState<Clipboard>(null)
   const [dirSizes, setDirSizes] = useState<Record<string, DirSize>>({})
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
   const fileInput = useRef<HTMLInputElement | null>(null)
 
   const [dialog, setDialog] = useState<Dialog>(null)
@@ -265,6 +270,7 @@ export default function Files() {
     setDirSizes({})
     setPathInput(cwd)
     setEditingPath(false)
+    setPage(0)
     void load(cwd)
   }, [cwd, load])
 
@@ -290,6 +296,14 @@ export default function Files() {
 
   const visible = entries.filter((e) => showHidden || !e.name.startsWith('.'))
   const selectedEntries = entries.filter((e) => selected.has(e.name))
+
+  // 客户端分页:文件多时按页切片(对齐 aaPanel 底部分页),「返回上级」行不计入。
+  const total = visible.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = visible.slice(page * pageSize, page * pageSize + pageSize)
 
   async function download(entry: DirEntry) {
     try {
@@ -780,7 +794,7 @@ export default function Files() {
                   </td>
                 </tr>
               ) : (
-                visible.map((entry) => (
+                pageRows.map((entry) => (
                   <tr
                     key={entry.name}
                     className="group cursor-pointer border-b border-border/60 last:border-b-0 hover:bg-surface-2/60"
@@ -876,12 +890,52 @@ export default function Files() {
             </table>
           </div>
         )}
-        <div className="flex items-center justify-between border-t border-border px-4 py-2 text-xs text-muted">
-          <span>
-            共 {visible.filter((e) => e.is_dir).length} 个目录,
-            {visible.filter((e) => !e.is_dir).length} 个文件
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-2 text-xs text-muted">
+          <span className="flex items-center gap-3">
+            <span className="tabular-nums">
+              共 {visible.filter((e) => e.is_dir).length} 个目录,
+              {visible.filter((e) => !e.is_dir).length} 个文件
+            </span>
+            {selected.size > 0 && <span className="text-text">已选 {selected.size} 项</span>}
           </span>
-          {selected.size > 0 && <span>已选 {selected.size} 项</span>}
+          {total > pageSize && (
+            <span className="flex items-center gap-3">
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value))
+                  setPage(0)
+                }}
+                aria-label="每页条数"
+                className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} 条/页
+                  </option>
+                ))}
+              </select>
+              <span className="flex items-center gap-1">
+                <IconButton
+                  aria-label="上一页"
+                  className="h-8 w-8"
+                  disabled={page === 0}
+                  icon={<ChevronLeft size={16} />}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                />
+                <span className="px-1 tabular-nums">
+                  {page + 1} / {pageCount}
+                </span>
+                <IconButton
+                  aria-label="下一页"
+                  className="h-8 w-8"
+                  disabled={page >= pageCount - 1}
+                  icon={<ChevronRight size={16} />}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                />
+              </span>
+            </span>
+          )}
         </div>
       </Card>
 

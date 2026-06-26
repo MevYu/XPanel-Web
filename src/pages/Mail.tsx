@@ -8,9 +8,21 @@ import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Tabs } from '../components/Tabs'
+import { IconButton } from '../components/IconButton'
 import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
-import { Plus, Search, Globe, Mailbox as MailboxIcon, Forward, Settings2 } from 'lucide-react'
+import {
+  Plus,
+  Search,
+  Globe,
+  Mailbox as MailboxIcon,
+  Forward,
+  Settings2,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -70,6 +82,8 @@ export default function Mail() {
 
   const [section, setSection] = useState<Section>('domains')
   const [query, setQuery] = useState('')
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
   const [domainModal, setDomainModal] = useState(false)
   const [boxModal, setBoxModal] = useState(false)
   const [aliasModal, setAliasModal] = useState(false)
@@ -286,6 +300,31 @@ export default function Mail() {
     [aliases, q],
   )
 
+  // 当前 tab 的过滤后行数,驱动底部分页;切 tab / 搜索 / 改每页条数后把页码夹回有效范围。
+  const sectionTotal =
+    section === 'domains'
+      ? visibleDomains.length
+      : section === 'mailboxes'
+        ? visibleMailboxes.length
+        : visibleAliases.length
+  const pageCount = Math.max(1, Math.ceil(sectionTotal / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const sliceStart = page * pageSize
+  const pageDomains = useMemo(
+    () => visibleDomains.slice(sliceStart, sliceStart + pageSize),
+    [visibleDomains, sliceStart, pageSize],
+  )
+  const pageMailboxes = useMemo(
+    () => visibleMailboxes.slice(sliceStart, sliceStart + pageSize),
+    [visibleMailboxes, sliceStart, pageSize],
+  )
+  const pageAliases = useMemo(
+    () => visibleAliases.slice(sliceStart, sliceStart + pageSize),
+    [visibleAliases, sliceStart, pageSize],
+  )
+
   if (loading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -315,6 +354,7 @@ export default function Mail() {
         onChange={(s) => {
           setSection(s)
           setQuery('')
+          setPage(0)
         }}
       />
 
@@ -339,11 +379,18 @@ export default function Mail() {
               <Plus size={15} />
               添加域名
             </Button>
-            <SearchBox value={query} placeholder="搜索域名" onChange={setQuery} />
+            <SearchBox
+              value={query}
+              placeholder="搜索域名"
+              onChange={(v) => {
+                setQuery(v)
+                setPage(0)
+              }}
+            />
           </div>
           <Table
             columns={domainColumns}
-            rows={visibleDomains}
+            rows={pageDomains}
             rowKey={(d) => d.domain}
             emptyText={
               <EmptyState
@@ -356,6 +403,17 @@ export default function Mail() {
                 }
               />
             }
+          />
+          <Pagination
+            total={sectionTotal}
+            page={page}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            onPage={setPage}
+            onPageSize={(n) => {
+              setPageSize(n)
+              setPage(0)
+            }}
           />
         </div>
       )}
@@ -372,11 +430,18 @@ export default function Mail() {
               <Plus size={15} />
               添加邮箱
             </Button>
-            <SearchBox value={query} placeholder="搜索邮箱地址" onChange={setQuery} />
+            <SearchBox
+              value={query}
+              placeholder="搜索邮箱地址"
+              onChange={(v) => {
+                setQuery(v)
+                setPage(0)
+              }}
+            />
           </div>
           <Table
             columns={mailboxColumns}
-            rows={visibleMailboxes}
+            rows={pageMailboxes}
             rowKey={(b) => b.address}
             emptyText={
               <EmptyState
@@ -391,6 +456,17 @@ export default function Mail() {
                 }
               />
             }
+          />
+          <Pagination
+            total={sectionTotal}
+            page={page}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            onPage={setPage}
+            onPageSize={(n) => {
+              setPageSize(n)
+              setPage(0)
+            }}
           />
         </div>
       )}
@@ -407,11 +483,18 @@ export default function Mail() {
               <Plus size={15} />
               添加别名
             </Button>
-            <SearchBox value={query} placeholder="搜索源或目标地址" onChange={setQuery} />
+            <SearchBox
+              value={query}
+              placeholder="搜索源或目标地址"
+              onChange={(v) => {
+                setQuery(v)
+                setPage(0)
+              }}
+            />
           </div>
           <Table
             columns={aliasColumns}
-            rows={visibleAliases}
+            rows={pageAliases}
             rowKey={(a) => `${a.source}->${a.destination}`}
             emptyText={
               <EmptyState
@@ -426,6 +509,17 @@ export default function Mail() {
                 }
               />
             }
+          />
+          <Pagination
+            total={sectionTotal}
+            page={page}
+            pageCount={pageCount}
+            pageSize={pageSize}
+            onPage={setPage}
+            onPageSize={(n) => {
+              setPageSize(n)
+              setPage(0)
+            }}
           />
         </div>
       )}
@@ -531,6 +625,61 @@ function SearchBox({
         spellCheck={false}
         className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       />
+    </div>
+  )
+}
+
+/** Pagination 列表底部分页:左「共 N 条」+ 每页条数,右上/下一页;空列表不渲染。对齐 Sites/Database。 */
+function Pagination({
+  total,
+  page,
+  pageCount,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  total: number
+  page: number
+  pageCount: number
+  pageSize: number
+  onPage: (p: number) => void
+  onPageSize: (n: number) => void
+}) {
+  if (total === 0) return null
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => onPageSize(Number(e.target.value))}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => onPage(Math.max(0, page - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => onPage(Math.min(pageCount - 1, page + 1))}
+        />
+      </div>
     </div>
   )
 }

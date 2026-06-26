@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Globe, Search } from 'lucide-react'
+import { Globe, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { apiFetch } from '../api/client'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { EmptyState } from '../components/EmptyState'
+import { IconButton } from '../components/IconButton'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 interface Site {
   id: number
@@ -51,6 +54,8 @@ export default function Domains() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [q, setQ] = useState('')
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   function load() {
     setErr(null)
@@ -81,6 +86,17 @@ export default function Domains() {
     const k = q.trim().toLowerCase()
     return k ? rows.filter((r) => r.domain.toLowerCase().includes(k) || r.site.toLowerCase().includes(k)) : rows
   }, [rows, q])
+
+  // 搜索/每页条数变化或行数缩减时,把当前页夹回有效范围,避免停在空页。
+  const total = visible.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => visible.slice(page * pageSize, page * pageSize + pageSize),
+    [visible, page, pageSize],
+  )
 
   const columns: Column<Row>[] = [
     {
@@ -128,8 +144,7 @@ export default function Domains() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="text-sm text-muted">共 {rows.length} 个域名</span>
+      <div className="flex flex-wrap items-center justify-end gap-3">
         <div className="relative w-56">
           <Search
             size={15}
@@ -157,22 +172,63 @@ export default function Domains() {
       {loading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <Table
-          columns={columns}
-          rows={visible}
-          rowKey={(r) => `${r.siteId}-${r.domain}`}
-          emptyText={
-            <EmptyState
-              icon={<Globe />}
-              title={rows.length === 0 ? '还没有域名' : '没有匹配的域名'}
-              hint={
-                rows.length === 0
-                  ? '在「网站」模块添加站点后,域名会自动汇总到这里。'
-                  : '换个关键词试试。'
-              }
-            />
-          }
-        />
+        <>
+          <Table
+            columns={columns}
+            rows={pageRows}
+            rowKey={(r) => `${r.siteId}-${r.domain}`}
+            emptyText={
+              <EmptyState
+                icon={<Globe />}
+                title={rows.length === 0 ? '还没有域名' : '没有匹配的域名'}
+                hint={
+                  rows.length === 0
+                    ? '在「网站」模块添加站点后,域名会自动汇总到这里。'
+                    : '换个关键词试试。'
+                }
+              />
+            }
+          />
+          {total > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+              <span className="tabular-nums">共 {total} 个域名</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value))
+                  setPage(0)
+                }}
+                aria-label="每页条数"
+                className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} 条/页
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <IconButton
+                  aria-label="上一页"
+                  className="h-8 w-8"
+                  disabled={page === 0}
+                  icon={<ChevronLeft size={16} />}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                />
+                <span className="tabular-nums px-1">
+                  {page + 1} / {pageCount}
+                </span>
+                <IconButton
+                  aria-label="下一页"
+                  className="h-8 w-8"
+                  disabled={page >= pageCount - 1}
+                  icon={<ChevronRight size={16} />}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

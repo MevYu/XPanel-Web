@@ -6,12 +6,12 @@ import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
-import { Stat } from '../components/Stat'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Settings2, UserPlus, GitBranch, RefreshCw, Database, Server, Info } from 'lucide-react'
+import { Settings2, UserPlus, GitBranch, RefreshCw, Database, Server, Info, FileText, MapPin } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -56,6 +56,21 @@ type Dialog = 'settings' | 'repl-user' | 'configure' | null
 
 function runBadge(v: string): 'online' | 'warn' | 'crit' {
   return v === 'Yes' ? 'online' : v === 'Connecting' ? 'warn' : 'crit'
+}
+
+/** Metric 紧凑读数小卡(对齐 Memcached 状态页密度):图标 + mono 读数 + muted 标签。 */
+function Metric({ icon: Icon, value, label }: { icon: LucideIcon; value: ReactNode; label: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-(--radius-card) border border-border bg-surface-2/40 px-3.5 py-3">
+      <Icon size={20} className="shrink-0 text-brand" />
+      <div className="flex min-w-0 flex-col">
+        <span className="truncate font-[family-name:var(--font-mono)] text-xl font-medium tabular-nums tracking-tight text-text">
+          {value}
+        </span>
+        <span className="truncate text-xs text-muted">{label}</span>
+      </div>
+    </div>
+  )
 }
 
 /** 状态总览卡:节点图标 + 角色标题 + 主机端点 + 一组状态/数值行,右上角单卡查询。 */
@@ -318,9 +333,9 @@ export default function MysqlRepl() {
           busy={busy}
         >
           {master ? (
-            <div className="grid gap-3 rounded-(--radius-card) bg-surface-2 px-4 py-3 sm:grid-cols-2">
-              <Stat value={master.file || '—'} label="binlog file" />
-              <Stat value={master.position} label="position" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Metric icon={FileText} value={master.file || '—'} label="binlog file" />
+              <Metric icon={MapPin} value={master.position} label="position" />
             </div>
           ) : (
             <EmptyState

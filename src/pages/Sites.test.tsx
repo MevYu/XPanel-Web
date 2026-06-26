@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 const apiFetch = vi.fn()
 vi.mock('../api/client', () => ({
@@ -87,8 +87,10 @@ describe('Sites list', () => {
     render(<Sites />)
     await screen.findByText('example.com')
 
-    const delButtons = screen.getAllByRole('button', { name: '删除站点' })
-    fireEvent.click(delButtons[0])
+    // 删除已挪进首行的「⋮ 更多」下拉:先展开,再点菜单里的删除项。
+    const moreButtons = screen.getAllByRole('button', { name: '更多操作' })
+    fireEvent.click(moreButtons[0])
+    fireEvent.click(await screen.findByRole('menuitem', { name: /删除/ }))
 
     await waitFor(() => {
       const call = apiFetch.mock.calls.find(
@@ -109,8 +111,10 @@ describe('Sites list', () => {
     const name = await screen.findByText('example.com')
     fireEvent.click(name)
 
-    expect(await screen.findByRole('button', { name: /概览/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /域名/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /配置文件/ })).toBeInTheDocument()
+    // 「配置文件」在快捷列图标与 drawer tab 多处匹配,把断言收敛到 drawer(role=dialog)内。
+    const drawer = within(await screen.findByRole('dialog'))
+    expect(drawer.getByRole('button', { name: /概览/ })).toBeInTheDocument()
+    expect(drawer.getByRole('button', { name: /域名/ })).toBeInTheDocument()
+    expect(drawer.getByRole('button', { name: /配置文件/ })).toBeInTheDocument()
   })
 })

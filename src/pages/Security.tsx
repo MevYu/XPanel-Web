@@ -9,6 +9,8 @@ import {
   ScrollText,
   Ban,
   Search,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
@@ -18,6 +20,7 @@ import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
+import { IconButton } from '../components/IconButton'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
 import { Segmented } from '../components/Segmented'
@@ -30,6 +33,79 @@ function errorText(e: unknown): string {
 }
 
 const DANGER = { 'X-Confirm-Danger': '1' }
+
+const PAGE_SIZES = [10, 20, 50] as const
+
+// 客户端分页:把可见行夹到当前页,并在搜索/缩减后把页码拉回有效范围,避免停在空页。对齐 Firewall。
+function usePagination<T>(rows: T[]) {
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
+  const total = rows.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const start = page * pageSize
+  const pageRows = useMemo(() => rows.slice(start, start + pageSize), [rows, start, pageSize])
+  return { pageRows, total, page, setPage, pageCount, pageSize, setPageSize }
+}
+
+function Pager({
+  total,
+  page,
+  setPage,
+  pageCount,
+  pageSize,
+  setPageSize,
+}: {
+  total: number
+  page: number
+  setPage: (fn: (p: number) => number) => void
+  pageCount: number
+  pageSize: number
+  setPageSize: (n: number) => void
+}) {
+  if (total === 0) return null
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border px-3 py-2.5 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => {
+          setPageSize(Number(e.target.value))
+          setPage(() => 0)
+        }}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+        />
+      </div>
+    </div>
+  )
+}
 
 // 改这些 sshd 指令可能把自己锁在门外,前端对应后端的危险键白名单,提交带确认头。
 const SSHD_DANGER_KEYS = new Set([
@@ -443,6 +519,8 @@ function SSHKeys() {
     )
   }, [keys, query])
 
+  const pager = usePagination(visible)
+
   const columns: Column<SSHKey>[] = [
     {
       key: 'comment',
@@ -487,7 +565,14 @@ function SSHKeys() {
         </Button>
         <div className="flex items-center gap-2">
           {busy && <Spinner size={16} />}
-          <SearchBox value={query} onChange={setQuery} placeholder="搜索备注 / 公钥" />
+          <SearchBox
+            value={query}
+            onChange={(v) => {
+              setQuery(v)
+              pager.setPage(() => 0)
+            }}
+            placeholder="搜索备注 / 公钥"
+          />
           <Button size="sm" variant="ghost" onClick={() => void load()} disabled={busy}>
             <RefreshCw size={14} />
             刷新
@@ -507,18 +592,22 @@ function SSHKeys() {
           </Button>
         </p>
       ) : (
-        <Table
-          columns={columns}
-          rows={visible}
-          rowKey={(k) => k.id}
-          emptyText={
-            <EmptyState
-              icon={<KeyRound />}
-              title={keys.length === 0 ? '暂无已授权公钥' : '没有匹配的公钥'}
-              hint={keys.length === 0 ? '点击「添加公钥」授权一个 SSH 客户端。' : '换个关键词试试。'}
-            />
-          }
-        />
+        <Card className="flex flex-col gap-0 p-0">
+          <Table
+            bare
+            columns={columns}
+            rows={pager.pageRows}
+            rowKey={(k) => k.id}
+            emptyText={
+              <EmptyState
+                icon={<KeyRound />}
+                title={keys.length === 0 ? '暂无已授权公钥' : '没有匹配的公钥'}
+                hint={keys.length === 0 ? '点击「添加公钥」授权一个 SSH 客户端。' : '换个关键词试试。'}
+              />
+            }
+          />
+          <Pager {...pager} />
+        </Card>
       )}
 
       {adding && <AddKeyModal busy={busy} onClose={() => setAdding(false)} onSubmit={add} />}
@@ -658,6 +747,7 @@ function Fail2ban() {
   }
 
   const bannedRows = useMemo(() => banned.map((ip) => ({ id: uid(), ip })), [banned])
+  const pager = usePagination(bannedRows)
 
   const columns: Column<{ id: string; ip: string }>[] = [
     {
@@ -726,18 +816,22 @@ function Fail2ban() {
 
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium text-muted">封禁 IP（{banned.length}）</span>
-        <Table
-          columns={columns}
-          rows={bannedRows}
-          rowKey={(r) => r.id}
-          emptyText={
-            <EmptyState
-              icon={<Ban />}
-              title="该 jail 当前无封禁 IP"
-              hint="爆破触发封禁后会出现在这里,可逐条解封。"
-            />
-          }
-        />
+        <Card className="flex flex-col gap-0 p-0">
+          <Table
+            bare
+            columns={columns}
+            rows={pager.pageRows}
+            rowKey={(r) => r.id}
+            emptyText={
+              <EmptyState
+                icon={<Ban />}
+                title="该 jail 当前无封禁 IP"
+                hint="爆破触发封禁后会出现在这里,可逐条解封。"
+              />
+            }
+          />
+          <Pager {...pager} />
+        </Card>
       </div>
     </div>
   )
@@ -768,6 +862,7 @@ function LoginLog() {
   }, [load, failed])
 
   const rows = useMemo(() => entries.map((e) => ({ id: uid(), ...e })), [entries])
+  const pager = usePagination(rows)
 
   const columns: Column<{ id: string } & LoginEntry>[] = [
     {
@@ -835,18 +930,22 @@ function LoginLog() {
           </Button>
         </p>
       ) : (
-        <Table
-          columns={columns}
-          rows={rows}
-          rowKey={(e) => e.id}
-          emptyText={
-            <EmptyState
-              icon={<ScrollText />}
-              title="暂无记录"
-              hint={failed ? '近期没有失败登录尝试。' : '近期没有成功登录记录。'}
-            />
-          }
-        />
+        <Card className="flex flex-col gap-0 p-0">
+          <Table
+            bare
+            columns={columns}
+            rows={pager.pageRows}
+            rowKey={(e) => e.id}
+            emptyText={
+              <EmptyState
+                icon={<ScrollText />}
+                title="暂无记录"
+                hint={failed ? '近期没有失败登录尝试。' : '近期没有成功登录记录。'}
+              />
+            }
+          />
+          <Pager {...pager} />
+        </Card>
       )}
     </div>
   )

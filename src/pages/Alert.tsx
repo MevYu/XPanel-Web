@@ -8,9 +8,19 @@ import { Spinner } from '../components/Spinner'
 import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
 import { Tabs } from '../components/Tabs'
+import { IconButton } from '../components/IconButton'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Plus, BellRing, History, SlidersHorizontal, SendHorizontal, Radio } from 'lucide-react'
+import {
+  Plus,
+  BellRing,
+  History,
+  SlidersHorizontal,
+  SendHorizontal,
+  Radio,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 import { formatTime } from '../lib/formatTime'
 
 // alert 删除端点后端不强制 X-Confirm-Danger,这里仍随危险删除惯例带上,保持各页一致。
@@ -117,8 +127,81 @@ interface Settings {
 const selectClass =
   'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
 
+const PAGE_SIZES = [10, 20, 50] as const
+
 function metricLabel(m: string): string {
   return METRICS.find((x) => x.value === m)?.label ?? m
+}
+
+// 客户端分页:筛选/行数缩减时把当前页夹回有效范围,避免停在空页。
+function usePagination<T>(rows: T[]) {
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
+  const total = rows.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => rows.slice(page * pageSize, page * pageSize + pageSize),
+    [rows, page, pageSize],
+  )
+  return { pageRows, total, page, setPage, pageCount, pageSize, setPageSize }
+}
+
+// 底部分页条:总条数 + 每页条数 + 上/下页,对齐 Sites 页样式。
+function Pagination({
+  total,
+  page,
+  pageCount,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  total: number
+  page: number
+  pageCount: number
+  pageSize: number
+  onPage: (p: number) => void
+  onPageSize: (n: number) => void
+}) {
+  if (total === 0) return null
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => onPageSize(Number(e.target.value))}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => onPage(Math.max(0, page - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => onPage(Math.min(pageCount - 1, page + 1))}
+        />
+      </div>
+    </div>
+  )
 }
 
 type Tab = 'rules' | 'channels' | 'history'
@@ -195,6 +278,10 @@ export default function Alert() {
     (id: number): string => channels.find((c) => c.id === id)?.name ?? `渠道 #${id}`,
     [channels],
   )
+
+  const rulesPager = usePagination(rules)
+  const channelsPager = usePagination(channels)
+  const historyPager = usePagination(history ?? [])
 
   async function toggleRule(rule: Rule, next: boolean) {
     if (!canWriteRule) return
@@ -458,22 +545,35 @@ export default function Alert() {
           {loading ? (
             <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
           ) : (
-            <Table
-              columns={ruleColumns}
-              rows={rules}
-              rowKey={(rule) => rule.id}
-              emptyText={
-                <EmptyState
-                  icon={<BellRing />}
-                  title="还没有告警规则"
-                  hint={
-                    channels.length === 0
-                      ? '先在「通知渠道」创建一个渠道,再「添加规则」。'
-                      : '点击「添加规则」创建你的第一条告警规则。'
-                  }
-                />
-              }
-            />
+            <>
+              <Table
+                columns={ruleColumns}
+                rows={rulesPager.pageRows}
+                rowKey={(rule) => rule.id}
+                emptyText={
+                  <EmptyState
+                    icon={<BellRing />}
+                    title="还没有告警规则"
+                    hint={
+                      channels.length === 0
+                        ? '先在「通知渠道」创建一个渠道,再「添加规则」。'
+                        : '点击「添加规则」创建你的第一条告警规则。'
+                    }
+                  />
+                }
+              />
+              <Pagination
+                total={rulesPager.total}
+                page={rulesPager.page}
+                pageCount={rulesPager.pageCount}
+                pageSize={rulesPager.pageSize}
+                onPage={rulesPager.setPage}
+                onPageSize={(n) => {
+                  rulesPager.setPageSize(n)
+                  rulesPager.setPage(0)
+                }}
+              />
+            </>
           )}
 
           {!canWriteRule && (
@@ -526,18 +626,31 @@ export default function Alert() {
           {loading ? (
             <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
           ) : (
-            <Table
-              columns={channelColumns}
-              rows={channels}
-              rowKey={(c) => c.id}
-              emptyText={
-                <EmptyState
-                  icon={<Radio />}
-                  title="还没有通知渠道"
-                  hint="点击「新增渠道」配置邮件 / Webhook / Telegram / 钉钉 / 企业微信 / 飞书。"
-                />
-              }
-            />
+            <>
+              <Table
+                columns={channelColumns}
+                rows={channelsPager.pageRows}
+                rowKey={(c) => c.id}
+                emptyText={
+                  <EmptyState
+                    icon={<Radio />}
+                    title="还没有通知渠道"
+                    hint="点击「新增渠道」配置邮件 / Webhook / Telegram / 钉钉 / 企业微信 / 飞书。"
+                  />
+                }
+              />
+              <Pagination
+                total={channelsPager.total}
+                page={channelsPager.page}
+                pageCount={channelsPager.pageCount}
+                pageSize={channelsPager.pageSize}
+                onPage={channelsPager.setPage}
+                onPageSize={(n) => {
+                  channelsPager.setPageSize(n)
+                  channelsPager.setPage(0)
+                }}
+              />
+            </>
           )}
 
           {!isAdmin && <p className="text-xs text-muted">通知渠道操作需要 admin 角色。</p>}
@@ -566,18 +679,31 @@ export default function Alert() {
           ) : history === null ? (
             <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
           ) : (
-            <Table
-              columns={historyColumns}
-              rows={history}
-              rowKey={(h) => h.id}
-              emptyText={
-                <EmptyState
-                  icon={<History />}
-                  title="暂无告警记录"
-                  hint="规则触发后,这里会出现历史记录。"
-                />
-              }
-            />
+            <>
+              <Table
+                columns={historyColumns}
+                rows={historyPager.pageRows}
+                rowKey={(h) => h.id}
+                emptyText={
+                  <EmptyState
+                    icon={<History />}
+                    title="暂无告警记录"
+                    hint="规则触发后,这里会出现历史记录。"
+                  />
+                }
+              />
+              <Pagination
+                total={historyPager.total}
+                page={historyPager.page}
+                pageCount={historyPager.pageCount}
+                pageSize={historyPager.pageSize}
+                onPage={historyPager.setPage}
+                onPageSize={(n) => {
+                  historyPager.setPageSize(n)
+                  historyPager.setPage(0)
+                }}
+              />
+            </>
           )}
         </>
       )}

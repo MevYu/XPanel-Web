@@ -6,9 +6,18 @@ import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Switch } from '../components/Switch'
 import { Modal } from '../components/Modal'
+import { IconButton } from '../components/IconButton'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Plus, Settings2, Search, ShieldCheck, RefreshCw } from 'lucide-react'
+import {
+  Plus,
+  Settings2,
+  Search,
+  ShieldCheck,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -21,6 +30,8 @@ const selectClass =
   'h-10 rounded-(--radius-sm) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
 
 const DAY = 86400
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 interface Cert {
   id: number
@@ -108,6 +119,9 @@ export default function Ssl() {
   const [formOpen, setFormOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
+
   const load = useCallback(async () => {
     setLoadErr(null)
     try {
@@ -188,6 +202,17 @@ export default function Ssl() {
       (c) => c.domains.toLowerCase().includes(q) || c.issuer.toLowerCase().includes(q),
     )
   }, [certs, query])
+
+  // 搜索或每页条数变化、行数缩减时把当前页夹回有效范围,避免停在空页。
+  const total = visible.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => visible.slice(page * pageSize, page * pageSize + pageSize),
+    [visible, page, pageSize],
+  )
 
   const columns: Column<Cert>[] = useMemo(
     () => [
@@ -332,22 +357,63 @@ export default function Ssl() {
       {loading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <Table
-          columns={columns}
-          rows={visible}
-          rowKey={(c) => c.id}
-          emptyText={
-            <EmptyState
-              icon={<ShieldCheck />}
-              title={certs.length === 0 ? '还没有证书' : '没有匹配的证书'}
-              hint={
-                certs.length === 0
-                  ? '点击「申请/上传证书」签发 Let’s Encrypt 或导入已有证书。'
-                  : '换个关键词试试。'
-              }
-            />
-          }
-        />
+        <>
+          <Table
+            columns={columns}
+            rows={pageRows}
+            rowKey={(c) => c.id}
+            emptyText={
+              <EmptyState
+                icon={<ShieldCheck />}
+                title={certs.length === 0 ? '还没有证书' : '没有匹配的证书'}
+                hint={
+                  certs.length === 0
+                    ? '点击「申请/上传证书」签发 Let’s Encrypt 或导入已有证书。'
+                    : '换个关键词试试。'
+                }
+              />
+            }
+          />
+          {total > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+              <span className="tabular-nums">共 {total} 条</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value))
+                  setPage(0)
+                }}
+                aria-label="每页条数"
+                className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} 条/页
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <IconButton
+                  aria-label="上一页"
+                  className="h-8 w-8"
+                  disabled={page === 0}
+                  icon={<ChevronLeft size={16} />}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                />
+                <span className="tabular-nums px-1">
+                  {page + 1} / {pageCount}
+                </span>
+                <IconButton
+                  aria-label="下一页"
+                  className="h-8 w-8"
+                  disabled={page >= pageCount - 1}
+                  icon={<ChevronRight size={16} />}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {!canWrite && (

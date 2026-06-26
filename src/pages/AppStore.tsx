@@ -7,11 +7,68 @@ import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
 import { Spinner } from '../components/Spinner'
+import { IconButton } from '../components/IconButton'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Tabs } from '../components/Tabs'
 import { EmptyState } from '../components/EmptyState'
-import { Search, Boxes, Database, Wrench, PackageSearch } from 'lucide-react'
+import { Search, Boxes, Database, Wrench, PackageSearch, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+
+const PAGE_SIZES = [10, 20, 50] as const
+
+/** Pager 列表/表格底部分页条:共计、每页条数、上一页/下一页,对齐 Sites/Database。 */
+function Pager({
+  total,
+  page,
+  pageCount,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  total: number
+  page: number
+  pageCount: number
+  pageSize: number
+  onPage: (p: number) => void
+  onPageSize: (n: number) => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => onPageSize(Number(e.target.value))}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => onPage(Math.max(0, page - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => onPage(Math.min(pageCount - 1, page + 1))}
+        />
+      </div>
+    </div>
+  )
+}
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -204,8 +261,22 @@ function ManageModal({ inst, isOperator, onClose, onChanged }: {
 const ALL = '全部'
 const INSTALLED = '已安装'
 
-// aaPanel 风格紧凑应用行:小图标 + 名称/简介 + 版本 + 安装按钮,密度高、单行 56px 量级。
+// aaPanel 风格紧凑应用行:小图标 + 名称/简介 + 版本 + 安装按钮,密度高、单行 56px 量级;应用多时底部分页。
 function Catalog({ apps, canInstall, onPick }: { apps: App[]; canInstall: boolean; onPick: (app: App) => void }) {
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
+
+  const total = apps.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  // 搜索/分类收窄或换每页条数时,把当前页夹回有效范围,避免停在空页。
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageApps = useMemo(
+    () => apps.slice(page * pageSize, page * pageSize + pageSize),
+    [apps, page, pageSize],
+  )
+
   if (apps.length === 0) {
     return (
       <Card className="p-0">
@@ -214,35 +285,50 @@ function Catalog({ apps, canInstall, onPick }: { apps: App[]; canInstall: boolea
     )
   }
   return (
-    <Card className="overflow-hidden p-0">
-      <ul className="divide-y divide-border">
-        {apps.map((app) => {
-          const accent = accentFor(app.category)
-          const Icon = accent.icon
-          return (
-            <li
-              key={app.id}
-              className="flex items-center gap-3 px-3 py-2.5 transition-colors row-hover sm:px-4"
-            >
-              <div
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-sm)"
-                style={{ backgroundColor: accent.soft, color: accent.color }}
+    <div className="flex flex-col gap-3">
+      <Card className="overflow-hidden p-0">
+        <ul className="divide-y divide-border">
+          {pageApps.map((app) => {
+            const accent = accentFor(app.category)
+            const Icon = accent.icon
+            return (
+              <li
+                key={app.id}
+                className="flex items-center gap-3 px-3 py-2.5 transition-colors row-hover sm:px-4"
               >
-                <Icon size={18} />
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col">
-                <div className="flex items-baseline gap-2">
-                  <span className="truncate text-sm font-medium text-text">{app.name}</span>
-                  <span className="shrink-0 font-[family-name:var(--font-mono)] text-xs text-faint">v{app.version}</span>
+                <div
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-(--radius-sm)"
+                  style={{ backgroundColor: accent.soft, color: accent.color }}
+                >
+                  <Icon size={18} />
                 </div>
-                <span className="truncate text-xs text-muted">{app.description}</span>
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => onPick(app)} disabled={!canInstall}>安装</Button>
-            </li>
-          )
-        })}
-      </ul>
-    </Card>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <div className="flex items-baseline gap-2">
+                    <span className="truncate text-sm font-medium text-text">{app.name}</span>
+                    <span className="shrink-0 font-[family-name:var(--font-mono)] text-xs text-faint">v{app.version}</span>
+                  </div>
+                  <span className="truncate text-xs text-muted">{app.description}</span>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => onPick(app)} disabled={!canInstall}>安装</Button>
+              </li>
+            )
+          })}
+        </ul>
+      </Card>
+      {total > 0 && (
+        <Pager
+          total={total}
+          page={page}
+          pageCount={pageCount}
+          pageSize={pageSize}
+          onPage={setPage}
+          onPageSize={(n) => {
+            setPageSize(n)
+            setPage(0)
+          }}
+        />
+      )}
+    </div>
   )
 }
 
@@ -253,6 +339,10 @@ function Instances({ isOperator, isAdmin, refreshKey }: { isOperator: boolean; i
   const [busy, setBusy] = useState(false)
   const [fb, setFb] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [manageId, setManageId] = useState<number | null>(null)
+  const [togglingId, setTogglingId] = useState<number | null>(null)
+
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   const load = useCallback(async () => {
     setError(null)
@@ -285,6 +375,33 @@ function Instances({ isOperator, isAdmin, refreshKey }: { isOperator: boolean; i
     }
   }
 
+  // 行内启停:复用实例 start/stop 端点,乐观回填返回状态,避免仅能进管理弹窗操作。
+  async function toggle(inst: Instance) {
+    if (!isOperator || togglingId != null) return
+    const verb = inst.status === 'running' ? 'stop' : 'start'
+    if (verb === 'stop' && !window.confirm(`确认停止实例「${inst.name}」?`)) return
+    setTogglingId(inst.id)
+    setFb(null)
+    try {
+      const updated = await apiFetch<Instance>(`/api/m/appstore/instances/${inst.id}/${verb}`, { method: 'POST' })
+      setInsts((prev) => prev.map((i) => (i.id === inst.id ? updated : i)))
+    } catch (e) {
+      setFb({ kind: 'err', text: errorText(e) })
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
+  const total = insts.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => insts.slice(page * pageSize, page * pageSize + pageSize),
+    [insts, page, pageSize],
+  )
+
   const columns: Column<Instance>[] = useMemo(
     () => [
       {
@@ -316,25 +433,36 @@ function Instances({ isOperator, isAdmin, refreshKey }: { isOperator: boolean; i
       {
         key: 'actions',
         header: '操作',
-        width: '140px',
+        width: '200px',
         align: 'right',
-        cell: (inst) => (
-          <ActionLinks>
-            <ActionLink onClick={() => setManageId(inst.id)}>管理</ActionLink>
-            <ActionLink
-              danger
-              disabled={!isAdmin || busy}
-              aria-label="卸载实例"
-              title={isAdmin ? '卸载实例' : '需要 admin 角色'}
-              onClick={() => void uninstall(inst)}
-            >
-              卸载
-            </ActionLink>
-          </ActionLinks>
-        ),
+        cell: (inst) => {
+          const running = inst.status === 'running'
+          return (
+            <ActionLinks>
+              <ActionLink
+                disabled={!isOperator || togglingId === inst.id}
+                aria-label={running ? '停止实例' : '启动实例'}
+                title={isOperator ? (running ? '停止实例' : '启动实例') : '需要 operator 角色'}
+                onClick={() => void toggle(inst)}
+              >
+                {running ? '停止' : '启动'}
+              </ActionLink>
+              <ActionLink onClick={() => setManageId(inst.id)}>管理</ActionLink>
+              <ActionLink
+                danger
+                disabled={!isAdmin || busy}
+                aria-label="卸载实例"
+                title={isAdmin ? '卸载实例' : '需要 admin 角色'}
+                onClick={() => void uninstall(inst)}
+              >
+                卸载
+              </ActionLink>
+            </ActionLinks>
+          )
+        },
       },
     ],
-    [isAdmin, busy],
+    [isAdmin, isOperator, busy, togglingId],
   )
 
   const manageInst = manageId == null ? null : (insts.find((i) => i.id === manageId) ?? null)
@@ -354,17 +482,32 @@ function Instances({ isOperator, isAdmin, refreshKey }: { isOperator: boolean; i
           <Button size="sm" variant="ghost" onClick={() => void load()}>重试</Button>
         </p>
       ) : (
-        <Table
-          columns={columns}
-          rows={insts}
-          rowKey={(inst) => inst.id}
-          emptyText={
-            <span className="flex flex-col items-center gap-1 py-6">
-              <span className="text-sm font-medium text-text">还没有已安装实例</span>
-              <span className="text-xs text-muted">从上方应用目录选一个安装。</span>
-            </span>
-          }
-        />
+        <>
+          <Table
+            columns={columns}
+            rows={pageRows}
+            rowKey={(inst) => inst.id}
+            emptyText={
+              <span className="flex flex-col items-center gap-1 py-6">
+                <span className="text-sm font-medium text-text">还没有已安装实例</span>
+                <span className="text-xs text-muted">从上方应用目录选一个安装。</span>
+              </span>
+            }
+          />
+          {total > 0 && (
+            <Pager
+              total={total}
+              page={page}
+              pageCount={pageCount}
+              pageSize={pageSize}
+              onPage={setPage}
+              onPageSize={(n) => {
+                setPageSize(n)
+                setPage(0)
+              }}
+            />
+          )}
+        </>
       )}
       {!isOperator && <p className="text-xs text-muted">启停需要 operator 角色;安装与卸载需要 admin。</p>}
 

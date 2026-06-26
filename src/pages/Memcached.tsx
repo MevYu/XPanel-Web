@@ -24,8 +24,11 @@ import {
   Recycle,
   ArrowDownUp,
   Info,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { IconButton } from '../components/IconButton'
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -33,6 +36,7 @@ function errorText(e: unknown): string {
 }
 
 const DANGER = { 'X-Confirm-Danger': '1' }
+const PAGE_SIZES = [10, 20, 50] as const
 
 interface Stats {
   pid: number
@@ -132,6 +136,9 @@ export default function Memcached() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [flushOpen, setFlushOpen] = useState(false)
 
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
+
   const load = useCallback(async () => {
     setLoadErr(null)
     try {
@@ -207,6 +214,17 @@ export default function Memcached() {
         }
       })
   }, [slabs])
+
+  // slab class 可达 63 个,刷新后行数缩减或改每页条数时把当前页夹回有效范围,避免停在空页。
+  const slabTotal = slabRows.length
+  const slabPageCount = Math.max(1, Math.ceil(slabTotal / pageSize))
+  useEffect(() => {
+    if (page > slabPageCount - 1) setPage(slabPageCount - 1)
+  }, [page, slabPageCount])
+  const slabPageRows = useMemo(
+    () => slabRows.slice(page * pageSize, page * pageSize + pageSize),
+    [slabRows, page, pageSize],
+  )
 
   if (loading) {
     return (
@@ -319,7 +337,44 @@ export default function Memcached() {
           {slabRows.length > 0 && (
             <div className="flex flex-col gap-2">
               <h2 className="text-xs font-medium uppercase tracking-wide text-muted">Slabs</h2>
-              <Table columns={SLAB_COLUMNS} rows={slabRows} rowKey={(s) => s.id} emptyText="暂无 slab" />
+              <Table columns={SLAB_COLUMNS} rows={slabPageRows} rowKey={(s) => s.id} emptyText="暂无 slab" />
+              <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+                <span className="tabular-nums">共 {slabTotal} 个 slab</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value))
+                    setPage(0)
+                  }}
+                  aria-label="每页条数"
+                  className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+                >
+                  {PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>
+                      {n} 条/页
+                    </option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-1">
+                  <IconButton
+                    aria-label="上一页"
+                    className="h-8 w-8"
+                    disabled={page === 0}
+                    icon={<ChevronLeft size={16} />}
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  />
+                  <span className="tabular-nums px-1">
+                    {page + 1} / {slabPageCount}
+                  </span>
+                  <IconButton
+                    aria-label="下一页"
+                    className="h-8 w-8"
+                    disabled={page >= slabPageCount - 1}
+                    icon={<ChevronRight size={16} />}
+                    onClick={() => setPage((p) => Math.min(slabPageCount - 1, p + 1))}
+                  />
+                </div>
+              </div>
             </div>
           )}
         </>

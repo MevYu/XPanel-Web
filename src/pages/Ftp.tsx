@@ -8,10 +8,21 @@ import { Badge } from '../components/Badge'
 import { Switch } from '../components/Switch'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
+import { IconButton } from '../components/IconButton'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
-import { Plus, Search, FolderSymlink, Info, Inbox } from 'lucide-react'
+import {
+  Plus,
+  Search,
+  FolderSymlink,
+  Info,
+  Inbox,
+  Play,
+  Pause,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 import { uid } from '../lib/uid'
 
 function errorText(e: unknown): string {
@@ -46,6 +57,8 @@ interface CreateForm {
 
 const emptyCreate: CreateForm = { user: '', password: '', home: '', readonly: false, quota_mb: '0' }
 
+const PAGE_SIZES = [10, 20, 50] as const
+
 const fieldClass =
   'h-10 rounded-(--radius-card) border border-border bg-surface-2 px-3 text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg'
 
@@ -73,6 +86,10 @@ export default function Ftp() {
   const [pwValue, setPwValue] = useState('')
   const [quotaUser, setQuotaUser] = useState<string | null>(null)
   const [quotaValue, setQuotaValue] = useState('0')
+  const [togglingUser, setTogglingUser] = useState<string | null>(null)
+
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -167,9 +184,11 @@ export default function Ftp() {
     }
   }
 
-  async function toggle(acc: Account, next: boolean) {
-    if (!isAdmin) return
+  async function toggle(acc: Account) {
+    if (!isAdmin || togglingUser != null) return
+    const next = !acc.enabled
     setFeedback(null)
+    setTogglingUser(acc.user)
     try {
       await apiFetch(
         `/api/m/ftp/accounts/${encodeURIComponent(acc.user)}/${next ? 'enable' : 'disable'}`,
@@ -178,6 +197,8 @@ export default function Ftp() {
       await load()
     } catch (e) {
       setFeedback({ kind: 'err', text: errorText(e) })
+    } finally {
+      setTogglingUser(null)
     }
   }
 
@@ -228,6 +249,17 @@ export default function Ftp() {
     )
   }, [accounts, query])
 
+  // 搜索/每页条数变化或行数缩减时,把当前页夹回有效范围,避免停在空页。
+  const total = visible.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => visible.slice(page * pageSize, page * pageSize + pageSize),
+    [visible, page, pageSize],
+  )
+
   const columns: Column<Account>[] = useMemo(
     () => [
       {
@@ -254,18 +286,33 @@ export default function Ftp() {
       {
         key: 'status',
         header: '状态',
-        width: '120px',
-        cell: (a) => (
-          <span className="inline-flex items-center gap-2">
-            <Switch
-              checked={a.enabled}
-              onChange={(next) => void toggle(a, next)}
-              disabled={!isAdmin}
-              aria-label={`${a.enabled ? '停用' : '启用'} 账户 ${a.user}`}
-            />
-            <span className="text-xs text-muted">{a.enabled ? '已启用' : '已停用'}</span>
-          </span>
-        ),
+        width: '64px',
+        align: 'center',
+        cell: (a) => {
+          const busy = togglingUser === a.user
+          return (
+            <button
+              type="button"
+              disabled={!isAdmin || busy}
+              aria-label={a.enabled ? '停用账户' : '启用账户'}
+              title={isAdmin ? (a.enabled ? '已启用,点击停用' : '已停用,点击启用') : '需要 admin 角色'}
+              onClick={() => void toggle(a)}
+              className={`inline-flex h-6 w-6 items-center justify-center rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60 disabled:cursor-not-allowed disabled:opacity-50 ${
+                a.enabled
+                  ? 'text-online hover:bg-online-soft'
+                  : 'text-muted hover:bg-surface-2 hover:text-text'
+              }`}
+            >
+              {busy ? (
+                <Spinner size={14} />
+              ) : a.enabled ? (
+                <Play size={15} className="fill-current" />
+              ) : (
+                <Pause size={15} className="fill-current" />
+              )}
+            </button>
+          )
+        },
       },
       {
         key: 'home',
@@ -335,7 +382,7 @@ export default function Ftp() {
         ),
       },
     ],
-    [isAdmin],
+    [isAdmin, togglingUser],
   )
 
   return (
@@ -401,22 +448,63 @@ export default function Ftp() {
       {loading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <Table
-          columns={columns}
-          rows={visible}
-          rowKey={(a) => a.user}
-          emptyText={
-            <EmptyState
-              icon={<Inbox />}
-              title={accounts.length === 0 ? '还没有 FTP 账户' : '没有匹配的账户'}
-              hint={
-                accounts.length === 0
-                  ? '点击「添加 FTP 账户」创建第一个虚拟用户。'
-                  : '换个关键词试试。'
-              }
-            />
-          }
-        />
+        <>
+          <Table
+            columns={columns}
+            rows={pageRows}
+            rowKey={(a) => a.user}
+            emptyText={
+              <EmptyState
+                icon={<Inbox />}
+                title={accounts.length === 0 ? '还没有 FTP 账户' : '没有匹配的账户'}
+                hint={
+                  accounts.length === 0
+                    ? '点击「添加 FTP 账户」创建第一个虚拟用户。'
+                    : '换个关键词试试。'
+                }
+              />
+            }
+          />
+          {total > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+              <span className="tabular-nums">共 {total} 条</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value))
+                  setPage(0)
+                }}
+                aria-label="每页条数"
+                className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} 条/页
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <IconButton
+                  aria-label="上一页"
+                  className="h-8 w-8"
+                  disabled={page === 0}
+                  icon={<ChevronLeft size={16} />}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                />
+                <span className="tabular-nums px-1">
+                  {page + 1} / {pageCount}
+                </span>
+                <IconButton
+                  aria-label="下一页"
+                  className="h-8 w-8"
+                  disabled={page >= pageCount - 1}
+                  icon={<ChevronRight size={16} />}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {!isAdmin && <p className="text-xs text-muted">FTP 账户与设置操作需要 admin 角色。</p>}

@@ -9,11 +9,94 @@ import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Plus, ShieldCheck, FolderLock, RefreshCw } from 'lucide-react'
+import { IconButton } from '../components/IconButton'
+import {
+  Plus,
+  ShieldCheck,
+  FolderLock,
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 import { uid } from '../lib/uid'
 import { formatTime } from '../lib/formatTime'
 
 const DANGER = { 'X-Confirm-Danger': '1' }
+const PAGE_SIZES = [10, 20, 50] as const
+
+/** usePaged 把整段数据切成当前页;数据缩减或换每页条数时把页码夹回有效范围。 */
+function usePaged<T>(rows: T[]) {
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
+  const total = rows.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => rows.slice(page * pageSize, page * pageSize + pageSize),
+    [rows, page, pageSize],
+  )
+  return { pageRows, total, page, setPage, pageSize, setPageSize, pageCount }
+}
+
+/** Pagination 表底分页条:对齐 Sites/Malscan——右对齐「共 N 条 + 每页条数 + 翻页」。 */
+function Pagination({
+  total,
+  page,
+  setPage,
+  pageSize,
+  setPageSize,
+  pageCount,
+}: {
+  total: number
+  page: number
+  setPage: (fn: (p: number) => number) => void
+  pageSize: number
+  setPageSize: (n: number) => void
+  pageCount: number
+}) {
+  if (total === 0) return null
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => {
+          setPageSize(Number(e.target.value))
+          setPage(() => 0)
+        }}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => setPage((p) => Math.max(0, p - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+        />
+      </div>
+    </div>
+  )
+}
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -255,6 +338,7 @@ function Control() {
     () => (cfg?.protected_dirs ?? []).map((path) => ({ id: uid(), path })),
     [cfg],
   )
+  const paged = usePaged(rows)
   const ruleCount = cfg?.exclude_rules.length ?? 0
   const protectedOn = !!cfg && !cfg.paused
 
@@ -377,7 +461,7 @@ function Control() {
 
       <Table
         columns={columns}
-        rows={rows}
+        rows={paged.pageRows}
         rowKey={(d) => d.id}
         emptyText={
           <EmptyState
@@ -387,6 +471,7 @@ function Control() {
           />
         }
       />
+      <Pagination {...paged} />
 
       <Card className="flex flex-col gap-4">
         <h2 className="text-sm font-medium text-text">扫描规则</h2>
@@ -494,6 +579,8 @@ function Events() {
     void load()
   }, [load])
 
+  const paged = usePaged(events)
+
   const columns: Column<TamperEvent>[] = useMemo(
     () => [
       {
@@ -540,18 +627,21 @@ function Events() {
           </Button>
         </p>
       ) : (
-        <Table
-          columns={columns}
-          rows={events}
-          rowKey={(ev) => ev.id}
-          emptyText={
-            <EmptyState
-              icon={<ShieldCheck />}
-              title="暂无篡改事件"
-              hint="受保护目录一旦发生变更,会在此列出。"
-            />
-          }
-        />
+        <>
+          <Table
+            columns={columns}
+            rows={paged.pageRows}
+            rowKey={(ev) => ev.id}
+            emptyText={
+              <EmptyState
+                icon={<ShieldCheck />}
+                title="暂无篡改事件"
+                hint="受保护目录一旦发生变更,会在此列出。"
+              />
+            }
+          />
+          <Pagination {...paged} />
+        </>
       )}
     </div>
   )

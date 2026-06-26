@@ -12,6 +12,7 @@ import { Table, ActionLink, ActionLinks, type Column } from '../components/Table
 import { Tabs } from '../components/Tabs'
 import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
+import { IconButton } from '../components/IconButton'
 import {
   Plus,
   RefreshCw,
@@ -24,6 +25,8 @@ import {
   Gauge,
   Ban,
   FileWarning,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { uid } from '../lib/uid'
@@ -34,6 +37,8 @@ function errorText(e: unknown): string {
 }
 
 const DANGER = { 'X-Confirm-Danger': '1' }
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 type Feedback = { kind: 'ok' | 'err'; text: string } | null
 
@@ -498,6 +503,8 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
   const [matchOpen, setMatchOpen] = useState(false)
   const [sub, setSub] = useState<'ip' | 'match'>('ip')
   const [query, setQuery] = useState('')
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -721,6 +728,21 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
     )
   }, [match, query])
 
+  // 切 tab/搜索/每页条数变化或行数缩减时把当前页夹回有效范围,避免停在空页。
+  const total = sub === 'ip' ? visibleIP.length : visibleMatch.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageIP = useMemo(
+    () => visibleIP.slice(page * pageSize, page * pageSize + pageSize),
+    [visibleIP, page, pageSize],
+  )
+  const pageMatch = useMemo(
+    () => visibleMatch.slice(page * pageSize, page * pageSize + pageSize),
+    [visibleMatch, page, pageSize],
+  )
+
   return (
     <div className="flex flex-col gap-4">
       {feedback && (
@@ -747,6 +769,7 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
           onChange={(k) => {
             setSub(k)
             setQuery('')
+            setPage(0)
           }}
         />
 
@@ -771,7 +794,10 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
               />
               <input
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => {
+                  setQuery(e.target.value)
+                  setPage(0)
+                }}
                 placeholder={sub === 'ip' ? '搜索 IP / 备注' : '搜索规则 / 备注'}
                 spellCheck={false}
                 className="h-9 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
@@ -791,7 +817,7 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
           <Table
             bare
             columns={ipColumns}
-            rows={visibleIP}
+            rows={pageIP}
             rowKey={(r) => r.id}
             emptyText={
               <EmptyState
@@ -805,7 +831,7 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
           <Table
             bare
             columns={matchColumns}
-            rows={visibleMatch}
+            rows={pageMatch}
             rowKey={(r) => r.id}
             emptyText={
               <EmptyState
@@ -817,6 +843,47 @@ function Rules({ isAdmin }: { isAdmin: boolean }) {
               />
             }
           />
+        )}
+
+        {/* 底部分页:对齐 Sites,共 N 条 + 每页条数 + 翻页 */}
+        {!loading && total > 0 && (
+          <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border px-3 py-2.5 text-xs text-muted">
+            <span className="tabular-nums">共 {total} 条</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value))
+                setPage(0)
+              }}
+              aria-label="每页条数"
+              className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+            >
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>
+                  {n} 条/页
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-1">
+              <IconButton
+                aria-label="上一页"
+                className="h-8 w-8"
+                disabled={page === 0}
+                icon={<ChevronLeft size={16} />}
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+              />
+              <span className="tabular-nums px-1">
+                {page + 1} / {pageCount}
+              </span>
+              <IconButton
+                aria-label="下一页"
+                className="h-8 w-8"
+                disabled={page >= pageCount - 1}
+                icon={<ChevronRight size={16} />}
+                onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              />
+            </div>
+          </div>
         )}
       </Card>
 

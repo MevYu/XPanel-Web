@@ -6,10 +6,13 @@ import { Card } from '../components/Card'
 import { Switch } from '../components/Switch'
 import { Badge } from '../components/Badge'
 import { Spinner } from '../components/Spinner'
+import { IconButton } from '../components/IconButton'
 import { Table, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Search, Inbox } from 'lucide-react'
+import { Search, Inbox, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { ModuleView } from '../api/types'
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 // 提取后端校验文案;HttpError.message 为响应体文本(后端已脱敏),取不到时给通用文案。
 function errorText(e: unknown): string {
@@ -32,6 +35,9 @@ export default function Modules() {
   // 「展示到首页」有序 id 列表(home-apps 配置);开关切换即整列表回存。
   const [homeApps, setHomeApps] = useState<string[]>([])
   const [homeBusy, setHomeBusy] = useState<Record<string, boolean>>({})
+
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   useEffect(() => {
     apiFetch<{ modules: string[] }>('/api/m/dashboard/home-apps')
@@ -73,6 +79,17 @@ export default function Modules() {
       return m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)
     })
   }, [all, query, category])
+
+  // 搜索/分类/每页条数变化或行数缩减时,把当前页夹回有效范围,避免停在空页。
+  const total = visible.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => visible.slice(page * pageSize, page * pageSize + pageSize),
+    [visible, page, pageSize],
+  )
 
   async function toggle(m: ModuleView, next: boolean) {
     if (busy[m.id] || m.always_on) return
@@ -229,7 +246,7 @@ export default function Modules() {
 
       <Table
         columns={columns}
-        rows={visible}
+        rows={pageRows}
         rowKey={(m) => m.id}
         emptyText={
           <EmptyState
@@ -239,6 +256,46 @@ export default function Modules() {
           />
         }
       />
+
+      {total > 0 && (
+        <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+          <span className="tabular-nums">共 {total} 条</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value))
+              setPage(0)
+            }}
+            aria-label="每页条数"
+            className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+          >
+            {PAGE_SIZES.map((n) => (
+              <option key={n} value={n}>
+                {n} 条/页
+              </option>
+            ))}
+          </select>
+          <div className="flex items-center gap-1">
+            <IconButton
+              aria-label="上一页"
+              className="h-8 w-8"
+              disabled={page === 0}
+              icon={<ChevronLeft size={16} />}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            />
+            <span className="tabular-nums px-1">
+              {page + 1} / {pageCount}
+            </span>
+            <IconButton
+              aria-label="下一页"
+              className="h-8 w-8"
+              disabled={page >= pageCount - 1}
+              icon={<ChevronRight size={16} />}
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

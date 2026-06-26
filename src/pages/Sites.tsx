@@ -1,13 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { Button } from '../components/Button'
 import { Tabs } from '../components/Tabs'
 import { IconButton } from '../components/IconButton'
 import { EmptyState } from '../components/EmptyState'
+import { Spinner } from '../components/Spinner'
 import { Badge } from '../components/Badge'
-import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
-import { Plus, Settings2, Search, Globe, Code2, Boxes } from 'lucide-react'
+import { Table, ActionLink, type Column } from '../components/Table'
+import {
+  Plus,
+  Settings2,
+  Search,
+  Globe,
+  Code2,
+  Boxes,
+  Play,
+  Pause,
+  ShieldCheck,
+  FileCode2,
+  MoreVertical,
+  Trash2,
+  Archive,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { InstallGate } from '../components/InstallGate'
 import { type Site, DANGER, errorText, kindLabel, formatTime } from './sites/shared'
@@ -16,6 +34,11 @@ import { CreateSiteModal } from './sites/CreateSiteModal'
 import { SettingsModal } from './sites/SettingsModal'
 
 type Filter = 'all' | 'php' | 'static' | 'proxy'
+
+// SiteDrawer 可深链的 tab 子集,供列表行操作直达对应设置页。
+type DrawerTab = 'overview' | 'backups' | 'ssl' | 'logs' | 'config'
+
+const PAGE_SIZES = [10, 20, 50] as const
 
 // 顶部页级 tab,对齐 aaPanel「PHP项目 / 静态 / 反向代理」分段:按站点类型切换列表。
 const TABS: { key: Filter; label: string }[] = [
@@ -55,7 +78,12 @@ export default function Sites() {
   const [creating, setCreating] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [openId, setOpenId] = useState<number | null>(null)
-  const [openTab, setOpenTab] = useState<'overview' | 'backups'>('overview')
+  const [openTab, setOpenTab] = useState<DrawerTab>('overview')
+  const [togglingId, setTogglingId] = useState<number | null>(null)
+  const [menuId, setMenuId] = useState<number | null>(null)
+
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -82,9 +110,28 @@ export default function Sites() {
     })
   }, [])
 
-  function open(site: Site, tab: 'overview' | 'backups' = 'overview') {
+  function open(site: Site, tab: DrawerTab = 'overview') {
     setOpenTab(tab)
     setOpenId(site.id)
+  }
+
+  // toggle 直接切站点运行状态,接 sites 模块 enable/disable 端点(disable 危险操作需确认 + DANGER 头)。
+  async function toggle(site: Site) {
+    if (!canWrite || togglingId != null) return
+    const enable = !site.enabled
+    if (!enable && !window.confirm(`确认停用站点「${site.name}」?这将下线该站点。`)) return
+    setTogglingId(site.id)
+    try {
+      const updated = await apiFetch<Site>(
+        `/api/m/sites/sites/${site.id}/${enable ? 'enable' : 'disable'}`,
+        { method: 'POST', headers: enable ? undefined : DANGER },
+      )
+      upsert(updated)
+    } catch (e) {
+      setLoadErr(errorText(e))
+    } finally {
+      setTogglingId(null)
+    }
   }
 
   async function remove(site: Site) {
@@ -107,6 +154,17 @@ export default function Sites() {
       return s.name.toLowerCase().includes(q) || s.domains.some((d) => d.includes(q))
     })
   }, [sites, query, filter])
+
+  // 筛选/搜索/每页条数变化或行数缩减时,把当前页夹回有效范围,避免停在空页。
+  const total = visible.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => visible.slice(page * pageSize, page * pageSize + pageSize),
+    [visible, page, pageSize],
+  )
 
   const openSite = openId == null ? null : (sites.find((s) => s.id === openId) ?? null)
 
@@ -137,10 +195,33 @@ export default function Sites() {
       {
         key: 'status',
         header: '状态',
-        width: '92px',
-        cell: (s) => (
-          <Badge status={s.enabled ? 'online' : 'neutral'}>{s.enabled ? '运行中' : '已停用'}</Badge>
-        ),
+        width: '64px',
+        align: 'center',
+        cell: (s) => {
+          const busy = togglingId === s.id
+          return (
+            <button
+              type="button"
+              disabled={!canWrite || busy}
+              aria-label={s.enabled ? '停用站点' : '启用站点'}
+              title={canWrite ? (s.enabled ? '运行中,点击停用' : '已停用,点击启用') : '需要 operator 角色'}
+              onClick={() => void toggle(s)}
+              className={`inline-flex h-6 w-6 items-center justify-center rounded-full outline-none transition focus-visible:ring-2 focus-visible:ring-brand/60 disabled:cursor-not-allowed disabled:opacity-50 ${
+                s.enabled
+                  ? 'text-online hover:bg-online-soft'
+                  : 'text-muted hover:bg-surface-2 hover:text-text'
+              }`}
+            >
+              {busy ? (
+                <Spinner size={14} />
+              ) : s.enabled ? (
+                <Play size={15} className="fill-current" />
+              ) : (
+                <Pause size={15} className="fill-current" />
+              )}
+            </button>
+          )
+        },
       },
       {
         key: 'kind',
@@ -162,8 +243,29 @@ export default function Sites() {
         key: 'backup',
         header: '备份',
         width: '72px',
+        cell: (s) => <ActionLink onClick={() => open(s, 'backups')}>备份</ActionLink>,
+      },
+      {
+        key: 'quick',
+        header: '快捷',
+        width: '88px',
         cell: (s) => (
-          <ActionLink onClick={() => open(s, 'backups')}>备份</ActionLink>
+          <div className="flex items-center gap-0.5">
+            <IconButton
+              aria-label="配置文件"
+              title="配置文件"
+              className="h-7 w-7"
+              icon={<FileCode2 size={15} />}
+              onClick={() => open(s, 'config')}
+            />
+            <IconButton
+              aria-label="SSL 证书"
+              title="SSL 证书"
+              className="h-7 w-7"
+              icon={<ShieldCheck size={15} />}
+              onClick={() => open(s, 'ssl')}
+            />
+          </div>
         ),
       },
       {
@@ -192,25 +294,39 @@ export default function Sites() {
       {
         key: 'actions',
         header: '操作',
-        width: '120px',
+        width: '132px',
         align: 'right',
         cell: (s) => (
-          <ActionLinks>
-            <ActionLink onClick={() => open(s)}>设置</ActionLink>
-            <ActionLink
-              danger
-              disabled={!isAdmin}
-              aria-label="删除站点"
-              title={isAdmin ? '删除站点' : '需要 admin 角色'}
-              onClick={() => void remove(s)}
+          <span className="inline-flex items-center justify-end gap-2 whitespace-nowrap">
+            <ActionLink onClick={() => open(s, 'config')}>配置</ActionLink>
+            <span className="text-border">|</span>
+            <ActionLink onClick={() => open(s, 'logs')}>日志</ActionLink>
+            <span className="text-border">|</span>
+            <RowMenu
+              open={menuId === s.id}
+              onToggle={() => setMenuId((id) => (id === s.id ? null : s.id))}
+              onClose={() => setMenuId(null)}
             >
-              删除
-            </ActionLink>
-          </ActionLinks>
+              <MenuItem onClick={() => open(s)}>
+                <Settings2 size={14} /> 设置
+              </MenuItem>
+              <MenuItem onClick={() => open(s, 'backups')}>
+                <Archive size={14} /> 备份
+              </MenuItem>
+              <MenuItem
+                danger
+                disabled={!isAdmin}
+                title={isAdmin ? '删除站点' : '需要 admin 角色'}
+                onClick={() => void remove(s)}
+              >
+                <Trash2 size={14} /> 删除
+              </MenuItem>
+            </RowMenu>
+          </span>
         ),
       },
     ],
-    [isAdmin],
+    [isAdmin, canWrite, togglingId, menuId],
   )
 
   return (
@@ -259,22 +375,63 @@ export default function Sites() {
       {loading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <Table
-          columns={columns}
-          rows={visible}
-          rowKey={(s) => s.id}
-          emptyText={
-            <EmptyState
-              icon={<Globe />}
-              title={sites.length === 0 ? '还没有站点' : '没有匹配的站点'}
-              hint={
-                sites.length === 0
-                  ? '点击「新建站点」开始托管你的域名。'
-                  : '换个关键词或筛选条件试试。'
-              }
-            />
-          }
-        />
+        <>
+          <Table
+            columns={columns}
+            rows={pageRows}
+            rowKey={(s) => s.id}
+            emptyText={
+              <EmptyState
+                icon={<Globe />}
+                title={sites.length === 0 ? '还没有站点' : '没有匹配的站点'}
+                hint={
+                  sites.length === 0
+                    ? '点击「新建站点」开始托管你的域名。'
+                    : '换个关键词或筛选条件试试。'
+                }
+              />
+            }
+          />
+          {total > 0 && (
+            <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+              <span className="tabular-nums">共 {total} 条</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value))
+                  setPage(0)
+                }}
+                aria-label="每页条数"
+                className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+              >
+                {PAGE_SIZES.map((n) => (
+                  <option key={n} value={n}>
+                    {n} 条/页
+                  </option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <IconButton
+                  aria-label="上一页"
+                  className="h-8 w-8"
+                  disabled={page === 0}
+                  icon={<ChevronLeft size={16} />}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                />
+                <span className="tabular-nums px-1">
+                  {page + 1} / {pageCount}
+                </span>
+                <IconButton
+                  aria-label="下一页"
+                  className="h-8 w-8"
+                  disabled={page >= pageCount - 1}
+                  icon={<ChevronRight size={16} />}
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                />
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {!canWrite && (
@@ -304,5 +461,98 @@ export default function Sites() {
       {settingsOpen && <SettingsModal isAdmin={isAdmin} onClose={() => setSettingsOpen(false)} />}
     </div>
     </InstallGate>
+  )
+}
+
+/**
+ * RowMenu 行内「更多」下拉:⋮ 触发,菜单用 fixed 定位脱离表格 overflow 裁剪;
+ * 点击外部或 Escape 关闭。受控 open,父层用 menuId 保证同时只开一个。
+ */
+function RowMenu({
+  open,
+  onToggle,
+  onClose,
+  children,
+}: {
+  open: boolean
+  onToggle: () => void
+  onClose: () => void
+  children: ReactNode
+}) {
+  const wrapRef = useRef<HTMLSpanElement>(null)
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
+
+  function handleToggle(e: React.MouseEvent<HTMLButtonElement>) {
+    const r = e.currentTarget.getBoundingClientRect()
+    setPos({ top: r.bottom + 4, right: window.innerWidth - r.right })
+    onToggle()
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
+  return (
+    <span ref={wrapRef} className="inline-flex">
+      <IconButton
+        aria-label="更多操作"
+        title="更多操作"
+        className="h-7 w-7"
+        icon={<MoreVertical size={16} />}
+        onClick={handleToggle}
+      />
+      {open && pos && (
+        <div
+          role="menu"
+          style={{ top: pos.top, right: pos.right }}
+          className="fixed z-50 min-w-32 overflow-hidden rounded-(--radius-sm) border border-border bg-surface py-1 shadow-lg"
+          onClick={onClose}
+        >
+          {children}
+        </div>
+      )}
+    </span>
+  )
+}
+
+/** MenuItem RowMenu 内的一行操作项:图标 + 文案,danger 走危险色,disabled 不可点。 */
+function MenuItem({
+  onClick,
+  children,
+  danger,
+  disabled,
+  title,
+}: {
+  onClick: () => void
+  children: ReactNode
+  danger?: boolean
+  disabled?: boolean
+  title?: string
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+      className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-[13px] outline-none transition disabled:cursor-not-allowed disabled:opacity-40 ${
+        danger ? 'text-muted hover:bg-crit-soft hover:text-crit' : 'text-text hover:bg-surface-2'
+      }`}
+    >
+      {children}
+    </button>
   )
 }

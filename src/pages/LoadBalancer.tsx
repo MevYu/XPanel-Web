@@ -6,10 +6,75 @@ import { Badge } from '../components/Badge'
 import { Input } from '../components/Input'
 import { Spinner } from '../components/Spinner'
 import { Modal } from '../components/Modal'
+import { IconButton } from '../components/IconButton'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Plus, Settings2, Search, GitFork, Trash2 } from 'lucide-react'
+import {
+  Plus,
+  Settings2,
+  Search,
+  GitFork,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 import { uid } from '../lib/uid'
+
+const PAGE_SIZES = [10, 20, 50] as const
+
+/** Pager 表底分页条:共 N 条 + 每页条数 + 上/下页,对齐 Sites 列表。 */
+function Pager({
+  total,
+  page,
+  pageCount,
+  pageSize,
+  onPage,
+  onPageSize,
+}: {
+  total: number
+  page: number
+  pageCount: number
+  pageSize: number
+  onPage: (p: number) => void
+  onPageSize: (n: number) => void
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted">
+      <span className="tabular-nums">共 {total} 条</span>
+      <select
+        value={pageSize}
+        onChange={(e) => onPageSize(Number(e.target.value))}
+        aria-label="每页条数"
+        className="h-8 rounded-(--radius-sm) border border-border bg-surface-2 px-2 text-xs text-text outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+      >
+        {PAGE_SIZES.map((n) => (
+          <option key={n} value={n}>
+            {n} 条/页
+          </option>
+        ))}
+      </select>
+      <div className="flex items-center gap-1">
+        <IconButton
+          aria-label="上一页"
+          className="h-8 w-8"
+          disabled={page === 0}
+          icon={<ChevronLeft size={16} />}
+          onClick={() => onPage(Math.max(0, page - 1))}
+        />
+        <span className="tabular-nums px-1">
+          {page + 1} / {pageCount}
+        </span>
+        <IconButton
+          aria-label="下一页"
+          className="h-8 w-8"
+          disabled={page >= pageCount - 1}
+          icon={<ChevronRight size={16} />}
+          onClick={() => onPage(Math.min(pageCount - 1, page + 1))}
+        />
+      </div>
+    </div>
+  )
+}
 
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
@@ -83,6 +148,9 @@ export default function LoadBalancer() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [detailId, setDetailId] = useState<number | null>(null)
   const [healthSummary, setHealthSummary] = useState<Record<number, { up: number; total: number }>>({})
+
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
 
   const load = useCallback(async () => {
     setLoadErr(null)
@@ -166,6 +234,17 @@ export default function LoadBalancer() {
       (g) => g.name.toLowerCase().includes(q) || g.server_name.toLowerCase().includes(q),
     )
   }, [groups, query])
+
+  // 搜索或每页条数变化导致行数缩减时,把当前页夹回有效范围,避免停在空页。
+  const total = visible.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = useMemo(
+    () => visible.slice(page * pageSize, page * pageSize + pageSize),
+    [visible, page, pageSize],
+  )
 
   const detail = detailId == null ? null : (groups.find((g) => g.id === detailId) ?? null)
 
@@ -275,7 +354,10 @@ export default function LoadBalancer() {
           />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setPage(0)
+            }}
             placeholder="搜索名称或域名"
             spellCheck={false}
             className="h-10 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
@@ -307,22 +389,37 @@ export default function LoadBalancer() {
       {loading ? (
         <div className="h-48 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       ) : (
-        <Table
-          columns={columns}
-          rows={visible}
-          rowKey={(g) => g.id}
-          emptyText={
-            <EmptyState
-              icon={<GitFork />}
-              title={groups.length === 0 ? '还没有均衡组' : '没有匹配的均衡组'}
-              hint={
-                groups.length === 0
-                  ? '点击「添加负载」把多台后端聚合成一个 upstream。'
-                  : '换个关键词试试。'
-              }
+        <>
+          <Table
+            columns={columns}
+            rows={pageRows}
+            rowKey={(g) => g.id}
+            emptyText={
+              <EmptyState
+                icon={<GitFork />}
+                title={groups.length === 0 ? '还没有均衡组' : '没有匹配的均衡组'}
+                hint={
+                  groups.length === 0
+                    ? '点击「添加负载」把多台后端聚合成一个 upstream。'
+                    : '换个关键词试试。'
+                }
+              />
+            }
+          />
+          {total > 0 && (
+            <Pager
+              total={total}
+              page={page}
+              pageCount={pageCount}
+              pageSize={pageSize}
+              onPage={setPage}
+              onPageSize={(n) => {
+                setPageSize(n)
+                setPage(0)
+              }}
             />
-          }
-        />
+          )}
+        </>
       )}
 
       {!canWrite && (
@@ -579,6 +676,9 @@ function DetailModal({ group, onClose }: { group: Group; onClose: () => void }) 
   const [healthBusy, setHealthBusy] = useState(false)
   const [healthErr, setHealthErr] = useState<string | null>(null)
 
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
+  const [page, setPage] = useState(0)
+
   const checkHealth = useCallback(async () => {
     setHealthBusy(true)
     setHealthErr(null)
@@ -597,6 +697,13 @@ function DetailModal({ group, onClose }: { group: Group; onClose: () => void }) 
   }, [checkHealth])
 
   const upCount = health == null ? null : group.backends.filter((b) => health.get(`${b.host}:${b.port}`)?.up).length
+
+  const total = group.backends.length
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(pageCount - 1)
+  }, [page, pageCount])
+  const pageRows = group.backends.slice(page * pageSize, page * pageSize + pageSize)
 
   return (
     <Modal title={`均衡组 · ${group.name}`} size="md" onClose={onClose}>
@@ -677,10 +784,23 @@ function DetailModal({ group, onClose }: { group: Group; onClose: () => void }) 
                 },
               },
             ]}
-            rows={group.backends}
+            rows={pageRows}
             rowKey={(b) => `${b.host}:${b.port}`}
             emptyText="无后端节点"
           />
+          {total > pageSize && (
+            <Pager
+              total={total}
+              page={page}
+              pageCount={pageCount}
+              pageSize={pageSize}
+              onPage={setPage}
+              onPageSize={(n) => {
+                setPageSize(n)
+                setPage(0)
+              }}
+            />
+          )}
         </div>
 
         <div className="flex flex-col gap-2">
