@@ -1,4 +1,5 @@
 import type { Tokens } from './types'
+import { localizeError } from '../lib/errors'
 
 const KEY = 'xpanel.tokens'
 
@@ -60,12 +61,22 @@ export async function apiFetch<T = unknown>(
   }
   if (t) headers.Authorization = `Bearer ${t.access}`
 
-  const res = await fetch(path, { ...init, headers })
+  let res: Response
+  try {
+    res = await fetch(path, { ...init, headers })
+  } catch (e) {
+    // fetch 在网络不可达/CORS 失败时抛原生错误(如 "Failed to fetch");能本地化就换中文,
+    // 其余(如 AbortError)原样抛出以保留类型与语义。
+    const m = e instanceof Error ? e.message : ''
+    const zh = localizeError(m)
+    if (zh !== m) throw new HttpError(0, zh)
+    throw e
+  }
   if (res.status === 401 && !_retried) {
     if (await refresh()) return apiFetch<T>(path, init, true)
-    throw new HttpError(401, 'unauthorized')
+    throw new HttpError(401, localizeError('unauthorized'))
   }
-  if (!res.ok) throw new HttpError(res.status, await res.text())
+  if (!res.ok) throw new HttpError(res.status, localizeError(await res.text()))
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T
 }

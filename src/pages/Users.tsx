@@ -10,6 +10,7 @@ import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
 import { IconButton } from '../components/IconButton'
+import { SettingsModal } from '../components/SettingsModal'
 import {
   Plus,
   Search,
@@ -19,6 +20,7 @@ import {
   Users as UsersIcon,
   ChevronLeft,
   ChevronRight,
+  Settings2,
 } from 'lucide-react'
 import { formatTime } from '../lib/formatTime'
 
@@ -92,6 +94,10 @@ export default function Users() {
   )
 }
 
+interface UsersSettings {
+  totp_issuer: string
+}
+
 function UserTable() {
   const [users, setUsers] = useState<UserInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -99,6 +105,7 @@ function UserTable() {
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [query, setQuery] = useState('')
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const [creating, setCreating] = useState(false)
   const [rolingUser, setRolingUser] = useState<UserInfo | null>(null)
@@ -227,6 +234,10 @@ function UserTable() {
           </Button>
           <Button variant="ghost" size="md" onClick={() => void load()} disabled={busy}>
             刷新
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+            <Settings2 size={15} />
+            设置
           </Button>
         </div>
         <div className="relative w-56">
@@ -363,6 +374,29 @@ function UserTable() {
             setFeedback({ kind: 'ok', text: `${name} 密码已重置` })
           }}
         />
+      )}
+
+      {settingsOpen && (
+        <SettingsModal<UsersSettings>
+          title="用户设置"
+          endpoint="/api/m/users/settings"
+          isAdmin
+          onClose={() => setSettingsOpen(false)}
+        >
+          {(form, set, disabled) => (
+            <Input
+              label="2FA 颁发者 totp_issuer"
+              placeholder="XPanel"
+              value={form.totp_issuer}
+              disabled={disabled}
+              spellCheck={false}
+              error={
+                form.totp_issuer.length > 64 ? '颁发者需 1-64 字符' : undefined
+              }
+              onChange={(e) => set('totp_issuer', e.target.value)}
+            />
+          )}
+        </SettingsModal>
       )}
     </>
   )

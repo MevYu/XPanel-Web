@@ -61,7 +61,7 @@ export function SysStatusCard({
               pct={m.cpu_percent}
               reading={m.cpu_percent.toFixed(1)}
               unit="%"
-              label="cpu"
+              label="CPU"
               detail={detail && <CpuDetail detail={detail} sysinfo={sysinfo} cpuPct={m.cpu_percent} />}
             />
           }

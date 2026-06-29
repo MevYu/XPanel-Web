@@ -35,10 +35,10 @@ describe('SysStatusCard', () => {
   it('renders the three status rings with readings and labels', () => {
     render(<SysStatusCard m={M} detail={DETAIL} sysinfo={null} />)
     expect(screen.getAllByText('负载').length).toBeGreaterThan(0)
-    expect(screen.getByText('cpu')).toBeInTheDocument()
+    expect(screen.getByText('CPU')).toBeInTheDocument()
     expect(screen.getByText('内存')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /负载 2.00/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /cpu 42.5%/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /CPU 42.5%/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /内存 50%/ })).toBeInTheDocument()
   })
 
@@ -52,7 +52,7 @@ describe('SysStatusCard', () => {
 
   it('reveals CPU per-core detail on hover', () => {
     render(<SysStatusCard m={M} detail={DETAIL} sysinfo={null} />)
-    const cpuButton = screen.getByRole('button', { name: /cpu 42.5%/ })
+    const cpuButton = screen.getByRole('button', { name: /CPU 42.5%/ })
     const group = cpuButton.closest('.group') as HTMLElement
     const tip = within(group).getByRole('tooltip', { hidden: true })
     expect(tip).toHaveAttribute('aria-hidden', 'true')
@@ -65,6 +65,6 @@ describe('SysStatusCard', () => {
   it('renders without detail panels when detail is null', () => {
     render(<SysStatusCard m={M} detail={null} sysinfo={null} />)
     expect(screen.getByText('0.00')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /cpu 42.5%/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /CPU 42.5%/ })).toBeInTheDocument()
   })
 })

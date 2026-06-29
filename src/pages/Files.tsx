@@ -496,6 +496,13 @@ export default function Files() {
 
   return (
     <div className="flex h-full flex-col gap-3 min-h-0" onClick={() => setNewMenu(false)}>
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 className="flex items-center gap-2 font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+          <FolderOpen size={18} className="text-brand" aria-hidden />
+          文件管理
+        </h1>
+        <span className="text-xs text-muted">浏览、上传、编辑与管理服务器文件。</span>
+      </header>
       {/* 目录标签栏 */}
       <DirTabs
         tabs={tabs}

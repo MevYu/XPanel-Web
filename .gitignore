@@ -1,5 +1,6 @@
 node_modules
 dist
+XPanel-Web.zip
 
 # design-sync (claude.ai/design) converter artifacts — durable inputs under
 # .design-sync/ (config.json, NOTES.md, conventions.md, previews/, overrides/)

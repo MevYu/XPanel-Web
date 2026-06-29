@@ -180,22 +180,17 @@ export default function Settings() {
     void submit()
   }
 
-  if (loadErr && !form) {
-    return (
-      <div className="flex flex-col gap-4">
-        <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
-          {loadErr}
-          <Button size="sm" variant="ghost" onClick={() => void load()}>
-            重试
-          </Button>
-        </p>
-      </div>
-    )
-  }
-
   if (!form || !loaded) {
     return (
       <div className="flex flex-col gap-4">
+        {loadErr && (
+          <p className="flex items-center justify-between gap-3 rounded-(--radius-card) border border-crit/40 bg-crit/10 px-3 py-2 text-sm text-crit">
+            {loadErr}
+            <Button size="sm" variant="ghost" onClick={() => void load()}>
+              重试
+            </Button>
+          </p>
+        )}
         <div className="h-64 animate-pulse rounded-(--radius-card) border border-border bg-surface" />
       </div>
     )

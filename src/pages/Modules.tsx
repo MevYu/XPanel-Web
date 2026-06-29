@@ -9,7 +9,7 @@ import { Spinner } from '../components/Spinner'
 import { IconButton } from '../components/IconButton'
 import { Table, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Search, Inbox, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, Inbox, ChevronLeft, ChevronRight, Boxes } from 'lucide-react'
 import type { ModuleView } from '../api/types'
 
 const PAGE_SIZES = [10, 20, 50] as const
@@ -218,6 +218,14 @@ export default function Modules() {
 
   return (
     <div className="flex flex-col gap-4">
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 className="flex items-center gap-2 font-[family-name:var(--font-display)] text-lg font-semibold text-text">
+          <Boxes size={18} className="text-brand" aria-hidden />
+          模块管理
+        </h1>
+        <span className="text-xs text-muted">按需启用或停用模块,开启后出现在侧栏导航。</span>
+      </header>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <FilterChip active={category === ALL} onClick={() => setCategory(ALL)}>

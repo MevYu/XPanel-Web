@@ -12,7 +12,8 @@ import { Table, ActionLink, type Column } from '../components/Table'
 import { IconButton } from '../components/IconButton'
 import { EmptyState } from '../components/EmptyState'
 import { InstallGate } from '../components/InstallGate'
-import { RefreshCw, Boxes, ChevronLeft, ChevronRight } from 'lucide-react'
+import { RefreshCw, Boxes, ChevronLeft, ChevronRight, Settings2 } from 'lucide-react'
+import { SettingsModal } from '../components/SettingsModal'
 
 const PAGE_SIZES = [10, 20, 50] as const
 
@@ -886,10 +887,21 @@ function VersionDetail({ version, canWrite }: { version: string; canWrite: boole
   )
 }
 
+interface PhpSettings {
+  install_base: string
+  fpm_conf_dir: string
+  fpm_sock_dir: string
+  fpm_unit_template: string
+  debian_root: string
+  debian_bin_dir: string
+  proc_root: string
+}
+
 /** Php:已装版本选择 + CLI 默认横幅;选中版本后分 tab 管理 ini 配置/原始文件/禁用函数/FPM/日志。 */
 export default function Php() {
   const { role } = useAuth()
   const canWrite = role === 'admin'
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const [versions, setVersions] = useState<VersionInfo[]>([])
   const [cli, setCli] = useState<CliInfo | null>(null)
@@ -925,14 +937,20 @@ export default function Php() {
 
   const pager = usePagination(versions)
 
-  // aaPanel 工具栏:左侧标题,右侧刷新。
+  // aaPanel 工具栏:左侧标题,右侧设置 + 刷新。
   const toolbar = (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h3 className="text-sm font-medium text-text">PHP 版本</h3>
-      <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
-        <RefreshCw size={15} />
-        刷新
-      </Button>
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+          <Settings2 size={15} />
+          设置
+        </Button>
+        <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
+          <RefreshCw size={15} />
+          刷新
+        </Button>
+      </div>
     </div>
   )
 
@@ -1031,6 +1049,77 @@ export default function Php() {
 
       {!canWrite && versions.length > 0 && (
         <p className="text-xs text-muted">配置、禁用函数与 FPM 参数等写操作需要 admin 角色。</p>
+      )}
+
+      {settingsOpen && (
+        <SettingsModal<PhpSettings>
+          title="PHP 设置"
+          endpoint="/api/m/php/settings"
+          isAdmin={canWrite}
+          onClose={() => setSettingsOpen(false)}
+        >
+          {(form, set, disabled) => (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label="安装基目录 install_base"
+                value={form.install_base}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('install_base', e.target.value)}
+              />
+              <Input
+                label="FPM 配置目录 fpm_conf_dir"
+                value={form.fpm_conf_dir}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('fpm_conf_dir', e.target.value)}
+              />
+              <Input
+                label="FPM sock 目录 fpm_sock_dir"
+                value={form.fpm_sock_dir}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('fpm_sock_dir', e.target.value)}
+              />
+              <Input
+                label="FPM 单元模板 fpm_unit_template"
+                placeholder="php-fpm-%s"
+                value={form.fpm_unit_template}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('fpm_unit_template', e.target.value)}
+              />
+              <Input
+                label="Debian 配置根 debian_root"
+                value={form.debian_root}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('debian_root', e.target.value)}
+              />
+              <Input
+                label="Debian CLI 目录 debian_bin_dir"
+                value={form.debian_bin_dir}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('debian_bin_dir', e.target.value)}
+              />
+              <Input
+                label="procfs 挂载点 proc_root"
+                value={form.proc_root}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('proc_root', e.target.value)}
+              />
+            </div>
+          )}
+        </SettingsModal>
       )}
     </div>
     </InstallGate>
