@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { apiFetch } from '../api/client'
+import { apiFetch, tokenStore } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { usePoll } from '../hooks/usePoll'
+import { formatTime } from '../lib/formatTime'
 import { Card } from '../components/Card'
 import { Input } from '../components/Input'
 import { Button } from '../components/Button'
 import { Badge } from '../components/Badge'
 import { Modal } from '../components/Modal'
+import { TabModal, type ModalTab } from '../components/TabModal'
 import { Spinner } from '../components/Spinner'
 import { IconButton } from '../components/IconButton'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { Tabs } from '../components/Tabs'
 import { EmptyState } from '../components/EmptyState'
-import { Search, Boxes, Database, Wrench, PackageSearch, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, Boxes, Database, Wrench, PackageSearch, ChevronLeft, ChevronRight, Info, Activity, ScrollText, Settings2 } from 'lucide-react'
+import { SettingsModal } from '../components/SettingsModal'
 import type { LucideIcon } from 'lucide-react'
 
 const PAGE_SIZES = [10, 20, 50] as const
@@ -73,6 +77,16 @@ function Pager({
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message.trim() : ''
   return msg || '操作失败,请稍后重试'
+}
+
+// status/logs 端点返回 text/plain(compose ps / logs 原文),不能走强制 JSON 的 apiFetch,用裸 fetch 自带 Bearer。
+async function fetchText(path: string): Promise<string> {
+  const t = tokenStore.get()
+  const res = await fetch(path, {
+    headers: t ? { Authorization: `Bearer ${t.access}` } : undefined,
+  })
+  if (!res.ok) throw new Error(`${res.status} ${(await res.text()).trim()}`)
+  return res.text()
 }
 
 const DANGER = { 'X-Confirm-Danger': '1' }
@@ -205,22 +219,48 @@ function InstallModal({ app, onClose, onInstalled }: {
   )
 }
 
-function ManageModal({ inst, isOperator, onClose, onChanged }: {
+type InstanceTabKey = 'detail' | 'status' | 'logs'
+
+const INSTANCE_TABS: ModalTab<InstanceTabKey>[] = [
+  { key: 'detail', label: '详情', Icon: Info },
+  { key: 'status', label: '状态', Icon: Activity },
+  { key: 'logs', label: '日志', Icon: ScrollText },
+]
+
+// DetailTab 实例详情:拉 GET /instances/{id} 取完整记录(状态/目录/时间戳)并提供启停。
+// 安装参数含明文密码(后端不脱敏),按"凭证不回显"约定不在此渲染。
+function DetailTab({ inst, isOperator, onChanged }: {
   inst: Instance
   isOperator: boolean
-  onClose: () => void
   onChanged: () => void
 }) {
-  const [status, setStatus] = useState(inst.status)
-  const [busy, setBusy] = useState(false)
+  const [detail, setDetail] = useState<Instance | null>(null)
+  const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setErr(null)
+    try {
+      setDetail(await apiFetch<Instance>(`/api/m/appstore/instances/${inst.id}`))
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [inst.id])
+
+  useEffect(() => {
+    void load()
+  }, [load])
 
   async function toggle(verb: 'start' | 'stop') {
     setBusy(true)
     setErr(null)
     try {
       const updated = await apiFetch<Instance>(`/api/m/appstore/instances/${inst.id}/${verb}`, { method: 'POST' })
-      setStatus(updated.status)
+      setDetail(updated)
       onChanged()
     } catch (e) {
       setErr(errorText(e))
@@ -229,32 +269,116 @@ function ManageModal({ inst, isOperator, onClose, onChanged }: {
     }
   }
 
+  if (loading && !detail) return <div className="flex h-32 items-center justify-center"><Spinner size={24} /></div>
+  if (!detail) return <p className="text-sm text-crit">{err ?? '加载失败'}</p>
+
+  const running = detail.status === 'running'
   return (
-    <Modal title={`管理 ${inst.name}`} onClose={onClose} size="sm">
-      <div className="flex flex-col gap-4">
-        <dl className="flex flex-col gap-2 text-sm">
-          <div className="flex items-center justify-between gap-3">
-            <dt className="text-muted">应用</dt>
-            <dd className="font-[family-name:var(--font-mono)] text-text">{inst.app_id}</dd>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <dt className="text-muted">状态</dt>
-            <dd><Badge status={statusBadge(status)}>{statusLabel(status)}</Badge></dd>
-          </div>
-          <div className="flex items-start justify-between gap-3">
-            <dt className="shrink-0 text-muted">目录</dt>
-            <dd className="truncate font-[family-name:var(--font-mono)] text-xs text-muted">{inst.project_dir}</dd>
-          </div>
-        </dl>
-        {err && <p className="text-sm text-crit">{err}</p>}
-        <div className="flex items-center gap-2 border-t border-border pt-4">
-          <Button size="sm" variant="ghost" onClick={() => void toggle('start')} disabled={!isOperator || busy || status === 'running'}>启动</Button>
-          <Button size="sm" variant="ghost" onClick={() => void toggle('stop')} disabled={!isOperator || busy || status === 'stopped'}>停止</Button>
-          {busy && <Spinner size={16} />}
-        </div>
-        {!isOperator && <p className="text-xs text-muted">启停需要 operator 角色。</p>}
+    <div className="flex flex-col gap-4">
+      <dl className="grid grid-cols-[5rem_1fr] gap-x-4 gap-y-2.5 text-sm">
+        <dt className="text-muted">应用</dt>
+        <dd className="font-[family-name:var(--font-mono)] text-text">{detail.app_id}</dd>
+        <dt className="text-muted">状态</dt>
+        <dd><Badge status={statusBadge(detail.status)}>{statusLabel(detail.status)}</Badge></dd>
+        <dt className="text-muted">目录</dt>
+        <dd className="break-all font-[family-name:var(--font-mono)] text-xs text-muted">{detail.project_dir}</dd>
+        <dt className="text-muted">创建于</dt>
+        <dd className="tabular-nums text-muted">{formatTime(detail.created_at)}</dd>
+        <dt className="text-muted">更新于</dt>
+        <dd className="tabular-nums text-muted">{formatTime(detail.updated_at)}</dd>
+      </dl>
+      {err && <p className="text-sm text-crit">{err}</p>}
+      <div className="flex items-center gap-2 border-t border-border pt-4">
+        <Button size="sm" variant="ghost" onClick={() => void toggle('start')} disabled={!isOperator || busy || running}>启动</Button>
+        <Button size="sm" variant="ghost" onClick={() => void toggle('stop')} disabled={!isOperator || busy || !running}>停止</Button>
+        {busy && <Spinner size={16} />}
       </div>
-    </Modal>
+      {!isOperator && <p className="text-xs text-muted">启停需要 operator 角色。</p>}
+    </div>
+  )
+}
+
+// StatusTab 运行状态:轮询 compose ps 文本(text/plain)5s 一次;仅该 tab 激活时挂载,卸载即停轮询。
+function StatusTab({ id }: { id: number }) {
+  const fetcher = useCallback(() => fetchText(`/api/m/appstore/instances/${id}/status`), [id])
+  const { data, error, loading } = usePoll(fetcher, 5000)
+
+  if (loading && data == null) return <div className="flex h-32 items-center justify-center"><Spinner size={24} /></div>
+  if (error && data == null) return <p className="text-sm text-crit">{errorText(error)}</p>
+  return (
+    <pre className="h-full overflow-auto rounded-(--radius-card) bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre">
+      {(data ?? '').trim() || '无运行容器'}
+    </pre>
+  )
+}
+
+// LogsTab 实例日志:拉 compose logs 尾部 200 行(text/plain),手动刷新。
+function LogsTab({ id }: { id: number }) {
+  const [content, setContent] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setErr(null)
+    try {
+      setContent(await fetchText(`/api/m/appstore/instances/${id}/logs?tail=200`))
+    } catch (e) {
+      setErr(errorText(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [id])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  return (
+    <div className="flex h-full flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-muted">最近 200 行</span>
+        <Button size="sm" variant="ghost" onClick={() => void load()} disabled={loading}>刷新</Button>
+      </div>
+      {err ? (
+        <p className="text-sm text-crit">{err}</p>
+      ) : loading ? (
+        <div className="flex flex-1 items-center justify-center"><Spinner size={24} /></div>
+      ) : (
+        <pre className="flex-1 overflow-auto rounded-(--radius-card) bg-surface-2 p-4 font-[family-name:var(--font-mono)] text-xs leading-relaxed text-text whitespace-pre-wrap">
+          {content.trim() || '暂无日志'}
+        </pre>
+      )}
+    </div>
+  )
+}
+
+// ManageModal 实例详情/状态/日志:左竖 tab 弹窗(对齐 SiteDrawer)。详情拉 GET /instances/{id} 并启停,状态轮询 compose ps,日志读 compose logs。
+function ManageModal({ inst, isOperator, onClose, onChanged }: {
+  inst: Instance
+  isOperator: boolean
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const [tab, setTab] = useState<InstanceTabKey>('detail')
+  return (
+    <TabModal
+      title={inst.name}
+      subtitle={
+        <>
+          <Badge status="neutral">{inst.app_id}</Badge>
+          <Badge status={statusBadge(inst.status)}>{statusLabel(inst.status)}</Badge>
+        </>
+      }
+      tabs={INSTANCE_TABS}
+      active={tab}
+      onTab={setTab}
+      onClose={onClose}
+    >
+      {tab === 'detail' && <DetailTab inst={inst} isOperator={isOperator} onChanged={onChanged} />}
+      {tab === 'status' && <StatusTab id={inst.id} />}
+      {tab === 'logs' && <LogsTab id={inst.id} />}
+    </TabModal>
   )
 }
 
@@ -523,6 +647,11 @@ function Instances({ isOperator, isAdmin, refreshKey }: { isOperator: boolean; i
   )
 }
 
+interface AppStoreSettings {
+  apps_root: string
+  project_dir: string
+}
+
 /** AppStore 应用商店:对齐 aaPanel —— 顶部分类 tab(全部/已安装/各分类)+ 搜索,主体为紧凑应用列表;已安装 tab 切到实例表(管理｜卸载),固定尺寸安装弹窗。 */
 export default function AppStore() {
   const { role } = useAuth()
@@ -530,6 +659,7 @@ export default function AppStore() {
   const isAdmin = role === 'admin'
   const [picked, setPicked] = useState<App | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const [apps, setApps] = useState<App[]>([])
   const [loading, setLoading] = useState(true)
@@ -578,18 +708,24 @@ export default function AppStore() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs tabs={tabs} active={category} onChange={setCategory} className="flex-1" />
-        <div className="relative w-56 pb-2">
-          <Search
-            size={15}
-            className="pointer-events-none absolute left-3 top-[calc(50%-4px)] -translate-y-1/2 text-muted"
-          />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="搜索应用名或描述"
-            spellCheck={false}
-            className="h-9 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-          />
+        <div className="flex items-center gap-2 pb-2">
+          <div className="relative w-56">
+            <Search
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+            />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索应用名或描述"
+              spellCheck={false}
+              className="h-9 w-full rounded-(--radius-sm) border border-border bg-surface-2 pl-9 pr-3 text-sm text-text outline-none transition placeholder:text-muted focus-visible:ring-2 focus-visible:ring-brand/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            />
+          </div>
+          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+            <Settings2 size={15} />
+            设置
+          </Button>
         </div>
       </div>
 
@@ -609,6 +745,36 @@ export default function AppStore() {
           onClose={() => setPicked(null)}
           onInstalled={() => setRefreshKey((k) => k + 1)}
         />
+      )}
+
+      {settingsOpen && (
+        <SettingsModal<AppStoreSettings>
+          title="应用商店设置"
+          endpoint="/api/m/appstore/settings"
+          isAdmin={isAdmin}
+          onClose={() => setSettingsOpen(false)}
+        >
+          {(form, set, disabled) => (
+            <>
+              <Input
+                label="应用数据根目录 apps_root"
+                value={form.apps_root}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('apps_root', e.target.value)}
+              />
+              <Input
+                label="compose 项目目录 project_dir"
+                value={form.project_dir}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('project_dir', e.target.value)}
+              />
+            </>
+          )}
+        </SettingsModal>
       )}
     </div>
   )

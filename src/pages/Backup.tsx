@@ -30,6 +30,7 @@ import {
 import { RunBackupModal } from './backup/RunBackupModal'
 import { JobModal } from './backup/JobModal'
 import { TargetSettingsModal } from './backup/TargetSettingsModal'
+import { RemoteFilesModal } from './backup/RemoteFilesModal'
 
 type Tab = 'records' | 'jobs' | 'remotes'
 
@@ -58,6 +59,7 @@ export default function Backup() {
   const [busy, setBusy] = useState(false)
 
   const [modal, setModal] = useState<'run' | 'job' | 'target' | null>(null)
+  const [browseRemote, setBrowseRemote] = useState<Remote | null>(null)
 
   const [recPageSize, setRecPageSize] = useState<number>(PAGE_SIZES[0])
   const [recPage, setRecPage] = useState(0)
@@ -434,10 +436,13 @@ export default function Backup() {
       {
         key: 'actions',
         header: '操作',
-        width: '80px',
+        width: '140px',
         align: 'right',
         cell: (r) => (
           <ActionLinks>
+            <ActionLink disabled={!isAdmin || busy} onClick={() => setBrowseRemote(r)}>
+              浏览文件
+            </ActionLink>
             <ActionLink danger disabled={!isAdmin || busy} onClick={() => void deleteRemote(r)}>
               删除
             </ActionLink>
@@ -621,6 +626,9 @@ export default function Backup() {
           onClose={closeModal}
           onChanged={() => void load()}
         />
+      )}
+      {browseRemote && (
+        <RemoteFilesModal remote={browseRemote} onClose={() => setBrowseRemote(null)} />
       )}
     </div>
   )

@@ -11,6 +11,7 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Settings2,
 } from 'lucide-react'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../auth/AuthContext'
@@ -25,6 +26,7 @@ import { Table, ActionLink, ActionLinks, type Column } from '../components/Table
 import { EmptyState } from '../components/EmptyState'
 import { Segmented } from '../components/Segmented'
 import { Tabs } from '../components/Tabs'
+import { SettingsModal } from '../components/SettingsModal'
 import { uid } from '../lib/uid'
 
 function errorText(e: unknown): string {
@@ -171,11 +173,18 @@ interface LoginEntry {
 
 type Feedback = { kind: 'ok' | 'err'; text: string } | null
 
+interface SecuritySettings {
+  sshd_config_path: string
+  fail2ban_config_dir: string
+  authorized_keys_path: string
+}
+
 /** Security 主机安全:aaPanel 风格 —— 顶部 tab(SSH 加固 / 公钥 / 防爆破 / 登录日志),紧凑表格 + 固定尺寸弹窗。 */
 export default function Security() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
   const [tab, setTab] = useState<Tab>('sshd')
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   if (!isAdmin) {
     return (
@@ -189,12 +198,56 @@ export default function Security() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Tabs tabs={TABS} active={tab} onChange={setTab} />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Tabs tabs={TABS} active={tab} onChange={setTab} className="flex-1" />
+        <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+          <Settings2 size={15} />
+          设置
+        </Button>
+      </div>
 
       {tab === 'sshd' && <SSHHardening />}
       {tab === 'keys' && <SSHKeys />}
       {tab === 'fail2ban' && <Fail2ban />}
       {tab === 'logins' && <LoginLog />}
+
+      {settingsOpen && (
+        <SettingsModal<SecuritySettings>
+          title="主机安全设置"
+          endpoint="/api/m/security/settings"
+          isAdmin={isAdmin}
+          onClose={() => setSettingsOpen(false)}
+        >
+          {(form, set, disabled) => (
+            <>
+              <Input
+                label="sshd 配置文件 sshd_config_path"
+                value={form.sshd_config_path}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('sshd_config_path', e.target.value)}
+              />
+              <Input
+                label="fail2ban 配置目录 fail2ban_config_dir"
+                value={form.fail2ban_config_dir}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('fail2ban_config_dir', e.target.value)}
+              />
+              <Input
+                label="authorized_keys 路径 authorized_keys_path"
+                value={form.authorized_keys_path}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('authorized_keys_path', e.target.value)}
+              />
+            </>
+          )}
+        </SettingsModal>
+      )}
     </div>
   )
 }

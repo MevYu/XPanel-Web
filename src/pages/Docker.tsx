@@ -28,8 +28,10 @@ import {
   Square,
   ChevronLeft,
   ChevronRight,
+  Settings2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { SettingsModal } from '../components/SettingsModal'
 
 const PAGE_SIZES = [10, 20, 50] as const
 
@@ -1585,12 +1587,18 @@ function RegistryModal({
   )
 }
 
+interface DockerSettings {
+  compose_dir: string
+  docker_root: string
+}
+
 /** Docker 容器:容器/镜像/编排/网络/存储卷/仓库的多 tab 管理,危险操作走二次确认与 X-Confirm-Danger 头。 */
 export default function Docker() {
   const { role } = useAuth()
   const isOperator = role === 'admin' || role === 'operator'
   const isAdmin = role === 'admin'
   const [tab, setTab] = useState<Tab>('containers')
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const tabBody = useMemo(() => {
     switch (tab) {
@@ -1644,20 +1652,57 @@ export default function Docker() {
   return (
     <InstallGate moduleId="docker">
     <div className="flex flex-col gap-4">
-      <Tabs
-        tabs={TABS.map((t) => ({
-          key: t.key,
-          label: (
-            <span className="flex items-center gap-2">
-              <t.icon size={15} />
-              {t.label}
-            </span>
-          ),
-        }))}
-        active={tab}
-        onChange={setTab}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Tabs
+          tabs={TABS.map((t) => ({
+            key: t.key,
+            label: (
+              <span className="flex items-center gap-2">
+                <t.icon size={15} />
+                {t.label}
+              </span>
+            ),
+          }))}
+          active={tab}
+          onChange={setTab}
+          className="flex-1"
+        />
+        <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+          <Settings2 size={15} />
+          设置
+        </Button>
+      </div>
       {tabBody}
+
+      {settingsOpen && (
+        <SettingsModal<DockerSettings>
+          title="Docker 设置"
+          endpoint="/api/m/docker/settings"
+          isAdmin={isAdmin}
+          onClose={() => setSettingsOpen(false)}
+        >
+          {(form, set, disabled) => (
+            <>
+              <Input
+                label="compose 项目根目录 compose_dir"
+                value={form.compose_dir}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('compose_dir', e.target.value)}
+              />
+              <Input
+                label="docker 数据根目录 docker_root"
+                value={form.docker_root}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('docker_root', e.target.value)}
+              />
+            </>
+          )}
+        </SettingsModal>
+      )}
     </div>
     </InstallGate>
   )

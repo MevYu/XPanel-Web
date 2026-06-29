@@ -11,7 +11,8 @@ import { Stat } from '../components/Stat'
 import { Modal } from '../components/Modal'
 import { Table, ActionLink, ActionLinks, type Column } from '../components/Table'
 import { EmptyState } from '../components/EmptyState'
-import { Activity, Globe, Plus, RefreshCw, BarChart3, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Activity, Globe, Plus, RefreshCw, BarChart3, Search, ChevronLeft, ChevronRight, Settings2 } from 'lucide-react'
+import { SettingsModal } from '../components/SettingsModal'
 import { IconButton } from '../components/IconButton'
 import { uid } from '../lib/uid'
 import { formatTime } from '../lib/formatTime'
@@ -92,6 +93,12 @@ const EMPTY_FORM: TargetForm = {
  * 网站监控:主动探测被监控目标(HTTP 健康检查),实时显示状态/响应时延/可用率。
  * 原 nginx 访问日志分析降为「流量分析」分区(目标详情内懒加载图表)。
  */
+interface SiteMonitorSettings {
+  log_root: string
+  access_log: string
+  max_lines: number
+}
+
 export default function SiteMonitor() {
   const { role } = useAuth()
   const isAdmin = role === 'admin'
@@ -105,6 +112,7 @@ export default function SiteMonitor() {
   const [query, setQuery] = useState('')
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0])
   const [page, setPage] = useState(0)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // editing: null=关闭, {id:null}=新建, {id:number}=编辑
   const [editing, setEditing] = useState<{ id: number | null; form: TargetForm } | null>(null)
@@ -324,6 +332,10 @@ export default function SiteMonitor() {
           <Button variant="ghost" size="md" onClick={() => void load()} disabled={loading}>
             <RefreshCw size={15} className={loading ? 'animate-spin' : undefined} />
             刷新
+          </Button>
+          <Button variant="ghost" size="md" onClick={() => setSettingsOpen(true)}>
+            <Settings2 size={15} />
+            设置
           </Button>
         </div>
         <div className="relative w-56">
@@ -560,6 +572,46 @@ export default function SiteMonitor() {
         >
           <TrafficSection target={trafficTarget} />
         </Modal>
+      )}
+
+      {settingsOpen && (
+        <SettingsModal<SiteMonitorSettings>
+          title="网站监控设置"
+          endpoint="/api/m/sitemonitor/settings"
+          isAdmin={isAdmin}
+          onClose={() => setSettingsOpen(false)}
+        >
+          {(form, set, disabled) => (
+            <>
+              <Input
+                label="日志根目录 log_root"
+                value={form.log_root}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('log_root', e.target.value)}
+              />
+              <Input
+                label="访问日志 access_log"
+                value={form.access_log}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('access_log', e.target.value)}
+              />
+              <Input
+                label="分析最大行数 max_lines"
+                type="number"
+                min={0}
+                value={form.max_lines}
+                disabled={disabled}
+                spellCheck={false}
+                className="font-[family-name:var(--font-mono)]"
+                onChange={(e) => set('max_lines', Number(e.target.value))}
+              />
+            </>
+          )}
+        </SettingsModal>
       )}
     </div>
   )
