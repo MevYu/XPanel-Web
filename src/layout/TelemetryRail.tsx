@@ -37,13 +37,13 @@ export function TelemetryRail() {
           <span className={online ? 'text-muted' : 'text-crit'}>{online ? '在线' : '离线'}</span>
         </span>
         <span className="font-[family-name:var(--font-mono)] tabular-nums text-text">
-          <span className="text-faint">cpu</span> {cpu}
+          <span className="text-faint">CPU</span> {cpu}
           <span className="text-muted">%</span>
         </span>
       </div>
       {mem.length >= 2 && <Sparkline data={mem} width={204} height={28} className="w-full" />}
       <div className="flex items-center justify-between">
-        <span className="text-xs lowercase tracking-wide text-faint">mem</span>
+        <span className="text-xs tracking-wide text-faint">MEM</span>
         <span className="font-[family-name:var(--font-mono)] tabular-nums text-text">
           {memPct === null ? '--' : memPct.toFixed(0)}
           <span className="text-muted">%</span>
