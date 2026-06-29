@@ -7,6 +7,7 @@ import { Badge } from '../components/Badge'
 import { formatDuration } from '../lib/format'
 import type { Metrics, DetailMetrics, SysInfo } from '../api/types'
 import { OverviewStats } from './dashboard/OverviewStats'
+import { ServiceGrid } from './dashboard/ServiceGrid'
 import { SoftwareCard } from './dashboard/SoftwareCard'
 import { SysStatusCard } from './dashboard/SysStatusCard'
 import { DiskCard } from './dashboard/DiskCard'
@@ -180,20 +181,23 @@ export default function Dashboard() {
   const m = data!
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4">
       <TopBar sysinfo={sysinfo} uptimeSec={detail.data?.uptime_sec ?? null} />
 
       {/* aaPanel 首页第一行:系统状态(三环) + 磁盘(分区列表) */}
-      <div className="grid gap-5 lg:grid-cols-[1.6fr_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
         <SysStatusCard m={m} detail={detail.data} sysinfo={sysinfo} />
         <DiskCard m={m} />
       </div>
+
+      {/* aaPanel 首页标志性区:运行环境(可控常驻服务网格,状态 + 启停重启) */}
+      <ServiceGrid />
 
       {/* aaPanel 首页:概览计数小卡一排 */}
       <OverviewStats />
 
       {/* aaPanel 首页:软件(已启用模块入口宫格) + 流量 */}
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2">
         <SoftwareCard />
         <TrafficCard detail={detail.data} net={net} history={history} tps={tps} error={!!detail.error} />
       </div>
